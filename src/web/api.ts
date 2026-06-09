@@ -24,6 +24,16 @@ export type EngineConfig = Record<string, unknown> & {
 export type ProjectWithIssues = Project & { issues: Issue[] };
 export type IssueDetail = Issue & { tasks: IssueTask[]; runs: Run[]; events: (Event & { cursor: number })[] };
 
+export interface BranchDiff {
+  available: boolean;
+  base: string;
+  branch: string;
+  stat: string;
+  files: { path: string; status: string }[];
+  patch: string;
+  truncated: boolean;
+}
+
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...opts,
@@ -57,6 +67,7 @@ export const api = {
       req<Issue>(`/api/issues/${id}`, { method: 'PATCH', ...body(data) }),
     remove: (id: string) => req<void>(`/api/issues/${id}`, { method: 'DELETE' }),
     run: (id: string) => req<{ ok: boolean; reason?: string }>(`/api/issues/${id}/run`, { method: 'POST' }),
+    diff: (id: string) => req<BranchDiff>(`/api/issues/${id}/diff`),
   },
   ops: {
     snapshot: () => req<Snapshot>('/api/ops/snapshot'),

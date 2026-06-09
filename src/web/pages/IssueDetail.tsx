@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CircleSlash, Play } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, FileDiff, Play, XCircle } from 'lucide-react';
 import type { Event, IssueStatus } from '../../shared/types';
 import { api, streamIssue, type IssueDetail as Detail } from '../api';
 import { Badge, Button, Panel, Select, Spinner, Textarea } from '../components/ui';
@@ -25,6 +25,7 @@ export function IssueDetail() {
     <div className="mx-auto grid max-w-6xl grid-cols-3 gap-6 p-6">
       <div className="col-span-2 space-y-5">
         <Header issue={issue} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
+        {(issue.status === 'review' || issue.status === 'done') && <ReviewPanel issue={issue} />}
         <Body issue={issue} onSaved={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
         <Tasks issue={issue} />
         <Runs issue={issue} />
@@ -164,6 +165,113 @@ function Runs({ issue }: { issue: Detail }) {
       </div>
     </Panel>
   );
+}
+
+function ReviewPanel({ issue }: { issue: Detail }) {
+  // ── QA verdict + evidence (item 2), derived from existing runs/events ──
+  const qaRun = issue.runs.find((r) => r.phase === 'qa');
+  const pass = qaRun?.status === 'succeeded';
+  const phaseOf = (e: LiveEvent) => (e.data as { phase?: string } | null)?.phase;
+  const verdict = issue.events.find((e) => e.kind === 'phase.end' && phaseOf(e) === 'qa')?.message;
+  const qaActivity = issue.events.filter((e) => phaseOf(e) === 'qa' && e.kind === 'agent.tool');
+
+  // ── diff (item 1) ──
+  const { data: diff, isLoading } = useQuery({
+    queryKey: ['diff', issue.id],
+    queryFn: () => api.issues.diff(issue.id),
+  });
+
+  return (
+    <Panel className="p-4">
+      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+        <FileDiff className="h-3.5 w-3.5" /> Review evidence
+      </div>
+
+      {/* Verdict */}
+      {qaRun && (
+        <div className={`mb-3 flex items-start gap-2 rounded-md px-3 py-2 ${pass ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+          {pass ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-400" /> : <XCircle className="mt-0.5 h-4 w-4 text-red-400" />}
+          <div className="text-sm">
+            <span className={pass ? 'font-medium text-emerald-300' : 'font-medium text-red-300'}>
+              QA {pass ? 'PASS' : 'FAIL'}
+            </span>
+            <span className="text-slate-400"> — {(verdict ?? '').replace(/^QA (PASS|FAIL)\s*[—-]?\s*/i, '') || 'self-QA verdict'}</span>
+          </div>
+        </div>
+      )}
+
+      {/* What the QA agent ran (evidence the checks actually executed) */}
+      {qaActivity.length > 0 && (
+        <details className="mb-3">
+          <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300">
+            QA ran {qaActivity.length} step(s)
+          </summary>
+          <ul className="mt-1.5 space-y-0.5 pl-2">
+            {qaActivity.slice(0, 12).map((e) => (
+              <li key={e.cursor} className="truncate font-mono text-[11px] text-slate-500">
+                {e.message.replace(/^qa:\s*/, '')}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {/* Diff */}
+      <div className="text-xs">
+        {isLoading ? (
+          <span className="text-slate-600">Loading diff…</span>
+        ) : !diff?.available ? (
+          <span className="text-slate-600">No diff (no committed changes on the agent branch).</span>
+        ) : (
+          <Diff diff={diff} />
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function Diff({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof api.issues.diff>>> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-slate-500">
+          {diff.files.length} file(s) changed on <span className="font-mono text-slate-400">{diff.branch}</span>
+        </span>
+        <button className="text-indigo-300 hover:underline" onClick={() => setOpen((v) => !v)}>
+          {open ? 'Hide patch' : 'Show patch'}
+        </button>
+      </div>
+      <ul className="mb-2 space-y-0.5">
+        {diff.files.map((f) => (
+          <li key={f.path} className="flex items-center gap-2 font-mono text-[11px]">
+            <span className={`w-4 ${f.status[0] === 'A' ? 'text-emerald-400' : f.status[0] === 'D' ? 'text-red-400' : 'text-amber-400'}`}>
+              {f.status[0]}
+            </span>
+            <span className="truncate text-slate-300">{f.path}</span>
+          </li>
+        ))}
+      </ul>
+      {open && (
+        <pre className="max-h-96 overflow-auto rounded-md bg-[#0b0d12] p-3 font-mono text-[11px] leading-relaxed">
+          {diff.patch.split('\n').map((line, i) => (
+            <div key={i} className={diffLineColor(line)}>
+              {line || ' '}
+            </div>
+          ))}
+          {diff.truncated && <div className="mt-2 text-amber-500">… patch truncated (too large to display fully).</div>}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function diffLineColor(line: string): string {
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'text-emerald-300';
+  if (line.startsWith('-') && !line.startsWith('---')) return 'text-red-300';
+  if (line.startsWith('@@')) return 'text-cyan-400';
+  if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')) return 'text-slate-600';
+  return 'text-slate-400';
 }
 
 function Activity({ issueId, initial }: { issueId: string; initial: LiveEvent[] }) {

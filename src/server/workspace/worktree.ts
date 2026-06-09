@@ -95,6 +95,65 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
   await git(['worktree', 'prune'], repoPath);
 }
 
+export interface DiffFile {
+  path: string;
+  status: string; // M, A, D, R…
+}
+
+export interface BranchDiff {
+  available: boolean;
+  base: string;
+  branch: string;
+  stat: string;
+  files: DiffFile[];
+  patch: string;
+  truncated: boolean;
+}
+
+const MAX_PATCH_BYTES = 200_000;
+
+/**
+ * Compute what an agent branch changed relative to its base, for the review gate. Uses the
+ * three-dot range (`base...branch`) so it shows only the branch's own commits even if base moved.
+ * Returns committed changes (the pipeline commits after implement + qa).
+ */
+export async function getBranchDiff(
+  repoPath: string,
+  base: string,
+  branch: string,
+): Promise<BranchDiff> {
+  const empty: BranchDiff = { available: false, base, branch, stat: '', files: [], patch: '', truncated: false };
+  if (!(await isGitRepo(repoPath)) || !(await branchExists(repoPath, branch))) return empty;
+
+  const range = `${base}...${branch}`;
+  const stat = await git(['diff', '--stat', range], repoPath);
+  const nameStatus = await git(['diff', '--name-status', range], repoPath);
+  const patchRes = await git(['diff', range], repoPath);
+
+  const files: DiffFile[] = nameStatus.ok
+    ? nameStatus.stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => {
+          const parts = l.split('\t');
+          return { status: parts[0] ?? '?', path: parts[parts.length - 1] ?? '' };
+        })
+    : [];
+
+  const full = patchRes.ok ? patchRes.stdout : '';
+  const truncated = full.length > MAX_PATCH_BYTES;
+  return {
+    available: true,
+    base,
+    branch,
+    stat: stat.ok ? stat.stdout.trim() : '',
+    files,
+    patch: truncated ? full.slice(0, MAX_PATCH_BYTES) : full,
+    truncated,
+  };
+}
+
 /** Stage + commit everything in the worktree. Returns false if there was nothing to commit. */
 export async function commitAll(worktreePath: string, message: string): Promise<boolean> {
   await git(['add', '-A'], worktreePath);

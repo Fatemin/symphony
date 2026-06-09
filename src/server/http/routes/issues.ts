@@ -7,9 +7,11 @@ import {
   listIssues,
   updateIssue,
 } from '../../repo/issues';
+import { getProject } from '../../repo/projects';
 import { listTasks } from '../../repo/tasks';
 import { listRuns } from '../../repo/runs';
 import { listEvents } from '../../repo/events';
+import { getBranchDiff } from '../../workspace/worktree';
 import { getOrchestrator } from '../../orchestrator/orchestrator';
 
 export const issueRoutes = new Hono();
@@ -64,6 +66,17 @@ issueRoutes.delete('/:id', (c) => {
 issueRoutes.get('/:id/events', (c) => {
   const since = Number(c.req.query('since') ?? 0);
   return c.json(listEvents({ issue_id: c.req.param('id'), sinceCursor: since }));
+});
+
+// Review evidence: what the agent branch changed vs its base.
+issueRoutes.get('/:id/diff', async (c) => {
+  const issue = getIssue(c.req.param('id'));
+  if (!issue) return c.json({ error: 'not found' }, 404);
+  const project = getProject(issue.project_id);
+  if (!project?.repo_path || !issue.branch_name || !issue.base_branch) {
+    return c.json({ available: false, base: issue.base_branch ?? '', branch: issue.branch_name ?? '', stat: '', files: [], patch: '', truncated: false });
+  }
+  return c.json(await getBranchDiff(project.repo_path, issue.base_branch, issue.branch_name));
 });
 
 // Manual "Run" button — dispatch this issue now regardless of auto/manual mode.
