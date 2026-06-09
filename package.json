@@ -1,0 +1,50 @@
+{
+  "name": "agent-company",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Symphony-based development system — orchestrates Claude Code CLI agents against a built-in issue tracker.",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "cross-env NODE_NO_WARNINGS=1 tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "cross-env NODE_NO_WARNINGS=1 NODE_ENV=production tsx src/server/index.ts",
+    "seed": "cross-env NODE_NO_WARNINGS=1 tsx scripts/seed.ts",
+    "test": "cross-env NODE_NO_WARNINGS=1 tsx --test tests/*.test.ts",
+    "lint": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+    "lint:web": "tsc --noEmit -p tsconfig.json",
+    "lint:server": "tsc --noEmit -p tsconfig.server.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@tanstack/react-query": "^5.62.0",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.13",
+    "hono": "^4.6.14",
+    "lucide-react": "^0.468.0",
+    "nanoid": "^5.0.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "sonner": "^1.7.1",
+    "tailwind-merge": "^2.5.5",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

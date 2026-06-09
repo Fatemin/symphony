@@ -1,0 +1,239 @@
+import { getDb } from '../db/client';
+import { newId, issueKey } from '../core/keys';
+import {
+  ACTIVE_STATUSES,
+  TERMINAL_STATUSES,
+  type Issue,
+  type IssueMode,
+  type IssueStatus,
+  type IssueType,
+  type Priority,
+} from '../../shared/types';
+
+interface IssueRow {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  seq: number;
+  key: string;
+  type: string;
+  title: string;
+  description: string | null;
+  acceptance_criteria: string | null;
+  labels: string;
+  priority: number;
+  status: string;
+  mode: string;
+  require_review: number;
+  base_branch: string | null;
+  branch_name: string | null;
+  worktree_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapRow(r: IssueRow): Issue {
+  let labels: string[] = [];
+  try {
+    const parsed = JSON.parse(r.labels);
+    if (Array.isArray(parsed)) labels = parsed.map(String);
+  } catch {
+    /* keep [] */
+  }
+  return {
+    id: r.id,
+    project_id: r.project_id,
+    parent_id: r.parent_id,
+    key: r.key,
+    type: r.type as IssueType,
+    title: r.title,
+    description: r.description,
+    acceptance_criteria: r.acceptance_criteria,
+    labels,
+    priority: r.priority as Priority,
+    status: r.status as IssueStatus,
+    mode: r.mode as IssueMode,
+    require_review: r.require_review !== 0,
+    base_branch: r.base_branch,
+    branch_name: r.branch_name,
+    worktree_path: r.worktree_path,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  };
+}
+
+export interface CreateIssueInput {
+  project_id: string;
+  title: string;
+  parent_id?: string | null;
+  type?: IssueType;
+  description?: string | null;
+  acceptance_criteria?: string | null;
+  labels?: string[];
+  priority?: Priority;
+  status?: IssueStatus;
+  mode?: IssueMode;
+  require_review?: boolean;
+}
+
+export function createIssue(input: CreateIssueInput): Issue {
+  const db = getDb();
+  const project = db
+    .prepare(`SELECT key FROM projects WHERE id = ?`)
+    .get(input.project_id) as { key: string } | undefined;
+  if (!project) throw new Error(`project not found: ${input.project_id}`);
+
+  const row = db
+    .prepare(`SELECT COALESCE(MAX(seq), 0) AS max FROM issues WHERE project_id = ?`)
+    .get(input.project_id) as { max: number };
+  const seq = row.max + 1;
+  const id = newId();
+
+  db.prepare(
+    `INSERT INTO issues
+       (id, project_id, parent_id, seq, key, type, title, description,
+        acceptance_criteria, labels, priority, status, mode, require_review)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    input.project_id,
+    input.parent_id ?? null,
+    seq,
+    issueKey(project.key, seq),
+    input.type ?? 'feature',
+    input.title,
+    input.description ?? null,
+    input.acceptance_criteria ?? null,
+    JSON.stringify(input.labels ?? []),
+    input.priority ?? 0,
+    input.status ?? 'backlog',
+    input.mode ?? 'manual',
+    input.require_review === false ? 0 : 1,
+  );
+  return getIssue(id)!;
+}
+
+export function getIssue(id: string): Issue | null {
+  const row = getDb()
+    .prepare(`SELECT * FROM issues WHERE id = ?`)
+    .get(id) as IssueRow | undefined;
+  return row ? mapRow(row) : null;
+}
+
+export function listIssues(projectId?: string): Issue[] {
+  const rows = (
+    projectId
+      ? getDb()
+          .prepare(`SELECT * FROM issues WHERE project_id = ? ORDER BY seq DESC`)
+          .all(projectId)
+      : getDb().prepare(`SELECT * FROM issues ORDER BY created_at DESC`).all()
+  ) as unknown as IssueRow[];
+  return rows.map(mapRow);
+}
+
+/** Issues by exact status set. */
+export function listByStatuses(statuses: IssueStatus[]): Issue[] {
+  if (statuses.length === 0) return [];
+  const placeholders = statuses.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(`SELECT * FROM issues WHERE status IN (${placeholders})`)
+    .all(...statuses) as unknown as IssueRow[];
+  return rows.map(mapRow);
+}
+
+/**
+ * Dispatch candidates for the orchestrator: active status + auto mode, sorted by
+ * priority (urgent first, "none" last), then oldest, then key.
+ */
+export function listAutoCandidates(): Issue[] {
+  const placeholders = ACTIVE_STATUSES.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM issues
+       WHERE mode = 'auto' AND status IN (${placeholders})
+       ORDER BY (CASE WHEN priority = 0 THEN 9 ELSE priority END) ASC, created_at ASC, key ASC`,
+    )
+    .all(...ACTIVE_STATUSES) as unknown as IssueRow[];
+  return rows.map(mapRow);
+}
+
+export function getByIds(ids: string[]): Issue[] {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(`SELECT * FROM issues WHERE id IN (${placeholders})`)
+    .all(...ids) as unknown as IssueRow[];
+  return rows.map(mapRow);
+}
+
+const UPDATABLE = [
+  'parent_id',
+  'type',
+  'title',
+  'description',
+  'acceptance_criteria',
+  'priority',
+  'status',
+  'mode',
+  'base_branch',
+  'branch_name',
+  'worktree_path',
+] as const;
+
+export interface UpdateIssueInput {
+  parent_id?: string | null;
+  type?: IssueType;
+  title?: string;
+  description?: string | null;
+  acceptance_criteria?: string | null;
+  labels?: string[];
+  priority?: Priority;
+  status?: IssueStatus;
+  mode?: IssueMode;
+  require_review?: boolean;
+  base_branch?: string | null;
+  branch_name?: string | null;
+  worktree_path?: string | null;
+}
+
+export function updateIssue(id: string, patch: UpdateIssueInput): Issue | null {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  for (const field of UPDATABLE) {
+    if (field in patch) {
+      sets.push(`${field} = ?`);
+      params.push((patch as Record<string, unknown>)[field] ?? null);
+    }
+  }
+  if ('labels' in patch) {
+    sets.push(`labels = ?`);
+    params.push(JSON.stringify(patch.labels ?? []));
+  }
+  if ('require_review' in patch) {
+    sets.push(`require_review = ?`);
+    params.push(patch.require_review ? 1 : 0);
+  }
+  sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`);
+  params.push(id);
+  getDb()
+    .prepare(`UPDATE issues SET ${sets.join(', ')} WHERE id = ?`)
+    .run(...(params as never[]));
+  return getIssue(id);
+}
+
+/** Convenience: set status + bump updated_at. */
+export function setStatus(id: string, status: IssueStatus): Issue | null {
+  return updateIssue(id, { status });
+}
+
+export function isActive(status: IssueStatus): boolean {
+  return ACTIVE_STATUSES.includes(status);
+}
+
+export function isTerminal(status: IssueStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
+export function deleteIssue(id: string): void {
+  getDb().prepare(`DELETE FROM issues WHERE id = ?`).run(id);
+}

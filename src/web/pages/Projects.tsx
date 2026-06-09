@@ -1,0 +1,94 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { FolderGit2, Plus } from 'lucide-react';
+import { api } from '../api';
+import { Button, Field, Input, Panel, Textarea } from '../components/ui';
+
+export function Projects() {
+  const qc = useQueryClient();
+  const { data: projects, isLoading } = useQuery({ queryKey: ['projects'], queryFn: api.projects.list });
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: '', key: '', repo_path: '', default_branch: 'main', context: '' });
+
+  const create = useMutation({
+    mutationFn: () => api.projects.create({ ...form, key: form.key || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      setOpen(false);
+      setForm({ name: '', key: '', repo_path: '', default_branch: 'main', context: '' });
+      toast.success('Project created');
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  return (
+    <div className="mx-auto max-w-5xl p-8">
+      <header className="mb-6 flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Projects</h1>
+        <Button variant="primary" onClick={() => setOpen((v) => !v)}>
+          <Plus className="h-4 w-4" /> New project
+        </Button>
+      </header>
+
+      {open && (
+        <Panel className="mb-6 p-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Name">
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="My Web App" />
+            </Field>
+            <Field label="Key (optional)">
+              <Input value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value.toUpperCase() })} placeholder="WEB" maxLength={5} />
+            </Field>
+            <Field label="Local git repo path">
+              <Input value={form.repo_path} onChange={(e) => setForm({ ...form, repo_path: e.target.value })} placeholder="C:\path\to\repo" />
+            </Field>
+            <Field label="Default branch">
+              <Input value={form.default_branch} onChange={(e) => setForm({ ...form, default_branch: e.target.value })} />
+            </Field>
+            <div className="col-span-2">
+              <Field label="Project context (optional — appended to every agent prompt)">
+                <Textarea rows={3} value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} placeholder="Conventions, data model notes, gotchas…" />
+              </Field>
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="primary" disabled={!form.name || create.isPending} onClick={() => create.mutate()}>
+              Create
+            </Button>
+          </div>
+        </Panel>
+      )}
+
+      {isLoading ? (
+        <p className="text-sm text-slate-500">Loading…</p>
+      ) : projects && projects.length > 0 ? (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+          {projects.map((p) => (
+            <Link key={p.id} to={`/projects/${p.id}`}>
+              <Panel className="h-full p-4 transition hover:border-indigo-500/60">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="grid h-7 w-7 place-items-center rounded text-xs font-bold" style={{ background: p.color + '33', color: p.color }}>
+                    {p.key}
+                  </span>
+                  <span className="font-medium">{p.name}</span>
+                </div>
+                <p className="mb-3 line-clamp-2 text-xs text-slate-500">{p.description || 'No description'}</p>
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <FolderGit2 className="h-3.5 w-3.5" />
+                  {p.repo_path ? <span className="truncate">{p.repo_path}</span> : <span className="text-amber-500/80">no repo set — agents can't run</span>}
+                </div>
+              </Panel>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <Panel className="p-8 text-center text-sm text-slate-500">
+          No projects yet. Create one and point it at a local git repo to start running agents.
+        </Panel>
+      )}
+    </div>
+  );
+}

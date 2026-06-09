@@ -1,0 +1,203 @@
+# Symphony (Claude Code edition)
+
+A local, ground-up implementation of OpenAI's **[Symphony](https://openai.com/index/open-source-codex-orchestration-symphony/)**
+orchestration concept — but with **Claude Code CLI** in place of Codex, and a **built-in issue
+tracker** in place of Linear.
+
+You manage *work*, not coding agents. Create issues on a Linear-style board; a long-running
+orchestrator picks up issues, runs a coding agent against each one in an **isolated git worktree**,
+self-QAs the result, and parks it at a single human-review gate. Bounded concurrency, retries with
+backoff, stall detection, and restart recovery are all handled by one authoritative scheduler.
+
+> Replaces the messier `agile-with-agent` prototype with a cleanly-layered rebuild: no god files,
+> a 6-table schema, the agent runner behind a dependency-injection seam, and the whole pipeline
+> testable offline.
+
+---
+
+## How it works
+
+```
+ Board (React)                     Orchestrator (poll loop)
+   create issues  ──────────────▶  reconcile → validate → fetch candidates
+   set mode=auto                     │  (status active + mode=auto, priority-sorted)
+                                     ▼
+                         dispatch (bounded by WIP limit)
+                                     │
+                                     ▼
+                  ┌──────────── per-issue git worktree ───────────┐
+                  │  plan  →  implement  →  qa   (one Claude       │
+                  │  (tech    (one agent   (fresh   session each)  │
+                  │   lead)    implements)  agent verdict)         │
+                  └───────────────────────┬───────────────────────┘
+                                          ▼
+                        QA PASS → status = review  ──▶  human approves ──▶ done
+                        any failure → retry w/ backoff (give up → manual)
+```
+
+- **Orchestrator** ([src/server/orchestrator/](src/server/orchestrator/)) is the single authority over
+  scheduling — it owns the in-memory runtime state and every transition (dispatch / retry / release /
+  give-up). It follows the Symphony spec's §7–8 state machine.
+- **Agents run via the Claude Code CLI**, spawned as `claude --print --output-format stream-json …`
+  ([src/server/agent/claudeRunner.ts](src/server/agent/claudeRunner.ts)). Agents use the CLI's own
+  tools (Read/Write/Edit/Bash) and the CLI's own authentication — no API key is stored here.
+- **Isolation:** every issue gets its own `git worktree` under `workspace_root`
+  ([src/server/workspace/worktree.ts](src/server/workspace/worktree.ts)). Agents never touch the main
+  checkout. Two safety invariants are enforced: the agent's `cwd` must be the worktree, and the
+  worktree must resolve inside `workspace_root`.
+- **Native context:** Claude Code reads the target repo's own `CLAUDE.md` / `AGENTS.md`, so there's no
+  bespoke context-injection system — just an optional per-project context note appended to prompts.
+- **The pipeline** ([src/server/phases/](src/server/phases/)) is the whole execution layer for one
+  issue: `plan → implement → qa`, one small module per phase plus a sequencer that persists a run row
+  and activity events per phase.
+
+### Status model
+
+| Status | Meaning |
+|--------|---------|
+| `backlog` | Not scheduled |
+| `todo` | Scheduled; eligible for the orchestrator (when `mode=auto`) |
+| `in_progress` | An agent pipeline is running |
+| `review` | Agent work + self-QA done; **awaiting a human to approve** (the one gate) |
+| `done` | Terminal — approved |
+| `cancelled` | Terminal — abandoned |
+
+`todo`/`in_progress` are **active** (the orchestrator acts on them); `review` is the **human gate**;
+`done`/`cancelled` are **terminal**. The review gate is per-issue (`require_review`, default on) —
+turn it off and a passing issue goes straight to `done`.
+
+---
+
+## Quick start
+
+### Prerequisites
+
+- **Node.js 22.5+** (uses the built-in `node:sqlite`, no native build step).
+- **[Claude Code CLI](https://docs.claude.com/en/docs/claude-code)** installed and authenticated
+  (`claude` on PATH, or `claude.cmd` on Windows).
+- A target project that is a **local git repository** — agent runs create worktrees from it.
+
+### Install & run
+
+```bash
+npm install
+npm run dev      # Hono server (:3001) + Vite client (:5173) together
+```
+
+Open the Vite URL it prints. The client proxies `/api/*` (REST + SSE) to the server. Then:
+
+1. **Projects → New project**, pointing `repo_path` at a local git repo.
+2. **New issue**, fill in a title + acceptance criteria.
+3. Click **Run** (manual) — or set the issue to **auto** and let the orchestrator pick it up.
+4. Watch the live activity stream on the issue page; **Approve** when it reaches `review`.
+
+`npm run seed` creates a demo project + a couple of issues to look at.
+
+### Scripts
+
+| Script | What it does |
+|--------|--------------|
+| `npm run dev` | Server + client together (dev) |
+| `npm run dev:server` / `dev:web` | One side only |
+| `npm run build` | Build the client to `dist/` |
+| `npm start` | Production: serve the built client from the Hono server on `PORT` (default 3001) |
+| `npm test` | **Offline** end-to-end tests (no CLI, no tokens) |
+| `npm run lint` | Type-check client + server |
+| `npm run seed` | Insert a demo project + issues |
+
+---
+
+## Architecture
+
+| Layer | Tech |
+|-------|------|
+| Frontend | React 19, Vite, Tailwind v4, TanStack Query, React Router 7 |
+| Backend | Hono on Node, TypeScript via `tsx` (no compile step) |
+| Database | `node:sqlite` (WAL), single file at `data/symphony.db` |
+| Agent runtime | Claude Code CLI subprocess, streaming `stream-json` |
+
+```
+src/server/
+  db/          node:sqlite connection + idempotent schema + seed
+  repo/        thin data-access layer — one file per table (no SQL leaks into logic)
+  core/        config, prompt assembly, WORKFLOW.md loader, key/id helpers
+  agent/       Claude CLI runner + normalized AgentEvent types (the DI seam)
+  workspace/   per-issue git worktrees + git helpers
+  phases/      plan / implement / qa + the per-issue sequencer (Execution layer)
+  orchestrator/ state · reconcile · retry · worker · orchestrator (Coordination layer)
+  tracker/     Tracker interface backed by the local DB (swap in Linear later, untouched orch)
+  http/        Hono routes + SSE stream
+  observability/ structured logger + live event bus
+src/web/       React board (Projects, Board, IssueDetail, Ops, Settings)
+src/shared/    domain types shared by server + client
+tests/         offline pipeline + orchestrator tests with an injected fake runner
+```
+
+Design choices that fix the previous prototype's rough edges:
+
+- **No god files.** The old 1066-line `execution.ts` is split into per-phase modules + a sequencer;
+  the scheduler is split into `state` / `reconcile` / `retry` / `worker` / `orchestrator`.
+- **DI over module seams.** The agent runner is a parameter (`AgentRunner`), so tests inject a fake —
+  no global `__setRunner` hooks. The whole pipeline + scheduler run offline against a throwaway repo.
+- **The tracker is an interface.** The orchestrator never knows the issues come from SQLite; a Linear
+  adapter could replace [localTracker.ts](src/server/tracker/localTracker.ts) without touching it.
+
+---
+
+## Configuration
+
+Effective config = **built-in defaults** → **`settings` table** (edited on the Settings page) →
+**per-project overrides** (`model`) → **optional per-repo `WORKFLOW.md`**. Key fields:
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `enabled` | `true` | Master switch for auto-dispatch |
+| `model` | `claude-sonnet-4-6` | Model passed to the CLI |
+| `permission_mode` | `bypassPermissions` | CLI permission mode for headless runs |
+| `wip_limit` | `3` | Max concurrent issue runs |
+| `poll_interval_ms` | `30000` | Orchestrator tick cadence |
+| `phase_timeout_ms` | `1200000` | Wall-clock cap per phase |
+| `stall_timeout_ms` | `300000` | Abort a run after this long with no agent events |
+| `max_turns` | `60` | CLI `--max-turns` per phase |
+| `max_attempts` | `3` | Give up + park to `manual` after this many failures |
+| `workspace_root` | `<tmp>/symphony_workspaces` | Where worktrees live |
+
+**`WORKFLOW.md`** (optional, in a target repo): YAML front matter can override `agent.model`,
+`agent.permission_mode`, `agent.max_turns`, and append phase-specific guidance under `prompts.{plan,
+implement,qa}`. See [WORKFLOW.example.md](WORKFLOW.example.md). It is read fresh per run, so edits
+apply to future runs.
+
+---
+
+## Testing
+
+`npm test` runs Node's built-in test runner over an **offline** end-to-end pipeline. The only
+non-deterministic, token-spending dependency — the Claude CLI — is replaced by an injected fake
+runner ([tests/helpers/fakeRunner.ts](tests/helpers/fakeRunner.ts)) that returns well-formed plan
+JSON, writes a real file, and emits a QA verdict. Everything else runs for real against a throwaway
+git repo + isolated SQLite DB:
+
+- **pipeline.test.ts** — drives one issue `todo → plan → implement → qa → review`, asserting the
+  worktree, the committed file, the task checklist, the run rows, and the status transitions.
+- **orchestrator.test.ts** — boots the real orchestrator, lets its poll loop pick up an `auto` issue,
+  drives it to `review`, human-acks to `done`, and asserts a terminal issue is never re-dispatched;
+  plus the give-up-after-max-attempts path.
+
+The real CLI path is intentionally out of `npm test` (slow, costs tokens, needs CLI auth) — exercise
+it from the UI or the `POST /api/issues/:id/run` endpoint.
+
+---
+
+## Safety posture
+
+Headless runs default to `bypassPermissions`: there is no human at the CLI to answer per-command
+prompts, so agents act freely **inside their isolated worktree** — a real checkout on your machine,
+not a sandbox. Human control lives at the **review gate**, not per command. Switch `permission_mode`
+to `acceptEdits` to keep agents on the file-edit rail (at the cost of stalling on shell/`git` steps).
+
+## Known limitations
+
+- Single-user; no auth or multi-tenancy.
+- Hand-rolled schema (idempotent `CREATE TABLE`), no migration tool or down-migrations.
+- Worktrees persist after success (by design) and aren't auto-garbage-collected.
+- `WORKFLOW.md` is read per run, not file-watched.
