@@ -19,6 +19,7 @@ export const DEFAULT_WORKSPACE_ROOT =
     ? path.resolve(process.env.SYMPHONY_WORKSPACE_ROOT)
     : path.join(os.tmpdir(), 'symphony_workspaces');
 
-export const PORT = Number(process.env.PORT ?? 3001);
+// 3030 by default — deliberately not 3001, which the sibling `agile-with-agent` project uses.
+export const PORT = Number(process.env.PORT ?? 3030);
 
 export const IS_PROD = process.env.NODE_ENV === 'production';

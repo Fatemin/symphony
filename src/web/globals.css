@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+/* Explicit source globs. Tailwind v4's automatic detection misses our files in dev when Vite's
+   root is set to src/web, so we register the client sources (and the shared types) directly. */
+@source './**/*.{tsx,ts,html}';
+@source '../shared/**/*.ts';
+
 @theme {
   --color-bg: #0b0d12;
   --color-panel: #14171f;

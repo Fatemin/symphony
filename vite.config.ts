@@ -13,7 +13,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      // Regex key (note the trailing slash) so this matches `/api/...` requests but NOT the
+      // client's own `/api.ts` module — a plain `/api` prefix would hijack it and break the app.
+      '^/api/': { target: 'http://localhost:3030', changeOrigin: true },
     },
   },
 });

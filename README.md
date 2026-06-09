@@ -81,7 +81,7 @@ turn it off and a passing issue goes straight to `done`.
 
 ```bash
 npm install
-npm run dev      # Hono server (:3001) + Vite client (:5173) together
+npm run dev      # Hono server (:3030) + Vite client (:5173) together
 ```
 
 Open the Vite URL it prints. The client proxies `/api/*` (REST + SSE) to the server. Then:
@@ -100,7 +100,7 @@ Open the Vite URL it prints. The client proxies `/api/*` (REST + SSE) to the ser
 | `npm run dev` | Server + client together (dev) |
 | `npm run dev:server` / `dev:web` | One side only |
 | `npm run build` | Build the client to `dist/` |
-| `npm start` | Production: serve the built client from the Hono server on `PORT` (default 3001) |
+| `npm start` | Production: serve the built client from the Hono server on `PORT` (default 3030) |
 | `npm test` | **Offline** end-to-end tests (no CLI, no tokens) |
 | `npm run lint` | Type-check client + server |
 | `npm run seed` | Insert a demo project + issues |
