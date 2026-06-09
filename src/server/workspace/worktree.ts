@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeWorkspaceKey } from '../core/keys';
 import { log } from '../observability/logger';
-import { branchExists, git, gitOrThrow, isGitRepo } from './git';
+import { branchExists, currentBranch, git, gitOrThrow, isGitRepo } from './git';
 
 export interface WorktreeSpec {
   /** The project's source git repository. */
@@ -161,4 +161,57 @@ export async function commitAll(worktreePath: string, message: string): Promise<
   if (status.ok && status.stdout.trim() === '') return false;
   const r = await git(['commit', '-m', message], worktreePath);
   return r.ok;
+}
+
+export interface MergeResult {
+  ok: boolean;
+  reason?: string;
+  commit?: string;
+}
+
+/**
+ * Merge an agent branch into its base in the main repo (the review-approval action). Safe by
+ * construction: refuses if the main working tree is dirty, aborts cleanly on conflict, and
+ * restores the repo's originally checked-out branch afterward so approving doesn't move the
+ * user's HEAD out from under them.
+ */
+export async function mergeAgentBranch(
+  repoPath: string,
+  base: string,
+  branch: string,
+  message: string,
+): Promise<MergeResult> {
+  if (!(await isGitRepo(repoPath))) return { ok: false, reason: 'project repo is not a git repository' };
+  if (!(await branchExists(repoPath, branch))) return { ok: false, reason: `branch ${branch} not found` };
+
+  const status = await git(['status', '--porcelain'], repoPath);
+  if (status.ok && status.stdout.trim() !== '') {
+    return { ok: false, reason: 'main repo has uncommitted changes — commit/stash them or merge manually' };
+  }
+
+  const original = await currentBranch(repoPath); // null when detached
+  if (original !== base) {
+    const co = await git(['checkout', base], repoPath);
+    if (!co.ok) return { ok: false, reason: `could not switch to ${base}: ${co.stderr.trim() || co.stdout.trim()}` };
+  }
+
+  const restore = async () => {
+    if (original && original !== base) await git(['checkout', original], repoPath);
+  };
+
+  const merge = await git(['merge', '--no-ff', branch, '-m', message], repoPath);
+  if (!merge.ok) {
+    await git(['merge', '--abort'], repoPath);
+    await restore();
+    return { ok: false, reason: `merge conflict or failure — resolve manually: ${merge.stderr.trim() || merge.stdout.trim()}` };
+  }
+
+  const head = await git(['rev-parse', '--short', base], repoPath);
+  await restore();
+  return { ok: true, commit: head.ok ? head.stdout.trim() : undefined };
+}
+
+/** Delete a branch (safe `-d`; only succeeds if already merged). Best-effort. */
+export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  await git(['branch', '-d', branch], repoPath);
 }

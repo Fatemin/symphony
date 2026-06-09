@@ -50,6 +50,15 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
     onSuccess: (r) => (r.ok ? toast.success('Dispatched') : toast.error(r.reason ?? 'Could not run')),
     onError: (e) => toast.error(String(e)),
   });
+  const approve = useMutation({
+    mutationFn: () => api.issues.approve(issue.id),
+    onSuccess: (r) => {
+      if (r.ok) toast.success(`Merged into ${issue.base_branch} (${r.commit}) — done`);
+      else toast.error(r.reason ?? 'Approve failed');
+      onChange();
+    },
+    onError: (e) => toast.error(String(e)),
+  });
 
   const meta = STATUS_META[issue.status];
   return (
@@ -79,8 +88,8 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
             <option value="auto">auto</option>
           </Select>
           {issue.status === 'review' ? (
-            <Button variant="primary" onClick={() => update.mutate({ status: 'done' })}>
-              <Check className="h-4 w-4" /> Approve
+            <Button variant="primary" disabled={approve.isPending} onClick={() => approve.mutate()} title={`Merge ${issue.branch_name} into ${issue.base_branch} and mark done`}>
+              {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
             </Button>
           ) : (
             <Button variant="primary" disabled={isRunning(issue.status) || run.isPending} onClick={() => run.mutate()}>

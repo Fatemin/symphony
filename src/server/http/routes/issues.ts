@@ -5,13 +5,14 @@ import {
   getIssue,
   isTerminal,
   listIssues,
+  setStatus,
   updateIssue,
 } from '../../repo/issues';
 import { getProject } from '../../repo/projects';
 import { listTasks } from '../../repo/tasks';
 import { listRuns } from '../../repo/runs';
-import { listEvents } from '../../repo/events';
-import { getBranchDiff } from '../../workspace/worktree';
+import { appendEvent, listEvents } from '../../repo/events';
+import { deleteBranch, getBranchDiff, mergeAgentBranch, removeWorktree } from '../../workspace/worktree';
 import { getOrchestrator } from '../../orchestrator/orchestrator';
 
 export const issueRoutes = new Hono();
@@ -77,6 +78,43 @@ issueRoutes.get('/:id/diff', async (c) => {
     return c.json({ available: false, base: issue.base_branch ?? '', branch: issue.branch_name ?? '', stat: '', files: [], patch: '', truncated: false });
   }
   return c.json(await getBranchDiff(project.repo_path, issue.base_branch, issue.branch_name));
+});
+
+// Approve the review gate: merge the agent branch into base, then mark done + clean up.
+issueRoutes.post('/:id/approve', async (c) => {
+  const issue = getIssue(c.req.param('id'));
+  if (!issue) return c.json({ ok: false, reason: 'not found' }, 404);
+  if (issue.status !== 'review') {
+    return c.json({ ok: false, reason: `issue is ${issue.status}, not awaiting review` }, 409);
+  }
+  const project = getProject(issue.project_id);
+  if (!project?.repo_path || !issue.branch_name || !issue.base_branch) {
+    return c.json({ ok: false, reason: 'missing repo path or branch info — merge manually' }, 400);
+  }
+
+  const merge = await mergeAgentBranch(
+    project.repo_path,
+    issue.base_branch,
+    issue.branch_name,
+    `Merge ${issue.key}: ${issue.title}`,
+  );
+  if (!merge.ok) {
+    appendEvent({ issue_id: issue.id, kind: 'approve.failed', level: 'error', message: merge.reason ?? 'merge failed' });
+    return c.json(merge, 409);
+  }
+
+  // Best-effort cleanup: remove the worktree, then delete the now-merged branch.
+  if (issue.worktree_path) await removeWorktree(project.repo_path, issue.worktree_path);
+  await deleteBranch(project.repo_path, issue.branch_name);
+
+  setStatus(issue.id, 'done');
+  appendEvent({
+    issue_id: issue.id,
+    kind: 'approve.merged',
+    message: `approved — merged into ${issue.base_branch} (${merge.commit ?? '?'}) and marked done`,
+    data: { base: issue.base_branch, commit: merge.commit },
+  });
+  return c.json({ ok: true, commit: merge.commit });
 });
 
 // Manual "Run" button — dispatch this issue now regardless of auto/manual mode.

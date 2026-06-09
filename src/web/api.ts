@@ -68,6 +68,8 @@ export const api = {
     remove: (id: string) => req<void>(`/api/issues/${id}`, { method: 'DELETE' }),
     run: (id: string) => req<{ ok: boolean; reason?: string }>(`/api/issues/${id}/run`, { method: 'POST' }),
     diff: (id: string) => req<BranchDiff>(`/api/issues/${id}/diff`),
+    approve: (id: string) =>
+      req<{ ok: boolean; reason?: string; commit?: string }>(`/api/issues/${id}/approve`, { method: 'POST' }),
   },
   ops: {
     snapshot: () => req<Snapshot>('/api/ops/snapshot'),
