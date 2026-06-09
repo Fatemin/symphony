@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, FileDiff, Play, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, MonitorPlay, Play, Square, XCircle } from 'lucide-react';
 import type { Event, IssueStatus } from '../../shared/types';
 import { api, streamIssue, type IssueDetail as Detail } from '../api';
 import { Badge, Button, Panel, Select, Spinner, Textarea } from '../components/ui';
@@ -225,6 +225,9 @@ function ReviewPanel({ issue }: { issue: Detail }) {
         </details>
       )}
 
+      {/* Live preview (only while the worktree still exists, i.e. before approval) */}
+      {issue.status === 'review' && <Preview issueId={issue.id} />}
+
       {/* Diff */}
       <div className="text-xs">
         {isLoading ? (
@@ -236,6 +239,58 @@ function ReviewPanel({ issue }: { issue: Detail }) {
         )}
       </div>
     </Panel>
+  );
+}
+
+function Preview({ issueId }: { issueId: string }) {
+  const qc = useQueryClient();
+  const { data: status } = useQuery({
+    queryKey: ['preview', issueId],
+    queryFn: () => api.issues.preview.status(issueId),
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
+  });
+  const start = useMutation({
+    mutationFn: () => api.issues.preview.start(issueId),
+    onSuccess: (s) => {
+      if (s.error) toast.error(s.error);
+      else toast.success('Preview starting — give it a few seconds to boot');
+      qc.invalidateQueries({ queryKey: ['preview', issueId] });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+  const stop = useMutation({
+    mutationFn: () => api.issues.preview.stop(issueId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['preview', issueId] }),
+  });
+
+  return (
+    <div className="mb-3 rounded-md border border-[#262b38] bg-[#0f1218] p-2.5 text-xs">
+      {status?.running ? (
+        <div>
+          <div className="flex items-center justify-between">
+            <a href={status.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-indigo-300 hover:underline">
+              <ExternalLink className="h-3.5 w-3.5" /> {status.url}
+            </a>
+            <Button variant="ghost" className="px-2 py-1" onClick={() => stop.mutate()}>
+              <Square className="h-3 w-3" /> Stop
+            </Button>
+          </div>
+          <p className="mt-1 font-mono text-[10px] text-slate-600">{status.command}</p>
+          {status.output && (
+            <pre className="mt-1.5 max-h-28 overflow-auto rounded bg-[#0b0d12] p-2 font-mono text-[10px] text-slate-500">
+              {status.output.slice(-1500)}
+            </pre>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500">Launch the project from this worktree to click through it.</span>
+          <Button variant="subtle" className="px-2 py-1" disabled={start.isPending} onClick={() => start.mutate()}>
+            <MonitorPlay className="h-3.5 w-3.5" /> Preview
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

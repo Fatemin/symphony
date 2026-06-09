@@ -34,6 +34,16 @@ export interface BranchDiff {
   truncated: boolean;
 }
 
+export interface PreviewStatus {
+  running: boolean;
+  url?: string;
+  port?: number;
+  command?: string;
+  startedAt?: number;
+  output?: string;
+  error?: string;
+}
+
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...opts,
@@ -70,6 +80,11 @@ export const api = {
     diff: (id: string) => req<BranchDiff>(`/api/issues/${id}/diff`),
     approve: (id: string) =>
       req<{ ok: boolean; reason?: string; commit?: string }>(`/api/issues/${id}/approve`, { method: 'POST' }),
+    preview: {
+      status: (id: string) => req<PreviewStatus>(`/api/issues/${id}/preview`),
+      start: (id: string) => req<PreviewStatus>(`/api/issues/${id}/preview`, { method: 'POST' }),
+      stop: (id: string) => req<{ running: false; stopped: boolean }>(`/api/issues/${id}/preview`, { method: 'DELETE' }),
+    },
   },
   ops: {
     snapshot: () => req<Snapshot>('/api/ops/snapshot'),

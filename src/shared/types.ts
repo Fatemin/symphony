@@ -40,6 +40,7 @@ export interface Project {
   default_branch: string;
   context: string | null; // optional extra context appended to agent prompts
   model: string | null; // optional per-project model override
+  preview_command: string | null; // command to launch a preview from a worktree ({port} substituted)
   created_at: string;
 }
 

@@ -13,11 +13,12 @@ CREATE TABLE IF NOT EXISTS projects (
   name           TEXT NOT NULL,
   description    TEXT,
   color          TEXT NOT NULL DEFAULT '#6366F1',
-  repo_path      TEXT,
-  default_branch TEXT NOT NULL DEFAULT 'main',
-  context        TEXT,
-  model          TEXT,
-  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  repo_path       TEXT,
+  default_branch  TEXT NOT NULL DEFAULT 'main',
+  context         TEXT,
+  model           TEXT,
+  preview_command TEXT,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS issues (

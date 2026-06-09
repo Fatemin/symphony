@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { Hono } from 'hono';
 import {
   createIssue,
@@ -13,6 +14,7 @@ import { listTasks } from '../../repo/tasks';
 import { listRuns } from '../../repo/runs';
 import { appendEvent, listEvents } from '../../repo/events';
 import { deleteBranch, getBranchDiff, mergeAgentBranch, removeWorktree } from '../../workspace/worktree';
+import { DEFAULT_PREVIEW_COMMAND, getPreview, startPreview, stopPreview } from '../../preview/manager';
 import { getOrchestrator } from '../../orchestrator/orchestrator';
 
 export const issueRoutes = new Hono();
@@ -103,7 +105,8 @@ issueRoutes.post('/:id/approve', async (c) => {
     return c.json(merge, 409);
   }
 
-  // Best-effort cleanup: remove the worktree, then delete the now-merged branch.
+  // Best-effort cleanup: stop any preview, remove the worktree, delete the now-merged branch.
+  stopPreview(issue.id);
   if (issue.worktree_path) await removeWorktree(project.repo_path, issue.worktree_path);
   await deleteBranch(project.repo_path, issue.branch_name);
 
@@ -121,4 +124,26 @@ issueRoutes.post('/:id/approve', async (c) => {
 issueRoutes.post('/:id/run', (c) => {
   const result = getOrchestrator().runNow(c.req.param('id'));
   return c.json(result, result.ok ? 202 : 409);
+});
+
+// ── Preview server (launch the project from the issue's worktree) ──
+issueRoutes.get('/:id/preview', (c) => c.json(getPreview(c.req.param('id'))));
+
+issueRoutes.post('/:id/preview', async (c) => {
+  const issue = getIssue(c.req.param('id'));
+  if (!issue) return c.json({ running: false, error: 'not found' }, 404);
+  if (!issue.worktree_path || !fs.existsSync(issue.worktree_path)) {
+    return c.json({ running: false, error: 'no worktree to preview — run the issue first' }, 409);
+  }
+  const project = getProject(issue.project_id);
+  const command = project?.preview_command || DEFAULT_PREVIEW_COMMAND;
+  const status = await startPreview(issue.id, issue.worktree_path, command);
+  appendEvent({ issue_id: issue.id, kind: 'preview.start', message: `preview at ${status.url} (${status.command})` });
+  return c.json(status);
+});
+
+issueRoutes.delete('/:id/preview', (c) => {
+  const stopped = stopPreview(c.req.param('id'));
+  if (stopped) appendEvent({ issue_id: c.req.param('id'), kind: 'preview.stop', message: 'preview stopped' });
+  return c.json({ running: false, stopped });
 });

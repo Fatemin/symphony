@@ -6,6 +6,7 @@ import { getDb } from './db/client';
 import { log } from './observability/logger';
 import { bus } from './observability/bus';
 import { getOrchestrator } from './orchestrator/orchestrator';
+import { stopAllPreviews } from './preview/manager';
 import { projectRoutes } from './http/routes/projects';
 import { issueRoutes } from './http/routes/issues';
 import { opsRoutes } from './http/routes/ops';
@@ -40,6 +41,7 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 function shutdown(signal: string): void {
   log.info('shutting down', { signal });
   orchestrator.stop();
+  stopAllPreviews();
   server.close();
   process.exit(0);
 }

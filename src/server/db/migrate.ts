@@ -8,7 +8,18 @@ import { DEFAULT_SETTINGS } from '../core/config';
  */
 export function bootstrap(db: DatabaseSync): void {
   db.exec(SCHEMA);
+  // Additive column backfills for DBs created before a column existed.
+  addColumn(db, 'projects', 'preview_command', 'TEXT');
   seedSettings(db);
+}
+
+/** Best-effort `ALTER TABLE … ADD COLUMN`; a duplicate-column error means it already exists. */
+function addColumn(db: DatabaseSync, table: string, column: string, type: string): void {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  } catch {
+    /* column already present */
+  }
 }
 
 function seedSettings(db: DatabaseSync): void {

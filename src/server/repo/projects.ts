@@ -12,6 +12,7 @@ interface ProjectRow {
   default_branch: string;
   context: string | null;
   model: string | null;
+  preview_command: string | null;
   created_at: string;
 }
 
@@ -26,6 +27,7 @@ export interface CreateProjectInput {
   default_branch?: string;
   context?: string | null;
   model?: string | null;
+  preview_command?: string | null;
 }
 
 export function createProject(input: CreateProjectInput): Project {
@@ -33,8 +35,8 @@ export function createProject(input: CreateProjectInput): Project {
   const key = (input.key?.trim() || deriveProjectKey(input.name)).toUpperCase();
   getDb()
     .prepare(
-      `INSERT INTO projects (id, key, name, description, color, repo_path, default_branch, context, model)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (id, key, name, description, color, repo_path, default_branch, context, model, preview_command)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -46,6 +48,7 @@ export function createProject(input: CreateProjectInput): Project {
       input.default_branch ?? 'main',
       input.context ?? null,
       input.model ?? null,
+      input.preview_command ?? null,
     );
   return getProject(id)!;
 }
@@ -72,6 +75,7 @@ const UPDATABLE = [
   'default_branch',
   'context',
   'model',
+  'preview_command',
 ] as const;
 
 export function updateProject(

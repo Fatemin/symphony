@@ -10,14 +10,14 @@ export function Projects() {
   const qc = useQueryClient();
   const { data: projects, isLoading } = useQuery({ queryKey: ['projects'], queryFn: api.projects.list });
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', key: '', repo_path: '', default_branch: 'main', context: '' });
+  const [form, setForm] = useState({ name: '', key: '', repo_path: '', default_branch: 'main', context: '', preview_command: '' });
 
   const create = useMutation({
     mutationFn: () => api.projects.create({ ...form, key: form.key || undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] });
       setOpen(false);
-      setForm({ name: '', key: '', repo_path: '', default_branch: 'main', context: '' });
+      setForm({ name: '', key: '', repo_path: '', default_branch: 'main', context: '', preview_command: '' });
       toast.success('Project created');
     },
     onError: (e) => toast.error(String(e)),
@@ -47,6 +47,11 @@ export function Projects() {
             <Field label="Default branch">
               <Input value={form.default_branch} onChange={(e) => setForm({ ...form, default_branch: e.target.value })} />
             </Field>
+            <div className="col-span-2">
+              <Field label="Preview command (optional — {port} is substituted)">
+                <Input value={form.preview_command} onChange={(e) => setForm({ ...form, preview_command: e.target.value })} placeholder="npm run dev -- --port {port}" />
+              </Field>
+            </div>
             <div className="col-span-2">
               <Field label="Project context (optional — appended to every agent prompt)">
                 <Textarea rows={3} value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} placeholder="Conventions, data model notes, gotchas…" />
