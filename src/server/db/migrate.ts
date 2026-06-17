@@ -10,6 +10,7 @@ export function bootstrap(db: DatabaseSync): void {
   db.exec(SCHEMA);
   // Additive column backfills for DBs created before a column existed.
   addColumn(db, 'projects', 'preview_command', 'TEXT');
+  addColumn(db, 'projects', 'config', 'TEXT');
   seedSettings(db);
 }
 

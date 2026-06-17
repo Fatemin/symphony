@@ -7,6 +7,8 @@ export interface FakeRunnerOptions {
   qa?: 'pass' | 'fail';
   /** Force a specific phase to fail (simulates agent error). */
   failPhase?: 'plan' | 'implement' | 'qa';
+  /** Fail the selected phase once, then behave normally. */
+  failOncePhase?: 'plan' | 'implement' | 'qa';
   /** File the "implement" phase writes into the worktree. */
   fileName?: string;
   fileContent?: string;
@@ -34,6 +36,7 @@ function phaseOf(prompt: string): 'plan' | 'implement' | 'qa' {
  */
 export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
   const counters = opts.calls ?? { plan: 0, implement: 0, qa: 0 };
+  let failedOnce = false;
 
   return async (input: AgentRunInput, onEvent): Promise<AgentResult> => {
     const phase = phaseOf(input.prompt);
@@ -53,6 +56,10 @@ export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
     };
 
     if (opts.failPhase === phase) return result(`forced ${phase} failure`, false);
+    if (opts.failOncePhase === phase && !failedOnce) {
+      failedOnce = true;
+      return result(`forced one-time ${phase} failure`, false);
+    }
 
     if (phase === 'plan') {
       return result(

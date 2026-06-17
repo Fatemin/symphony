@@ -1,5 +1,5 @@
 import { buildQaPrompt, parseQa } from '../core/prompt';
-import { commitAll } from '../workspace/worktree';
+import { commitWorktree } from '../workspace/worktree';
 import { agentInput, type PhaseContext, type QaOutcome } from './types';
 
 /**
@@ -26,7 +26,19 @@ export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
   }
 
   const verdict = parseQa(result.text);
-  await commitAll(ctx.worktreePath, `${ctx.issue.key}: QA fixes`);
+  const commit = await commitWorktree(ctx.worktreePath, `${ctx.issue.key}: QA fixes`, {
+    guard: ctx.projectConfig.commit_guard,
+  });
+  if (!commit.ok) {
+    return {
+      ok: false,
+      pass: false,
+      usage: result.usage,
+      sessionId: result.sessionId,
+      summary: 'QA commit failed',
+      error: commit.reason ?? 'QA commit failed',
+    };
+  }
 
   return {
     ok: verdict.pass,

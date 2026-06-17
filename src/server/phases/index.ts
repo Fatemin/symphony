@@ -1,13 +1,15 @@
 import type { IssueStatus, RunPhase } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
 import { agentBranch } from '../core/keys';
+import { mergeProjectConfigs } from '../core/projectConfig';
 import { loadWorkflow } from '../core/workflow';
 import type { AgentEvent, AgentRunner } from '../agent/types';
 import { getProject } from '../repo/projects';
 import { getIssue, updateIssue } from '../repo/issues';
 import { createRun, finishRun, updateRunUsage } from '../repo/runs';
 import { appendEvent, type EventWithCursor } from '../repo/events';
-import { ensureWorktree, worktreePathFor } from '../workspace/worktree';
+import { ensureWorktree, installCommitGuardHook, worktreePathFor } from '../workspace/worktree';
+import { runVerificationCommands } from '../workspace/verification';
 import { log } from '../observability/logger';
 import { runPlan } from './plan';
 import { runImplement } from './implement';
@@ -28,6 +30,7 @@ export interface PipelineResult {
   finalStatus: IssueStatus;
   failedPhase?: RunPhase;
   error?: string;
+  park?: boolean;
 }
 
 /**
@@ -49,6 +52,9 @@ export async function runIssuePipeline(
     return fail(issueId, 'plan', 'project has no repo_path — cannot run agents', opts);
   }
 
+  const workflow = loadWorkflow(project.repo_path); // optional per-repo policy
+  const projectConfig = mergeProjectConfigs(project.config, workflow?.config);
+
   // Prepare the isolated worktree (Safety Invariants enforced inside ensureWorktree).
   const baseBranch = issue.base_branch ?? project.default_branch;
   const branch = issue.branch_name ?? agentBranch(issue.key);
@@ -64,6 +70,11 @@ export async function runIssuePipeline(
   } catch (e) {
     return fail(issueId, 'plan', `worktree setup failed: ${asMsg(e)}`, opts);
   }
+  try {
+    await installCommitGuardHook(worktreePath, projectConfig.commit_guard);
+  } catch (e) {
+    return fail(issueId, 'plan', `commit guard setup failed: ${asMsg(e)}`, opts);
+  }
   // Mark work as started + persist the worktree/branch metadata in one update.
   updateIssue(issueId, {
     status: 'in_progress',
@@ -73,7 +84,7 @@ export async function runIssuePipeline(
   });
 
   const fresh = getIssue(issueId)!; // re-read with branch fields + in_progress status
-  const workflow = loadWorkflow(project.repo_path); // optional per-repo policy
+  const objectiveVerification = projectConfig.verification.commands.length > 0;
 
   for (const phase of PHASE_ORDER) {
     if (opts.signal?.aborted) return fail(issueId, phase, 'aborted', opts);
@@ -87,6 +98,7 @@ export async function runIssuePipeline(
       worktreePath,
       attempt,
       config: opts.config,
+      projectConfig,
       workflow,
       runner: opts.runner,
       signal: opts.signal,
@@ -101,6 +113,7 @@ export async function runIssuePipeline(
     }
 
     updateRunUsage(run.id, { session_id: outcome.sessionId, ...outcome.usage });
+    const auxiliaryQa = phase === 'qa' && objectiveVerification && !outcome.ok;
     finishRun(run.id, outcome.ok ? 'succeeded' : 'failed', outcome.error ?? null);
     emit(opts, {
       issue_id: issueId,
@@ -108,17 +121,60 @@ export async function runIssuePipeline(
       kind: 'phase.end',
       level: outcome.ok ? 'info' : 'warn',
       message: outcome.summary,
-      data: { phase, ok: outcome.ok },
+      data: { phase, ok: outcome.ok, auxiliary: auxiliaryQa },
     });
 
-    if (!outcome.ok) {
+    if (!outcome.ok && !auxiliaryQa) {
       log.warn('phase failed', { issue: issue.key, phase, error: outcome.error });
       return { ok: false, finalStatus: 'in_progress', failedPhase: phase, error: outcome.error };
     }
   }
 
+  if (objectiveVerification) {
+    let verification;
+    try {
+      verification = await runVerificationCommands(worktreePath, projectConfig.verification.commands, opts.signal);
+    } catch (e) {
+      const error = `verification setup failed: ${asMsg(e)}`;
+      emit(opts, { issue_id: issueId, kind: 'verification.failed', level: 'error', message: error });
+      return { ok: false, finalStatus: 'in_progress', failedPhase: 'qa', error };
+    }
+    for (const command of verification.commands) {
+      emit(opts, {
+        issue_id: issueId,
+        kind: command.ok ? 'verification.command_passed' : 'verification.command_failed',
+        level: command.ok ? 'info' : 'error',
+        message: `${command.command} ${command.ok ? 'passed' : 'failed'} (${command.duration_ms}ms)`,
+        data: command,
+      });
+    }
+    if (!verification.ok) {
+      if (verification.action === 'park') updateIssue(issueId, { mode: 'manual' });
+      emit(opts, {
+        issue_id: issueId,
+        kind: 'verification.failed',
+        level: 'error',
+        message: verification.summary,
+        data: verification,
+      });
+      return {
+        ok: false,
+        finalStatus: 'in_progress',
+        failedPhase: 'qa',
+        error: verification.summary,
+        park: verification.action === 'park',
+      };
+    }
+    emit(opts, {
+      issue_id: issueId,
+      kind: 'verification.passed',
+      message: verification.summary,
+      data: verification,
+    });
+  }
+
   // All phases passed → park at the review gate (or finish if the gate is disabled).
-  const finalStatus: IssueStatus = fresh.require_review ? 'review' : 'done';
+  const finalStatus: IssueStatus = fresh.require_review || projectConfig.promotion.mode === 'pull-request' ? 'review' : 'done';
   updateIssue(issueId, { status: finalStatus });
   emit(opts, {
     issue_id: issueId,

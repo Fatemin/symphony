@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeWorkspaceKey } from '../core/keys';
+import type { CommitGuardConfig } from '../core/projectConfig';
 import { log } from '../observability/logger';
 import { branchExists, currentBranch, git, gitOrThrow, isGitRepo } from './git';
 
@@ -110,7 +111,74 @@ export interface BranchDiff {
   truncated: boolean;
 }
 
+export interface BranchList {
+  default_branch: string;
+  branches: string[];
+}
+
 const MAX_PATCH_BYTES = 200_000;
+
+export async function listBranches(repoPath: string, defaultBranch: string): Promise<BranchList> {
+  const result = await git(['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'], repoPath);
+  const branches = result.ok
+    ? [...new Set(result.stdout.split('\n').map((line) => normalizeBranchListEntry(line)).filter(Boolean))].sort()
+    : [];
+  return { default_branch: defaultBranch, branches };
+}
+
+export async function isValidBranchName(repoPath: string, branch: string): Promise<boolean> {
+  if (!branch.trim() || branch.startsWith('-')) return false;
+  const result = await git(['check-ref-format', '--branch', branch], repoPath);
+  return result.ok;
+}
+
+export interface EnsureBranchResult {
+  ok: boolean;
+  created: boolean;
+  reason?: string;
+}
+
+export async function ensureBranch(
+  repoPath: string,
+  branch: string,
+  fromBranch: string,
+  opts: { create?: boolean; remote?: string } = {},
+): Promise<EnsureBranchResult> {
+  if (!(await isValidBranchName(repoPath, branch))) return { ok: false, created: false, reason: `invalid branch name: ${branch}` };
+  if (await branchExists(repoPath, branch)) return { ok: true, created: false };
+  if (opts.remote && await remoteBranchExists(repoPath, opts.remote, branch)) {
+    const fetch = await git(['fetch', opts.remote, `${branch}:${branch}`], repoPath, 120_000);
+    if (fetch.ok || await branchExists(repoPath, branch)) return { ok: true, created: false };
+    return { ok: false, created: false, reason: fetch.stderr.trim() || fetch.stdout.trim() || `could not fetch ${opts.remote}/${branch}` };
+  }
+  if (!opts.create) return { ok: false, created: false, reason: `branch ${branch} not found` };
+  if (!(await branchExists(repoPath, fromBranch))) {
+    return { ok: false, created: false, reason: `source branch ${fromBranch} not found` };
+  }
+  const result = await git(['branch', branch, fromBranch], repoPath);
+  if (!result.ok) return { ok: false, created: false, reason: result.stderr.trim() || result.stdout.trim() || `could not create ${branch}` };
+  return { ok: true, created: true };
+}
+
+async function remoteBranchExists(repoPath: string, remote: string, branch: string): Promise<boolean> {
+  const result = await git(['ls-remote', '--exit-code', '--heads', remote, branch], repoPath, 120_000);
+  return result.ok;
+}
+
+function normalizeBranchListEntry(line: string): string {
+  const trimmed = line.trim();
+  if (trimmed.startsWith('refs/heads/')) return trimmed.slice('refs/heads/'.length);
+  if (!trimmed.startsWith('refs/remotes/') || trimmed.endsWith('/HEAD')) return '';
+  const remoteBranch = trimmed.slice('refs/remotes/'.length);
+  const slash = remoteBranch.indexOf('/');
+  return slash === -1 ? '' : remoteBranch.slice(slash + 1);
+}
+
+export async function pushBranch(repoPath: string, remote: string, branch: string): Promise<MergeResult> {
+  const result = await git(['push', '-u', remote, branch], repoPath, 120_000);
+  if (result.ok) return { ok: true };
+  return { ok: false, reason: result.stderr.trim() || result.stdout.trim() || `push ${remote} ${branch} failed` };
+}
 
 /**
  * Compute what an agent branch changed relative to its base, for the review gate. Uses the
@@ -154,13 +222,248 @@ export async function getBranchDiff(
   };
 }
 
+export interface CommitResult {
+  ok: boolean;
+  committed: boolean;
+  reason?: string;
+  files: string[];
+}
+
+export interface CommitOptions {
+  guard?: CommitGuardConfig;
+}
+
+/** Install or remove the opt-in pre-commit defense for a worktree. */
+export async function installCommitGuardHook(worktreePath: string, guard: CommitGuardConfig): Promise<void> {
+  const hookPath = await gitPath(worktreePath, 'hooks/pre-commit');
+  const scriptPath = await gitPath(worktreePath, 'symphony-commit-guard.cjs');
+  if (!guard.enabled) {
+    removeCommitGuardHook(hookPath, scriptPath, await gitPath(worktreePath, 'SYMPHONY_COMMIT_TOKEN'));
+    return;
+  }
+  fs.mkdirSync(path.dirname(hookPath), { recursive: true });
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(scriptPath, guardScript(guard), { mode: 0o755 });
+  fs.writeFileSync(
+    hookPath,
+    [
+      '#!/bin/sh',
+      'token="$(git rev-parse --git-path SYMPHONY_COMMIT_TOKEN)"',
+      'script="$(git rev-parse --git-path symphony-commit-guard.cjs)"',
+      'if [ ! -f "$token" ]; then',
+      '  echo "Symphony commit guard: manual commits are disabled in this worktree; do not use git add -A or git add .; let Symphony stage explicit paths." >&2',
+      '  exit 1',
+      'fi',
+      'rm -f "$token"',
+      'node "$script"',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+}
+
+function removeCommitGuardHook(hookPath: string, scriptPath: string, tokenPath: string): void {
+  try {
+    const existing = fs.existsSync(hookPath) ? fs.readFileSync(hookPath, 'utf8') : '';
+    if (existing.includes('Symphony commit guard')) fs.rmSync(hookPath, { force: true });
+  } catch {
+    /* best effort */
+  }
+  try {
+    fs.rmSync(scriptPath, { force: true });
+    fs.rmSync(tokenPath, { force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
 /** Stage + commit everything in the worktree. Returns false if there was nothing to commit. */
-export async function commitAll(worktreePath: string, message: string): Promise<boolean> {
+export async function commitAll(worktreePath: string, message: string, opts: CommitOptions = {}): Promise<boolean> {
+  const result = await commitWorktree(worktreePath, message, opts);
+  if (!result.ok) throw new Error(result.reason ?? 'commit failed');
+  return result.committed;
+}
+
+export async function commitWorktree(
+  worktreePath: string,
+  message: string,
+  opts: CommitOptions = {},
+): Promise<CommitResult> {
+  if (!opts.guard?.enabled) return legacyCommitAll(worktreePath, message);
+  await installCommitGuardHook(worktreePath, opts.guard);
+
+  const guard = await checkCommitGuard(worktreePath, opts.guard);
+  if (!guard.ok) return { ok: false, committed: false, reason: guard.reason, files: guard.files };
+
+  await git(['reset'], worktreePath);
+  for (const chunk of chunks(guard.files, 50)) {
+    const add = await git(['add', '--', ...chunk], worktreePath);
+    if (!add.ok) {
+      return { ok: false, committed: false, reason: add.stderr.trim() || add.stdout.trim() || 'git add failed', files: guard.files };
+    }
+  }
+
+  const staged = await git(['diff', '--cached', '--name-only'], worktreePath);
+  if (staged.ok && staged.stdout.trim() === '') return { ok: true, committed: false, files: [] };
+
+  await writeCommitToken(worktreePath);
+  const commit = await git(['commit', '-m', message], worktreePath);
+  if (!commit.ok) {
+    await removeCommitToken(worktreePath);
+    return { ok: false, committed: false, reason: commit.stderr.trim() || commit.stdout.trim() || 'git commit failed', files: guard.files };
+  }
+  return { ok: true, committed: true, files: guard.files };
+}
+
+async function legacyCommitAll(worktreePath: string, message: string): Promise<CommitResult> {
   await git(['add', '-A'], worktreePath);
   const status = await git(['status', '--porcelain'], worktreePath);
-  if (status.ok && status.stdout.trim() === '') return false;
+  if (status.ok && status.stdout.trim() === '') return { ok: true, committed: false, files: [] };
   const r = await git(['commit', '-m', message], worktreePath);
-  return r.ok;
+  return {
+    ok: r.ok,
+    committed: r.ok,
+    reason: r.ok ? undefined : r.stderr.trim() || r.stdout.trim() || 'git commit failed',
+    files: [],
+  };
+}
+
+interface GuardCheck {
+  ok: boolean;
+  reason?: string;
+  files: string[];
+}
+
+async function checkCommitGuard(worktreePath: string, guard: CommitGuardConfig): Promise<GuardCheck> {
+  const entries = await statusEntries(worktreePath);
+  const files = [...new Set(entries.map((entry) => entry.path))];
+  const blocked = files.filter((file) => matchesAnyGlob(file, guard.blocked_untracked_globs));
+  if (blocked.length > 0) {
+    return {
+      ok: false,
+      files,
+      reason: `commit guard blocked ignored scratch files: ${blocked.join(', ')}`,
+    };
+  }
+  if (!guard.override_limits) {
+    if (guard.max_files !== undefined && files.length > guard.max_files) {
+      return { ok: false, files, reason: `commit guard blocked ${files.length} files (limit ${guard.max_files})` };
+    }
+    if (guard.max_bytes !== undefined) {
+      const bytes = totalBytes(worktreePath, files);
+      if (bytes > guard.max_bytes) {
+        return { ok: false, files, reason: `commit guard blocked ${bytes} bytes (limit ${guard.max_bytes})` };
+      }
+    }
+  }
+  return { ok: true, files };
+}
+
+async function statusEntries(worktreePath: string): Promise<{ status: string; path: string }[]> {
+  const status = await git(['status', '--porcelain=v1', '-z'], worktreePath);
+  if (!status.ok || !status.stdout) return [];
+  const records = status.stdout.split('\0').filter(Boolean);
+  const entries: { status: string; path: string }[] = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i]!;
+    const statusCode = record.slice(0, 2);
+    let file = record.slice(3);
+    if (statusCode.includes('R') || statusCode.includes('C')) {
+      i += 1;
+      file = records[i] ?? file;
+    }
+    if (file) entries.push({ status: statusCode, path: file });
+  }
+  return entries;
+}
+
+async function gitPath(worktreePath: string, gitRelativePath: string): Promise<string> {
+  const result = await git(['rev-parse', '--git-path', gitRelativePath], worktreePath);
+  if (!result.ok) throw new Error(result.stderr.trim() || result.stdout.trim() || `could not resolve git path ${gitRelativePath}`);
+  return path.resolve(worktreePath, result.stdout.trim());
+}
+
+async function writeCommitToken(worktreePath: string): Promise<void> {
+  fs.writeFileSync(await gitPath(worktreePath, 'SYMPHONY_COMMIT_TOKEN'), String(Date.now()));
+}
+
+async function removeCommitToken(worktreePath: string): Promise<void> {
+  try {
+    fs.rmSync(await gitPath(worktreePath, 'SYMPHONY_COMMIT_TOKEN'), { force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
+function totalBytes(worktreePath: string, files: string[]): number {
+  let total = 0;
+  for (const file of files) {
+    try {
+      const stat = fs.statSync(path.join(worktreePath, file));
+      if (stat.isFile()) total += stat.size;
+    } catch {
+      /* deleted file */
+    }
+  }
+  return total;
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function matchesAnyGlob(file: string, globs: string[]): boolean {
+  return globs.some((glob) => globToRegex(glob).test(file));
+}
+
+function globToRegex(glob: string): RegExp {
+  let out = '^';
+  for (let i = 0; i < glob.length; i += 1) {
+    const ch = glob[i]!;
+    const next = glob[i + 1];
+    if (ch === '*' && next === '*') {
+      out += '.*';
+      i += 1;
+    } else if (ch === '*') {
+      out += '[^/]*';
+    } else if (ch === '?') {
+      out += '[^/]';
+    } else {
+      out += ch.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+    }
+  }
+  return new RegExp(`${out}$`);
+}
+
+function guardScript(guard: CommitGuardConfig): string {
+  return `const { execFileSync } = require('node:child_process');
+const guard = ${JSON.stringify(guard)};
+const output = (args) => execFileSync('git', args, { encoding: 'utf8' });
+const files = output(['status', '--porcelain=v1', '-z']).split('\\0').filter(Boolean).map((record, index, all) => {
+  const status = record.slice(0, 2);
+  if (status.includes('R') || status.includes('C')) return all[index + 1] || record.slice(3);
+  return record.slice(3);
+}).filter(Boolean);
+const globToRegex = (glob) => {
+  let out = '^';
+  for (let i = 0; i < glob.length; i += 1) {
+    const ch = glob[i];
+    const next = glob[i + 1];
+    if (ch === '*' && next === '*') { out += '.*'; i += 1; }
+    else if (ch === '*') out += '[^/]*';
+    else if (ch === '?') out += '[^/]';
+    else out += ch.replace(/[|\\\\{}()[\\]^$+?.]/g, '\\\\$&');
+  }
+  return new RegExp(out + '$');
+};
+const blocked = files.filter((file) => guard.blocked_untracked_globs.some((glob) => globToRegex(glob).test(file)));
+if (blocked.length > 0) {
+  console.error('Symphony commit guard blocked ignored scratch files: ' + blocked.join(', '));
+  process.exit(1);
+}
+`;
 }
 
 export interface MergeResult {
