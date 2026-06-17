@@ -24,6 +24,17 @@ export type EngineConfig = Record<string, unknown> & {
 export type ProjectWithIssues = Project & { issues: Issue[] };
 export type IssueDetail = Issue & { tasks: IssueTask[]; runs: Run[]; events: (Event & { cursor: number })[] };
 
+export interface BranchList {
+  default_branch: string;
+  branches: string[];
+}
+
+export interface ApproveOptions {
+  target_branch?: string;
+  create_branch?: boolean;
+  set_default_branch?: boolean;
+}
+
 export interface BranchDiff {
   available: boolean;
   base: string;
@@ -63,6 +74,7 @@ export const api = {
   projects: {
     list: () => req<Project[]>('/api/projects'),
     get: (id: string) => req<ProjectWithIssues>(`/api/projects/${id}`),
+    branches: (id: string) => req<BranchList>(`/api/projects/${id}/branches`),
     create: (data: Partial<Project>) => req<Project>('/api/projects', { method: 'POST', ...body(data) }),
     update: (id: string, data: Partial<Project>) =>
       req<Project>(`/api/projects/${id}`, { method: 'PATCH', ...body(data) }),
@@ -78,8 +90,11 @@ export const api = {
     remove: (id: string) => req<void>(`/api/issues/${id}`, { method: 'DELETE' }),
     run: (id: string) => req<{ ok: boolean; reason?: string }>(`/api/issues/${id}/run`, { method: 'POST' }),
     diff: (id: string) => req<BranchDiff>(`/api/issues/${id}/diff`),
-    approve: (id: string) =>
-      req<{ ok: boolean; reason?: string; commit?: string }>(`/api/issues/${id}/approve`, { method: 'POST' }),
+    approve: (id: string, options?: ApproveOptions) =>
+      req<{ ok: boolean; reason?: string; commit?: string; pr_url?: string; merged?: boolean; target_branch?: string }>(
+        `/api/issues/${id}/approve`,
+        { method: 'POST', ...(options ? body(options) : {}) },
+      ),
     preview: {
       status: (id: string) => req<PreviewStatus>(`/api/issues/${id}/preview`),
       start: (id: string) => req<PreviewStatus>(`/api/issues/${id}/preview`, { method: 'POST' }),

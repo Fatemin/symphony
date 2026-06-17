@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Check, CheckSquare, Plus, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
-import { api } from '../api';
+import { api, type ApproveOptions } from '../api';
+import { ApproveDialog } from '../components/ApproveDialog';
 import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
 import { PRIORITY_META, STATUS_META } from '../lib/format';
 
@@ -19,10 +20,59 @@ export function Board() {
     refetchInterval: 3000,
   });
   const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [approveOpen, setApproveOpen] = useState(false);
+
+  const byStatus = (status: IssueStatus) => (project?.issues ?? []).filter((i) => i.status === status);
+  const reviewIssues = byStatus('review');
+  const selectedReviewIssues = reviewIssues.filter((issue) => selected.has(issue.id));
+  const allReviewSelected = reviewIssues.length > 0 && selectedReviewIssues.length === reviewIssues.length;
+  const approveMany = useMutation({
+    mutationFn: async (options: ApproveOptions) => {
+      let ok = 0;
+      const failed: string[] = [];
+      for (const issue of selectedReviewIssues) {
+        try {
+          await api.issues.approve(issue.id, options);
+          ok += 1;
+        } catch (e) {
+          failed.push(`${issue.key}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      return { ok, failed };
+    },
+    onSuccess: ({ ok, failed }) => {
+      if (ok > 0) toast.success(`Approved ${ok} ${ok === 1 ? 'story' : 'stories'}`);
+      if (failed.length > 0) toast.error(failed.slice(0, 3).join('\n'));
+      setApproveOpen(false);
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ['project', id] });
+      qc.invalidateQueries({ queryKey: ['branches', id] });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
 
   if (!project) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
 
-  const byStatus = (status: IssueStatus) => project.issues.filter((i) => i.status === status);
+  const toggleIssue = (issueId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) next.delete(issueId);
+      else next.add(issueId);
+      return next;
+    });
+  };
+  const toggleAllReview = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allReviewSelected) {
+        for (const issue of reviewIssues) next.delete(issue.id);
+      } else {
+        for (const issue of reviewIssues) next.add(issue.id);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="flex h-full flex-col p-6">
@@ -36,9 +86,22 @@ export function Board() {
           </span>
           <h1 className="text-lg font-semibold">{project.name}</h1>
         </div>
-        <Button variant="primary" onClick={() => setOpen((v) => !v)}>
-          <Plus className="h-4 w-4" /> New issue
-        </Button>
+        <div className="flex items-center gap-2">
+          {reviewIssues.length > 0 && (
+            <Button onClick={toggleAllReview}>
+              {allReviewSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+              Review
+            </Button>
+          )}
+          {selectedReviewIssues.length > 0 && (
+            <Button variant="primary" disabled={approveMany.isPending} onClick={() => setApproveOpen(true)}>
+              <Check className="h-4 w-4" /> Approve selected
+            </Button>
+          )}
+          <Button variant="primary" onClick={() => setOpen((v) => !v)}>
+            <Plus className="h-4 w-4" /> New issue
+          </Button>
+        </div>
       </header>
 
       {open && <NewIssueForm projectId={project.id} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ['project', id] }); }} />}
@@ -55,26 +118,65 @@ export function Board() {
               </div>
               <div className="flex flex-col gap-2">
                 {items.map((issue) => (
-                  <IssueCard key={issue.id} issue={issue} />
+                  <IssueCard
+                    key={issue.id}
+                    issue={issue}
+                    selectable={status === 'review'}
+                    selected={selected.has(issue.id)}
+                    onToggle={() => toggleIssue(issue.id)}
+                  />
                 ))}
               </div>
             </div>
           );
         })}
       </div>
+      {approveOpen && (
+        <ApproveDialog
+          projectId={project.id}
+          initialBranch={project.default_branch}
+          count={selectedReviewIssues.length}
+          pending={approveMany.isPending}
+          onCancel={() => setApproveOpen(false)}
+          onConfirm={(options) => approveMany.mutate(options)}
+        />
+      )}
     </div>
   );
 }
 
-function IssueCard({ issue }: { issue: Issue }) {
+function IssueCard({
+  issue,
+  selectable = false,
+  selected = false,
+  onToggle,
+}: {
+  issue: Issue;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggle?: () => void;
+}) {
   return (
-    <Link to={`/issues/${issue.id}`}>
-      <Panel className="p-3 transition hover:border-indigo-500/60">
+    <Link to={`/issues/${issue.id}`} className="block">
+      <Panel className={`p-3 transition hover:border-indigo-500/60 ${selected ? 'border-indigo-500/80' : ''}`}>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="font-mono text-[11px] text-slate-500">{issue.key}</span>
-          <span className={`text-[10px] ${PRIORITY_META[issue.priority].color}`}>
-            {issue.priority > 0 ? PRIORITY_META[issue.priority].label : ''}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {selectable && (
+              <button
+                type="button"
+                className="grid h-5 w-5 place-items-center rounded text-slate-500 hover:bg-[#222735] hover:text-slate-200"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggle?.();
+                }}
+              >
+                {selected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+              </button>
+            )}
+            <span className="font-mono text-[11px] text-slate-500">{issue.key}</span>
+          </div>
+          <span className={`text-[10px] ${PRIORITY_META[issue.priority].color}`}>{issue.priority > 0 ? PRIORITY_META[issue.priority].label : ''}</span>
         </div>
         <p className="mb-2 text-sm leading-snug text-slate-200">{issue.title}</p>
         <div className="flex items-center gap-2 text-[10px]">

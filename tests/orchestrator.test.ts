@@ -7,6 +7,7 @@ const env = setupEnv();
 
 const { createProject } = await import('../src/server/repo/projects');
 const { createIssue, getIssue, setStatus } = await import('../src/server/repo/issues');
+const { listRuns } = await import('../src/server/repo/runs');
 const { getConfig } = await import('../src/server/repo/settings');
 const { localTracker } = await import('../src/server/tracker/localTracker');
 const { Orchestrator } = await import('../src/server/orchestrator/orchestrator');
@@ -80,6 +81,32 @@ test('orchestrator gives up after max attempts and parks the issue to manual', a
   const issueNow = getIssue(issue.id)!;
   assert.equal(issueNow.mode, 'manual');
   assert.equal(orch.snapshot().running.length, 0);
+
+  orch.stop();
+});
+
+test('a manually-run issue retries a transient failure instead of dropping it', async () => {
+  const project = createProject({ name: 'ManualRetry', key: 'MR', repo_path: env.repoPath });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Manual run, one flaky phase',
+    status: 'todo',
+    mode: 'manual',
+  });
+
+  const config = () => ({ ...getConfig(), max_attempts: 3, max_retry_backoff_ms: 50 });
+  const orch = new Orchestrator({
+    tracker: localTracker,
+    runner: makeFakeRunner({ failOncePhase: 'implement' }),
+    getConfig: config,
+  });
+
+  assert.equal(orch.runNow(issue.id).ok, true);
+  await waitFor(() => getIssue(issue.id)!.status === 'review', 8000);
+
+  const attempts = listRuns(issue.id).map((run) => run.attempt);
+  assert.ok(attempts.includes(2), 'attempt 2 should run after a manual-run transient failure');
+  assert.equal(getIssue(issue.id)!.mode, 'manual');
 
   orch.stop();
 });

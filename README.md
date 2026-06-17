@@ -146,8 +146,9 @@ Design choices that fix the previous prototype's rough edges:
 
 ## Configuration
 
-Effective config = **built-in defaults** → **`settings` table** (edited on the Settings page) →
-**per-project overrides** (`model`) → **optional per-repo `WORKFLOW.md`**. Key fields:
+Effective engine config = **built-in defaults** → **`settings` table** (edited on the Settings page) →
+**per-project overrides** (`model`, plus optional project `config` JSON) → **optional per-repo
+`WORKFLOW.md`**. Key engine fields:
 
 | Field | Default | Purpose |
 |-------|---------|---------|
@@ -166,6 +167,48 @@ Effective config = **built-in defaults** → **`settings` table** (edited on the
 `agent.permission_mode`, `agent.max_turns`, and append phase-specific guidance under `prompts.{plan,
 implement,qa}`. See [WORKFLOW.example.md](WORKFLOW.example.md). It is read fresh per run, so edits
 apply to future runs.
+
+Per-project policy is opt-in and can be stored in the project row's `config` JSON or in
+`WORKFLOW.md` front matter:
+
+```yaml
+verification:
+  commands:
+    - command: npm test
+      cwd: .
+      timeout_ms: 120000
+      on_failure: retry # or park
+
+promotion:
+  mode: pull-request # default: direct-merge
+  base_branch: testing
+  remote: origin
+  auto_merge: false
+
+commit_guard:
+  enabled: true # default: false
+  blocked_untracked_globs:
+    - "*_TEMP.*"
+    - "scratch*.md"
+```
+
+With `verification.commands` configured, Symphony runs the commands in order inside the issue
+worktree after implementation/QA. Every command must exit 0 and leave the worktree clean before the
+issue can reach `review` or `done`; failures include captured stdout/stderr in events and either
+retry or park the issue based on `on_failure`. The self-QA verdict remains visible as an auxiliary
+signal, but the objective verification result is the gate.
+
+With `promotion.mode: pull-request`, approval rebases the agent branch onto the configured base,
+reruns verification, pushes the branch, and opens a GitHub PR with `gh`. Symphony does not directly
+merge in this mode unless `promotion.auto_merge` is enabled and GitHub reports checks/reviews ready.
+The default remains the existing local `direct-merge` path for projects without remotes or CI.
+At approval time the UI can override the target branch for one or many review stories, create the
+target branch from the story's current base when needed, and save that target as the project's new
+default branch.
+
+With `commit_guard.enabled`, Symphony installs a pre-commit hook in each issue worktree. Manual
+commits are blocked, Symphony stages only explicit diff-derived paths, configured scratch globs are
+rejected, and optional `max_files` / `max_bytes` limits can require `override_limits: true`.
 
 ---
 

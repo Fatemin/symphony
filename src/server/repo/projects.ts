@@ -1,5 +1,6 @@
 import { getDb } from '../db/client';
 import { newId, deriveProjectKey } from '../core/keys';
+import { parseProjectConfig, serializeProjectConfig } from '../core/projectConfig';
 import type { Project } from '../../shared/types';
 
 interface ProjectRow {
@@ -13,10 +14,11 @@ interface ProjectRow {
   context: string | null;
   model: string | null;
   preview_command: string | null;
+  config: string | null;
   created_at: string;
 }
 
-const mapRow = (r: ProjectRow): Project => ({ ...r });
+const mapRow = (r: ProjectRow): Project => ({ ...r, config: parseProjectConfig(r.config) });
 
 export interface CreateProjectInput {
   name: string;
@@ -28,6 +30,7 @@ export interface CreateProjectInput {
   context?: string | null;
   model?: string | null;
   preview_command?: string | null;
+  config?: unknown;
 }
 
 export function createProject(input: CreateProjectInput): Project {
@@ -35,8 +38,8 @@ export function createProject(input: CreateProjectInput): Project {
   const key = (input.key?.trim() || deriveProjectKey(input.name)).toUpperCase();
   getDb()
     .prepare(
-      `INSERT INTO projects (id, key, name, description, color, repo_path, default_branch, context, model, preview_command)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (id, key, name, description, color, repo_path, default_branch, context, model, preview_command, config)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -49,6 +52,7 @@ export function createProject(input: CreateProjectInput): Project {
       input.context ?? null,
       input.model ?? null,
       input.preview_command ?? null,
+      serializeProjectConfig(input.config),
     );
   return getProject(id)!;
 }
@@ -76,6 +80,7 @@ const UPDATABLE = [
   'context',
   'model',
   'preview_command',
+  'config',
 ] as const;
 
 export function updateProject(
@@ -87,7 +92,7 @@ export function updateProject(
   for (const field of UPDATABLE) {
     if (field in patch) {
       sets.push(`${field} = ?`);
-      params.push(patch[field] ?? null);
+      params.push(field === 'config' ? serializeProjectConfig(patch[field]) : patch[field] ?? null);
     }
   }
   if (sets.length > 0) {

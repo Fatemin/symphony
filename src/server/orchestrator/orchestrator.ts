@@ -181,6 +181,19 @@ export class Orchestrator {
       return;
     }
 
+    if (result.park) {
+      updateIssue(issue.id, { mode: 'manual' });
+      appendEvent({
+        issue_id: issue.id,
+        kind: 'orchestrator.park',
+        level: 'warn',
+        message: 'parked to manual by project policy',
+        data: { attempt, error: result.error },
+      });
+      this.state.release(issue.id);
+      return;
+    }
+
     // Failure while still active → retry with backoff, or give up after max attempts.
     const cfg = this.getConfig();
     if (attempt >= cfg.max_attempts) {
@@ -213,7 +226,16 @@ export class Orchestrator {
 
   private onRetryDue(issueId: string, attempt: number): void {
     const issue = this.tracker.fetchByIds([issueId])[0];
-    if (!issue || !isActive(issue.status) || issue.mode !== 'auto') {
+    if (!issue || !isActive(issue.status)) {
+      appendEvent({
+        issue_id: issue?.id,
+        kind: 'orchestrator.drop',
+        level: 'warn',
+        message: issue
+          ? `queued retry dropped — issue is ${issue.status}`
+          : 'queued retry dropped — issue was deleted',
+        data: { attempt },
+      });
       this.state.release(issueId);
       return;
     }
