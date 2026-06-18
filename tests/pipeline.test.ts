@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { AgentRunInput } from '../src/server/agent/types';
 import { setupEnv } from './helpers/env';
 import { makeFakeRunner } from './helpers/fakeRunner';
 
@@ -55,9 +56,44 @@ test('full pipeline drives an issue todo → review with a real commit', async (
   );
   assert.ok(runs.every((r) => r.status === 'succeeded'));
 
+  // Cache traffic is recorded per run — it's the real cost driver; total_tokens alone
+  // understates throughput by an order of magnitude on long sessions.
+  assert.ok(
+    runs.every((r) => r.cache_read_tokens === 700 && r.cache_creation_tokens === 70),
+    'cache token columns should be persisted from agent usage events',
+  );
+
   // The agent's file was actually written into the worktree and committed.
   const wt = getIssue(issue.id)!.worktree_path!;
   assert.ok(fs.existsSync(path.join(wt, 'HEALTH.txt')), 'agent file should exist in worktree');
+});
+
+test('WORKFLOW.md per-phase max_turns overrides only the named phase', async () => {
+  const wf = path.join(env.repoPath, 'WORKFLOW.md');
+  fs.writeFileSync(wf, ['---', 'agent:', '  max_turns:', '    implement: 7', '---', ''].join('\n'));
+  try {
+    const project = createProject({ name: 'Turn Caps', key: 'TC', repo_path: env.repoPath });
+    const issue = createIssue({
+      project_id: project.id,
+      title: 'Per-phase caps',
+      status: 'todo',
+      mode: 'auto',
+    });
+
+    const inputs: AgentRunInput[] = [];
+    const result = await runIssuePipeline(issue.id, {
+      runner: makeFakeRunner({ qa: 'pass', inputs }),
+      config: getConfig(),
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(inputs.length, 3, 'plan, implement, qa each ran once');
+    assert.equal(inputs[1]!.maxTurns, 7, 'implement uses its per-phase cap');
+    assert.equal(inputs[0]!.maxTurns, getConfig().max_turns, 'plan falls back to the engine default');
+    assert.equal(inputs[2]!.maxTurns, getConfig().max_turns, 'qa falls back to the engine default');
+  } finally {
+    fs.unlinkSync(wf); // env.repoPath is shared by the other tests in this file
+  }
 });
 
 test('a QA FAIL leaves the issue in_progress for retry', async () => {
