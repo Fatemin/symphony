@@ -11,6 +11,7 @@ import { projectRoutes } from './http/routes/projects';
 import { issueRoutes } from './http/routes/issues';
 import { opsRoutes } from './http/routes/ops';
 import { streamRoutes } from './http/routes/stream';
+import { fsRoutes } from './http/routes/fs';
 
 getDb(); // open + bootstrap the database before anything else
 
@@ -22,6 +23,7 @@ api.route('/projects', projectRoutes);
 api.route('/issues', issueRoutes);
 api.route('/ops', opsRoutes);
 api.route('/stream', streamRoutes);
+api.route('/fs', fsRoutes);
 app.route('/api', api);
 
 // In production, serve the built client and SPA-fallback to index.html.

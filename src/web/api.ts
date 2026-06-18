@@ -34,6 +34,27 @@ export interface BranchDiff {
   truncated: boolean;
 }
 
+export interface FsEntry {
+  name: string;
+  path: string;
+  isGitRepo: boolean;
+}
+export interface FsBrowse {
+  path: string;
+  parent: string | null;
+  isGitRepo: boolean;
+  entries: FsEntry[];
+}
+export interface FsValidate {
+  ok: boolean;
+  resolved?: string;
+  exists?: boolean;
+  isDirectory?: boolean;
+  isGitRepo?: boolean;
+  warning?: string;
+  error?: string;
+}
+
 export interface PreviewStatus {
   running: boolean;
   url?: string;
@@ -85,6 +106,11 @@ export const api = {
       start: (id: string) => req<PreviewStatus>(`/api/issues/${id}/preview`, { method: 'POST' }),
       stop: (id: string) => req<{ running: false; stopped: boolean }>(`/api/issues/${id}/preview`, { method: 'DELETE' }),
     },
+  },
+  fs: {
+    browse: (path?: string) =>
+      req<FsBrowse>(`/api/fs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+    validate: (path: string) => req<FsValidate>(`/api/fs/validate?path=${encodeURIComponent(path)}`),
   },
   ops: {
     snapshot: () => req<Snapshot>('/api/ops/snapshot'),

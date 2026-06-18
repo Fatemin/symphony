@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { FolderGit2, Plus } from 'lucide-react';
 import { api } from '../api';
 import { Button, Field, Input, Panel, Textarea } from '../components/ui';
+import { PathField } from '../components/PathField';
 
 export function Projects() {
   const qc = useQueryClient();
@@ -42,7 +43,7 @@ export function Projects() {
               <Input value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value.toUpperCase() })} placeholder="WEB" maxLength={5} />
             </Field>
             <Field label="Local git repo path">
-              <Input value={form.repo_path} onChange={(e) => setForm({ ...form, repo_path: e.target.value })} placeholder="C:\path\to\repo" />
+              <PathField value={form.repo_path} onChange={(v) => setForm({ ...form, repo_path: v })} />
             </Field>
             <Field label="Default branch">
               <Input value={form.default_branch} onChange={(e) => setForm({ ...form, default_branch: e.target.value })} />
