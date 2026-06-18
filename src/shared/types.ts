@@ -189,6 +189,34 @@ export interface Event {
   created_at: string;
 }
 
+// ── Ask: conversational project Q&A ───────────────────────────────────────
+
+/** One turn in an "ask" conversation about a project. */
+export interface AskMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * A draft issue distilled from an answer — surfaced when the exchange describes concrete work,
+ * so the user can one-click convert it into a feature/bug.
+ */
+export interface AskSuggestion {
+  type: Extract<IssueType, 'feature' | 'bug'>;
+  title: string;
+  description: string;
+  acceptance_criteria: string;
+}
+
+export interface AskResponse {
+  /** The conversational answer (the suggestion fence is stripped out). */
+  answer: string;
+  /** CLI session id of the run (informational; ask is otherwise stateless). */
+  session_id: string | null;
+  /** Present only when the answer is actionable as a feature/bug. */
+  suggestion: AskSuggestion | null;
+}
+
 // ── Orchestrator observability view models ────────────────────────────────
 
 export interface RunningRow {

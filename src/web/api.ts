@@ -1,5 +1,7 @@
 import type {
   AgentType,
+  AskMessage,
+  AskResponse,
   Event,
   Issue,
   IssueRelation,
@@ -161,6 +163,8 @@ export const api = {
     update: (id: string, data: Partial<Project>) =>
       req<Project>(`/api/projects/${id}`, { method: 'PATCH', ...body(data) }),
     remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+    ask: (id: string, data: { question: string; history?: AskMessage[]; agent?: AgentType }) =>
+      req<AskResponse>(`/api/projects/${id}/ask`, { method: 'POST', ...body(data) }),
   },
   issues: {
     list: (projectId?: string) => req<Issue[]>(`/api/issues${projectId ? `?project_id=${projectId}` : ''}`),
