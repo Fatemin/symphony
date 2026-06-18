@@ -16,7 +16,14 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
   setAllTaskStatus(ctx.issue.id, 'running');
 
   const prompt = buildImplementPrompt(
-    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
+    {
+      project: ctx.project,
+      issue: ctx.issue,
+      attempt: ctx.attempt,
+      lastFailure: ctx.lastFailure,
+      notes: ctx.notes,
+      storyContext: ctx.storyContext,
+    },
     tasks,
     planContext,
     phasePrompt(ctx.projectConfig.prompts.implement, ctx.workflow?.prompts.implement),

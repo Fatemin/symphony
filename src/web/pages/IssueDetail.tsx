@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, MonitorPlay, Play, Square, XCircle } from 'lucide-react';
-import type { Event, IssueStatus } from '../../shared/types';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, GitBranch, MonitorPlay, Play, Plus, Square, XCircle } from 'lucide-react';
+import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
-import { Badge, Button, Panel, Select, Spinner, Textarea } from '../components/ui';
+import { Badge, Button, Field, Input, Panel, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeTime, STATUS_META } from '../lib/format';
 
 type LiveEvent = Event & { cursor: number };
@@ -26,6 +26,7 @@ export function IssueDetail() {
     <div className="mx-auto grid max-w-6xl grid-cols-3 gap-6 p-6">
       <div className="col-span-2 space-y-5">
         <Header issue={issue} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
+        <RelationsPanel issue={issue} />
         {(issue.status === 'review' || issue.status === 'done') && <ReviewPanel issue={issue} />}
         <Body issue={issue} onSaved={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
         <Tasks issue={issue} />
@@ -41,7 +42,10 @@ export function IssueDetail() {
 const isRunning = (s?: IssueStatus) => s === 'in_progress';
 
 function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const [approveOpen, setApproveOpen] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
   const update = useMutation({
     mutationFn: (patch: Partial<Detail>) => api.issues.update(issue.id, patch),
     onSuccess: onChange,
@@ -65,6 +69,7 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
   });
 
   const meta = STATUS_META[issue.status];
+  const terminal = issue.status === 'done' || issue.status === 'cancelled';
   return (
     <div>
       <Link to={`/projects/${issue.project_id}`} className="mb-3 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300">
@@ -105,11 +110,15 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
                 {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
               </Button>
             </>
-          ) : (
+          ) : !terminal ? (
             <Button variant="primary" disabled={isRunning(issue.status) || run.isPending} onClick={() => run.mutate()}>
               {isRunning(issue.status) ? <Spinner /> : <Play className="h-4 w-4" />} Run
             </Button>
-          )}
+          ) : issue.status === 'done' ? (
+            <Button variant="primary" onClick={() => setFollowUpOpen((v) => !v)}>
+              <Plus className="h-4 w-4" /> Follow-up
+            </Button>
+          ) : null}
           {issue.status !== 'cancelled' && issue.status !== 'done' && (
             <Button variant="ghost" title="Cancel" onClick={() => update.mutate({ status: 'cancelled' })}>
               <CircleSlash className="h-4 w-4" />
@@ -126,6 +135,198 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
           onCancel={() => setApproveOpen(false)}
           onConfirm={(options) => approve.mutate(options)}
         />
+      )}
+      {followUpOpen && (
+        <FollowUpForm
+          source={issue}
+          onCancel={() => setFollowUpOpen(false)}
+          onCreated={(newIssueId) => {
+            setFollowUpOpen(false);
+            qc.invalidateQueries({ queryKey: ['issue', issue.id] });
+            qc.invalidateQueries({ queryKey: ['project', issue.project_id] });
+            navigate(`/issues/${newIssueId}`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function FollowUpForm({
+  source,
+  onCancel,
+  onCreated,
+}: {
+  source: Detail;
+  onCancel: () => void;
+  onCreated: (issueId: string) => void;
+}) {
+  const [form, setForm] = useState<{
+    title: string;
+    type: IssueType;
+    priority: Priority;
+    mode: IssueMode;
+    status: Extract<IssueStatus, 'backlog' | 'todo'>;
+    description: string;
+    acceptance_criteria: string;
+    include_context: boolean;
+  }>({
+    title: '',
+    type: source.type,
+    priority: source.priority,
+    mode: 'manual',
+    status: 'todo',
+    description: '',
+    acceptance_criteria: '',
+    include_context: true,
+  });
+  const create = useMutation({
+    mutationFn: () =>
+      api.issues.createFollowUp(source.id, {
+        title: form.title,
+        type: form.type as Detail['type'],
+        priority: form.priority as Detail['priority'],
+        mode: form.mode as Detail['mode'],
+        status: form.status as IssueStatus,
+        description: form.description || null,
+        acceptance_criteria: form.acceptance_criteria || null,
+        include_context: form.include_context,
+      }),
+    onSuccess: (result) => {
+      toast.success('Follow-up story created');
+      onCreated(result.issue.id);
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  return (
+    <Panel className="mt-4 p-4">
+      <div className="grid grid-cols-4 gap-3">
+        <div className="col-span-4">
+          <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+            <GitBranch className="h-3.5 w-3.5" />
+            <span className="font-mono">{source.key}</span>
+            <span className="truncate">{source.title}</span>
+          </div>
+          <Field label="Title">
+            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="What needs to change next?" autoFocus />
+          </Field>
+        </div>
+        <Field label="Type">
+          <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as IssueType })}>
+            <option value="feature">feature</option>
+            <option value="bug">bug</option>
+            <option value="chore">chore</option>
+            <option value="epic">epic</option>
+          </Select>
+        </Field>
+        <Field label="Priority">
+          <Select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) as Priority })}>
+            <option value={1}>Urgent</option>
+            <option value={2}>High</option>
+            <option value={3}>Medium</option>
+            <option value={4}>Low</option>
+            <option value={0}>None</option>
+          </Select>
+        </Field>
+        <Field label="Mode">
+          <Select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value as IssueMode })}>
+            <option value="manual">manual</option>
+            <option value="auto">auto</option>
+          </Select>
+        </Field>
+        <Field label="Initial status">
+          <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Extract<IssueStatus, 'backlog' | 'todo'> })}>
+            <option value="backlog">backlog</option>
+            <option value="todo">todo</option>
+          </Select>
+        </Field>
+        <div className="col-span-2">
+          <Field label="Description">
+            <Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </Field>
+        </div>
+        <div className="col-span-2">
+          <Field label="Acceptance criteria">
+            <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- ..." />
+          </Field>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <label className="inline-flex items-center gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            checked={form.include_context}
+            onChange={(e) => setForm({ ...form, include_context: e.target.checked })}
+            className="h-4 w-4 rounded border-[#262b38] bg-[#0f1218]"
+          />
+          Reference context
+        </label>
+        <div className="flex gap-2">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" disabled={!form.title || create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? <Spinner /> : <Plus className="h-4 w-4" />} Create follow-up
+          </Button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function RelationsPanel({ issue }: { issue: Detail }) {
+  const incoming = issue.relations.incoming;
+  const outgoing = issue.relations.outgoing;
+  if (incoming.length === 0 && outgoing.length === 0) return null;
+
+  return (
+    <Panel className="p-4">
+      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+        <GitBranch className="h-3.5 w-3.5" /> Story chain
+      </div>
+      {incoming.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium uppercase text-slate-600">Predecessors</p>
+          {incoming.map((relation) => (
+            <RelationRow key={relation.id} relation={relation} side="source" />
+          ))}
+        </div>
+      )}
+      {outgoing.length > 0 && (
+        <div className={incoming.length > 0 ? 'mt-4 space-y-2' : 'space-y-2'}>
+          <p className="text-[11px] font-medium uppercase text-slate-600">Follow-ups</p>
+          {outgoing.map((relation) => (
+            <RelationRow key={relation.id} relation={relation} side="target" />
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function RelationRow({ relation, side }: { relation: IssueRelation; side: 'source' | 'target' }) {
+  const linked = side === 'source' ? relation.source : relation.target;
+  const meta = STATUS_META[linked.status];
+  return (
+    <div className="rounded-md border border-[#262b38] bg-[#0f1218] px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <Link to={`/issues/${linked.id}`} className="min-w-0 hover:text-indigo-300">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-mono text-slate-500">{linked.key}</span>
+            <span className={`inline-flex items-center gap-1 ${meta.color}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} /> {meta.label}
+            </span>
+            <Badge className="bg-indigo-500/10 text-indigo-300">{relation.type === 'follow_up' ? 'follow-up' : 'related'}</Badge>
+          </div>
+          <p className="mt-1 truncate text-sm text-slate-200">{linked.title}</p>
+        </Link>
+      </div>
+      {relation.context_summary && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300">Referenced context</summary>
+          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[#0b0d12] p-2 font-mono text-[11px] leading-relaxed text-slate-400">
+            {relation.context_summary}
+          </pre>
+        </details>
       )}
     </div>
   );

@@ -15,6 +15,7 @@ import { getProject, updateProject } from '../../repo/projects';
 import { listTasks } from '../../repo/tasks';
 import { listRuns } from '../../repo/runs';
 import { appendEvent, listEvents } from '../../repo/events';
+import { createFollowUpIssue, listIssueRelations } from '../../repo/issueRelations';
 import { promoteViaPullRequest } from '../../workspace/promotion';
 import { deleteBranch, ensureBranch, getBranchDiff, mergeAgentBranch, pushBranch, removeWorktree } from '../../workspace/worktree';
 import { DEFAULT_PREVIEW_COMMAND, getPreview, startPreview, stopPreview } from '../../preview/manager';
@@ -38,6 +39,33 @@ issueRoutes.post('/', async (c) => {
   return c.json(createIssue(body), 201);
 });
 
+issueRoutes.post('/:id/follow-ups', async (c) => {
+  const source = getIssue(c.req.param('id'));
+  if (!source) return c.json({ error: 'not found' }, 404);
+  if (source.status !== 'done') {
+    return c.json({ error: 'follow-up stories can only be created from a completed story' }, 409);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  if (!body.title || typeof body.title !== 'string') {
+    return c.json({ error: 'title is required' }, 400);
+  }
+
+  const result = createFollowUpIssue(source.id, {
+    title: body.title,
+    type: body.type,
+    description: body.description ?? null,
+    acceptance_criteria: body.acceptance_criteria ?? null,
+    labels: Array.isArray(body.labels) ? body.labels.map(String) : undefined,
+    priority: body.priority,
+    status: body.status ?? 'todo',
+    mode: body.mode,
+    require_review: body.require_review,
+    include_context: body.include_context !== false,
+  });
+  return c.json(result, 201);
+});
+
 // Full detail for the IssueDetail page: issue + planned tasks + run history + recent activity.
 issueRoutes.get('/:id', (c) => {
   const issue = getIssue(c.req.param('id'));
@@ -47,6 +75,7 @@ issueRoutes.get('/:id', (c) => {
     tasks: listTasks(issue.id),
     runs: listRuns(issue.id),
     events: listEvents({ issue_id: issue.id, limit: 200 }),
+    relations: listIssueRelations(issue.id),
   });
 });
 

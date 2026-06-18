@@ -47,6 +47,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_key ON issues(project_id, key);
 CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
 CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
 
+CREATE TABLE IF NOT EXISTS issue_relations (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  target_issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  type            TEXT NOT NULL DEFAULT 'relates_to',
+  context_summary TEXT,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (source_issue_id <> target_issue_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_issue_relations_unique
+  ON issue_relations(source_issue_id, target_issue_id, type);
+CREATE INDEX IF NOT EXISTS idx_issue_relations_source ON issue_relations(source_issue_id);
+CREATE INDEX IF NOT EXISTS idx_issue_relations_target ON issue_relations(target_issue_id);
+
 CREATE TABLE IF NOT EXISTS issue_tasks (
   id         TEXT PRIMARY KEY,
   issue_id   TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
