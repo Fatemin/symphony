@@ -208,19 +208,25 @@ issueRoutes.post('/:id/approve', async (c) => {
     }
     if (setDefaultBranch) updateProject(project.id, { default_branch: baseBranch });
     updateIssue(issue.id, { base_branch: baseBranch });
+    // With auto_merge off, opening the PR is the completion/handoff point — Symphony has nothing
+    // left to do, so a single approve must reach 'done'. Only when auto_merge is on AND the PR
+    // isn't mergeable yet do we keep the issue parked so a re-approve re-polls the PR state.
+    const handoffDone = promotion.merged || !projectConfig.promotion.auto_merge;
     appendEvent({
       issue_id: issue.id,
       kind: promotion.merged ? 'approve.pr_merged' : 'approve.pr_opened',
       message: promotion.merged
         ? `approved — PR merged by platform checks (${promotion.pr_url})`
-        : `approved — opened PR against ${baseBranch}: ${promotion.pr_url}`,
-      data: { base: baseBranch, branch: issue.branch_name, pr_url: promotion.pr_url, merged: promotion.merged, created_branch: ensured.created, set_default_branch: setDefaultBranch },
+        : handoffDone
+          ? `approved — opened PR against ${baseBranch} and marked done (handoff): ${promotion.pr_url}`
+          : `approved — opened PR against ${baseBranch}: ${promotion.pr_url}`,
+      data: { base: baseBranch, branch: issue.branch_name, pr_url: promotion.pr_url, merged: promotion.merged, done: handoffDone, created_branch: ensured.created, set_default_branch: setDefaultBranch },
     });
-    if (promotion.merged) {
+    if (handoffDone) {
       await cleanupIssueResources(issue, { forceBranch: false, reason: 'approved' });
       updateIssue(issue.id, { status: 'done', branch_name: null, worktree_path: null });
     }
-    return c.json({ ok: true, pr_url: promotion.pr_url, merged: promotion.merged ?? false, target_branch: baseBranch });
+    return c.json({ ok: true, pr_url: promotion.pr_url, merged: promotion.merged ?? false, done: handoffDone, target_branch: baseBranch });
   }
 
   const merge = await mergeAgentBranch(
