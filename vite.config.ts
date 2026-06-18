@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-// The client lives in src/web; it proxies /api (REST + SSE) to the Hono server on :3001.
+// The client lives in src/web; it proxies /api (REST + SSE) to the Hono server on :3030.
 export default defineConfig({
   root: 'src/web',
   plugins: [react(), tailwindcss()],

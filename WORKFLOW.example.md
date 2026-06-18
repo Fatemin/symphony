@@ -9,8 +9,13 @@ agent:
   model: claude-sonnet-4-6
   # CLI permission mode for headless runs in the isolated worktree.
   permission_mode: bypassPermissions
-  # Cap turns per phase (bounds a single session's cost).
-  max_turns: 60
+  # Cap turns per phase (bounds a single session's cost). Accepts a single number for all
+  # phases, or a per-phase map — implement typically needs far more turns than plan/qa:
+  #   max_turns:
+  #     plan: 80
+  #     implement: 160
+  #     qa: 80
+  max_turns: 120
 
 # Phase-specific prompt additions appended to the built-in phase prompts. Use this to encode
 # repo conventions the agent must follow (test commands, lint, commit style, etc.).
@@ -18,7 +23,10 @@ prompts:
   plan: |
     Prefer the smallest set of tasks. Call out any migration or breaking change explicitly.
   implement: |
-    Run `npm test` and `npm run lint` before considering the work done.
+    Use the repository's existing dependency tree if present. If packages are missing, run
+    `npm install --prefer-offline` before falling back to a full install. Run `npm test` and
+    `npm run lint` before considering the work done.
+    If this repo needs a specific venv or tool path, record it here so every issue reuses it.
   qa: |
     Treat a failing build or test as an automatic FAIL.
 ---

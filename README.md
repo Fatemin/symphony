@@ -47,9 +47,14 @@ backoff, stall detection, and restart recovery are all handled by one authoritat
   worktree must resolve inside `workspace_root`.
 - **Native context:** Claude Code reads the target repo's own `CLAUDE.md` / `AGENTS.md`, so there's no
   bespoke context-injection system — just an optional per-project context note appended to prompts.
+  A good `CLAUDE.md` in the target repo is the cheapest way to cut agent exploration turns (and
+  tokens) — keep one there.
 - **The pipeline** ([src/server/phases/](src/server/phases/)) is the whole execution layer for one
   issue: `plan → implement → qa`, one small module per phase plus a sequencer that persists a run row
   and activity events per phase.
+- **Planning context is carried forward.** The plan phase saves a compact file map and implementation
+  context for the issue, so the implement phase can start from the planner's exploration instead of
+  rediscovering the same files.
 
 ### Status model
 
@@ -158,14 +163,18 @@ Effective config = **built-in defaults** → **`settings` table** (edited on the
 | `poll_interval_ms` | `30000` | Orchestrator tick cadence |
 | `phase_timeout_ms` | `1200000` | Wall-clock cap per phase |
 | `stall_timeout_ms` | `300000` | Abort a run after this long with no agent events |
-| `max_turns` | `60` | CLI `--max-turns` per phase |
+| `max_turns` | `120` | CLI `--max-turns` per phase (`0` disables the cap) |
 | `max_attempts` | `3` | Give up + park to `manual` after this many failures |
 | `workspace_root` | `<tmp>/symphony_workspaces` | Where worktrees live |
 
 **`WORKFLOW.md`** (optional, in a target repo): YAML front matter can override `agent.model`,
-`agent.permission_mode`, `agent.max_turns`, and append phase-specific guidance under `prompts.{plan,
-implement,qa}`. See [WORKFLOW.example.md](WORKFLOW.example.md). It is read fresh per run, so edits
-apply to future runs.
+`agent.permission_mode`, `agent.max_turns` (a single number or a per-phase `{plan, implement, qa}`
+map), and append phase-specific guidance under `prompts.{plan,implement,qa}`. See
+[WORKFLOW.example.md](WORKFLOW.example.md). It is read fresh per run, so edits apply to future runs.
+
+Use `WORKFLOW.md` for stable environment knowledge: test commands, package manager preferences,
+virtualenv paths, and install/cache hints such as `npm install --prefer-offline`. Symphony also seeds
+new worktrees with a best-effort local clone of the source checkout's `node_modules` when present.
 
 ---
 
