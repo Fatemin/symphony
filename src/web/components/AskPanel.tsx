@@ -5,6 +5,7 @@ import { ArrowUp, Bug, Sparkles, X } from 'lucide-react';
 import type { AgentType, AskMessage, AskSuggestion, IssueStatus } from '../../shared/types';
 import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
+import { Markdown } from './Markdown';
 import { Button, Select, Spinner, Textarea } from './ui';
 
 type Turn = AskMessage & { suggestion?: AskSuggestion | null; converted?: boolean };
@@ -179,8 +180,8 @@ function TurnBubble({
   }
   return (
     <div className="space-y-2">
-      <div className="max-w-[95%] whitespace-pre-wrap rounded-lg border border-border bg-bg-2 px-3 py-2 text-sm leading-relaxed text-fg">
-        {turn.content}
+      <div className="max-w-[95%] rounded-lg border border-border bg-bg-2 px-3 py-2 text-sm leading-relaxed text-fg">
+        <Markdown source={turn.content} />
       </div>
       {turn.suggestion && <SuggestionCard suggestion={turn.suggestion} converted={turn.converted} busy={busy} onConvert={onConvert} />}
     </div>
@@ -206,7 +207,11 @@ function SuggestionCard({
         Turn this into a {suggestion.type}?
       </div>
       <div className="text-sm font-medium text-fg">{suggestion.title}</div>
-      {suggestion.description && <p className="mt-1 whitespace-pre-wrap text-xs text-muted">{suggestion.description}</p>}
+      {suggestion.description && (
+        <div className="mt-1 text-xs text-muted">
+          <Markdown source={suggestion.description} />
+        </div>
+      )}
       {suggestion.acceptance_criteria && (
         <pre className="mt-2 whitespace-pre-wrap rounded bg-bg-2 px-2 py-1.5 text-[11px] text-muted">
           {suggestion.acceptance_criteria}
