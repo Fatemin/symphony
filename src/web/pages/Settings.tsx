@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, type EngineConfig } from '../api';
 import { Button, Field, Input, Panel, Select } from '../components/ui';
-import { AVAILABLE_MODELS } from '../../shared/models';
+import { AGENT_OPTIONS, AVAILABLE_MODELS } from '../../shared/models';
 
 const NUMERIC: (keyof EngineConfig)[] = [
   'wip_limit',
@@ -48,17 +48,39 @@ export function Settings() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Model">
+          <Field label="Default agent">
+            <Select value={form.agent ?? 'claude'} onChange={(e) => set('agent', e.target.value)}>
+              {AGENT_OPTIONS.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Model (Claude)">
             <Select value={form.model} onChange={(e) => set('model', e.target.value)}>
               {!AVAILABLE_MODELS.some((m) => m.id === form.model) && (
                 <option value={form.model}>{form.model} (custom)</option>
               )}
-              {AVAILABLE_MODELS.map((m) => (
+              {AVAILABLE_MODELS.filter((m) => m.agent !== 'codex').map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
                 </option>
               ))}
             </Select>
+          </Field>
+          <Field label="Codex model">
+            <Select value={form.codex_model ?? ''} onChange={(e) => set('codex_model', e.target.value)}>
+              {!AVAILABLE_MODELS.some((m) => m.id === form.codex_model) && (
+                <option value={form.codex_model ?? ''}>{form.codex_model || '(custom)'}</option>
+              )}
+              {AVAILABLE_MODELS.filter((m) => m.agent === 'codex').map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Codex CLI path">
+            <Input value={String(form.codex_cli_path ?? '')} onChange={(e) => set('codex_cli_path', e.target.value)} />
           </Field>
           <Field label="Permission mode">
             <Select value={form.permission_mode} onChange={(e) => set('permission_mode', e.target.value)}>

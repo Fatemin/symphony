@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS projects (
   default_branch  TEXT NOT NULL DEFAULT 'main',
   context         TEXT,
   model           TEXT,
+  agent           TEXT,
   preview_command TEXT,
   config          TEXT,
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))

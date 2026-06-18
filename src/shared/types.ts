@@ -16,6 +16,8 @@ export const TERMINAL_STATUSES: IssueStatus[] = ['done', 'cancelled'];
 
 export type IssueType = 'feature' | 'bug' | 'chore' | 'epic';
 export type IssueMode = 'auto' | 'manual';
+/** Which CLI agent drives a project's pipeline. */
+export type AgentType = 'claude' | 'codex';
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 = none, 1 = urgent … 4 = low
 
 export type TaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
@@ -40,6 +42,7 @@ export interface Project {
   default_branch: string;
   context: string | null; // optional extra context appended to agent prompts
   model: string | null; // optional per-project model override
+  agent: AgentType | null; // optional per-project agent override (null ⇒ inherit engine default)
   preview_command: string | null; // command to launch a preview from a worktree ({port} substituted)
   config: unknown | null; // optional per-project JSON policy (verification/promotion/commit guard)
   created_at: string;

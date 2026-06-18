@@ -1,4 +1,4 @@
-import type { Issue, Project, ProjectNote, RunPhase, StoryReferenceContext } from '../../shared/types';
+import type { AgentType, Issue, Project, ProjectNote, RunPhase, StoryReferenceContext } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
 import type { ProjectConfig } from '../core/projectConfig';
 import type { WorkflowPolicy } from '../core/workflow';
@@ -63,12 +63,19 @@ export function agentInput(
   systemPrompt?: string,
 ): AgentRunInput {
   // Precedence: WORKFLOW.md → per-project overrides → engine config.
+  // Agent resolves first because it picks which CLI binary + default model apply.
+  const rawAgent = ctx.workflow?.agent || ctx.project.agent || ctx.config.agent;
+  const agent: AgentType = rawAgent === 'codex' ? 'codex' : 'claude';
   return {
+    agent,
     cwd: ctx.worktreePath,
     prompt,
     systemPrompt,
     resumeSessionId: ctx.resumeSessionId ?? undefined,
-    model: ctx.workflow?.model || ctx.project.model?.trim() || ctx.config.model,
+    model:
+      ctx.workflow?.model ||
+      ctx.project.model?.trim() ||
+      (agent === 'codex' ? ctx.config.codex_model : ctx.config.model),
     permissionMode: ctx.workflow?.permission_mode ?? ctx.projectConfig.agent.permission_mode ?? ctx.config.permission_mode,
     maxTurns:
       ctx.workflow?.max_turns_by_phase?.[ctx.phase] ??
@@ -77,7 +84,7 @@ export function agentInput(
       ctx.projectConfig.agent.max_turns ??
       ctx.config.max_turns,
     timeoutMs: ctx.config.phase_timeout_ms,
-    cliPath: ctx.config.cli_path,
+    cliPath: agent === 'codex' ? ctx.config.codex_cli_path : ctx.config.cli_path,
     signal: ctx.signal,
   };
 }

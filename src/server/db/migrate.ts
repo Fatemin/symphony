@@ -11,6 +11,7 @@ export function bootstrap(db: DatabaseSync): void {
   // Additive column backfills for DBs created before a column existed.
   addColumn(db, 'projects', 'preview_command', 'TEXT');
   addColumn(db, 'projects', 'config', 'TEXT');
+  addColumn(db, 'projects', 'agent', 'TEXT');
   addColumn(db, 'runs', 'report', 'TEXT');
   addColumn(db, 'runs', 'cache_read_tokens', 'INTEGER NOT NULL DEFAULT 0');
   addColumn(db, 'runs', 'cache_creation_tokens', 'INTEGER NOT NULL DEFAULT 0');
