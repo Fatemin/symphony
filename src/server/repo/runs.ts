@@ -1,6 +1,13 @@
 import { getDb } from '../db/client';
 import { newId } from '../core/keys';
-import type { Run, RunPhase, RunStatus } from '../../shared/types';
+import type {
+  IssueStatus,
+  IssueType,
+  OpsHistoryRow,
+  Run,
+  RunPhase,
+  RunStatus,
+} from '../../shared/types';
 
 interface RunRow {
   id: string;
@@ -149,6 +156,77 @@ export function latestSuccessfulRun(issueId: string, phase: RunPhase): Run | nul
     )
     .get(issueId, phase) as RunRow | undefined;
   return row ? mapRow(row) : null;
+}
+
+interface HistoryRow {
+  issue_id: string;
+  issue_key: string;
+  title: string;
+  type: string;
+  status: string;
+  project_id: string;
+  project_key: string;
+  run_count: number;
+  attempts: number;
+  total_tokens: number;
+  num_turns: number;
+  started_at: string | null;
+  ended_at: string | null;
+  updated_at: string;
+  last_status: string | null;
+  last_phase: string | null;
+}
+
+/**
+ * Per-issue run history for the Ops page (§ observability). This is a runs aggregate that
+ * happens to join issues + projects for display — it lives here, rather than splitting the repo's
+ * one-file-per-table convention, for the same reason sumTokens() does: the grain is "runs".
+ * One row per issue with >=1 run, summing tokens/turns and exposing the latest run's phase/status
+ * via correlated subqueries. Bounded to 500 rows, most-recently-active first — never an unbounded
+ * list. `projectId`, when given, scopes the result to a single project.
+ */
+export function listIssueHistory(projectId?: string): OpsHistoryRow[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT i.id AS issue_id, i.key AS issue_key, i.title, i.type, i.status,
+              i.project_id, p.key AS project_key,
+              COUNT(r.id) AS run_count,
+              COALESCE(MAX(r.attempt), 0) AS attempts,
+              COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
+              COALESCE(SUM(r.num_turns), 0) AS num_turns,
+              MIN(r.started_at) AS started_at,
+              MAX(r.ended_at) AS ended_at,
+              i.updated_at,
+              (SELECT status FROM runs WHERE issue_id = i.id ORDER BY started_at DESC, rowid DESC LIMIT 1) AS last_status,
+              (SELECT phase  FROM runs WHERE issue_id = i.id ORDER BY started_at DESC, rowid DESC LIMIT 1) AS last_phase
+       FROM issues i
+       JOIN projects p ON p.id = i.project_id
+       JOIN runs r ON r.issue_id = i.id
+       ${projectId ? 'WHERE i.project_id = ?' : ''}
+       GROUP BY i.id
+       ORDER BY COALESCE(MAX(r.ended_at), i.updated_at) DESC
+       LIMIT 500`,
+    )
+    .all(...(projectId ? [projectId] : [])) as unknown as HistoryRow[];
+
+  return rows.map((r) => ({
+    issue_id: r.issue_id,
+    issue_key: r.issue_key,
+    title: r.title,
+    type: r.type as IssueType,
+    status: r.status as IssueStatus,
+    project_id: r.project_id,
+    project_key: r.project_key,
+    run_count: r.run_count,
+    attempts: r.attempts,
+    total_tokens: r.total_tokens,
+    num_turns: r.num_turns,
+    started_at: r.started_at,
+    ended_at: r.ended_at,
+    updated_at: r.updated_at,
+    last_status: r.last_status ? (r.last_status as RunStatus) : null,
+    last_phase: r.last_phase ? (r.last_phase as RunPhase) : null,
+  }));
 }
 
 /** Runs left dangling (status='running') from a previous process — used by restart recovery. */
