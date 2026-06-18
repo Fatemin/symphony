@@ -3,6 +3,7 @@ import type {
   Issue,
   IssueRelation,
   IssueRelationMap,
+  IssueRevision,
   IssueTask,
   OpsHistoryRow,
   Project,
@@ -30,6 +31,7 @@ export type IssueDetail = Issue & {
   runs: Run[];
   events: (Event & { cursor: number })[];
   relations: IssueRelationMap;
+  revisions: IssueRevision[];
 };
 
 export type ProjectRunPhase = 'plan' | 'implement' | 'qa';
@@ -175,6 +177,11 @@ export const api = {
       req<{ ok: boolean; reason?: string; commit?: string; pr_url?: string; merged?: boolean; target_branch?: string }>(
         `/api/issues/${id}/approve`,
         { method: 'POST', ...(options ? body(options) : {}) },
+      ),
+    requestChanges: (id: string, data: { feedback: string }) =>
+      req<{ ok: boolean; reason?: string; round?: number; dispatched?: boolean }>(
+        `/api/issues/${id}/request-changes`,
+        { method: 'POST', ...body(data) },
       ),
     preview: {
       status: (id: string) => req<PreviewStatus>(`/api/issues/${id}/preview`),

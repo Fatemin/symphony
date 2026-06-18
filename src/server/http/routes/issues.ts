@@ -9,8 +9,11 @@ import {
   getIssue,
   isTerminal,
   listIssues,
+  setRound,
+  setStatus,
   updateIssue,
 } from '../../repo/issues';
+import { addRevision, listRevisions } from '../../repo/revisions';
 import { mergeProjectConfigs } from '../../core/projectConfig';
 import { loadWorkflow } from '../../core/workflow';
 import { getProject, updateProject } from '../../repo/projects';
@@ -89,6 +92,7 @@ issueRoutes.get('/:id', (c) => {
     runs: listRuns(issue.id),
     events: listEvents({ issue_id: issue.id, limit: 200 }),
     relations: listIssueRelations(issue.id),
+    revisions: listRevisions(issue.id),
   });
 });
 
@@ -391,6 +395,34 @@ async function verifyIntegratedMerge(
   appendEvent({ issue_id: issueId, kind: 'approve.verification_passed', message: verification.summary, data: verification });
   return { ok: true };
 }
+
+// Request changes at the review gate → start a new revision round (loop engineering). Records the
+// human feedback, bumps the issue's round, returns it to 'todo', and re-dispatches plan→implement→qa
+// on the SAME branch/worktree (no cleanup — round N builds on round N-1's commits). The round-scoped
+// run queries make the re-dispatch re-run every phase cold instead of skipping completed ones.
+issueRoutes.post('/:id/request-changes', async (c) => {
+  const issue = getIssue(c.req.param('id'));
+  if (!issue) return c.json({ ok: false, reason: 'not found' }, 404);
+  if (issue.status !== 'review') {
+    return c.json({ ok: false, reason: `issue is ${issue.status}, not awaiting review` }, 409);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { feedback?: unknown };
+  const feedback = typeof body.feedback === 'string' ? body.feedback.trim() : '';
+  if (!feedback) return c.json({ ok: false, reason: 'feedback is required' }, 400);
+
+  const nextRound = issue.round + 1;
+  addRevision(issue.id, nextRound, feedback);
+  setRound(issue.id, nextRound);
+  setStatus(issue.id, 'todo'); // active status so the re-dispatch (or auto poll) picks it up
+  appendEvent({
+    issue_id: issue.id,
+    kind: 'review.changes_requested',
+    message: `changes requested — starting round ${nextRound}`,
+    data: { round: nextRound, feedback: feedback.slice(0, 500) },
+  });
+  const dispatch = getOrchestrator().runNow(issue.id);
+  return c.json({ ok: true, round: nextRound, dispatched: dispatch.ok, reason: dispatch.reason }, 202);
+});
 
 async function cleanupIssueResources(
   issue: Issue,

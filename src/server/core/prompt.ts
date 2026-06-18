@@ -20,6 +20,10 @@ export interface PromptContext {
   notes?: ProjectNote[];
   /** Explicit context snapshots from predecessor stories in this issue chain. */
   storyContext?: StoryReferenceContext[];
+  /** Current revision round (1 = first build, 2+ = re-run after the human requested changes). */
+  round?: number;
+  /** The human's "request changes" feedback driving this round (round >= 2). */
+  revisionFeedback?: string | null;
 }
 
 /** Append optional per-repo policy guidance (from WORKFLOW.md) to a phase prompt. */
@@ -44,6 +48,19 @@ function issueBrief(ctx: PromptContext): string {
   ];
   if (issue.acceptance_criteria?.trim()) {
     lines.push(``, `## Acceptance criteria`, issue.acceptance_criteria.trim());
+  }
+  // Multi-round loop engineering: when a human requested changes at the review gate, this is the
+  // most important instruction for the round — surface it prominently, above project context.
+  if (ctx.revisionFeedback?.trim()) {
+    lines.push(
+      ``,
+      `## Revision requested (round ${ctx.round ?? 2})`,
+      `A human reviewed the previous round and asked for changes. This is a NEW round of work on the` +
+        ` SAME branch and worktree — build on the existing commits, do not start over. Treat the` +
+        ` feedback below as the top priority, then re-confirm the original acceptance criteria still hold:`,
+      ``,
+      ctx.revisionFeedback.trim().slice(0, 4_000),
+    );
   }
   if (project.context?.trim()) {
     lines.push(``, `## Project context`, project.context.trim());
