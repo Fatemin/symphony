@@ -207,6 +207,11 @@ export interface Snapshot {
   poll_interval_ms: number;
   wip_limit: number;
   enabled: boolean;
+  /**
+   * Set while the whole queue is paused (e.g. an agent quota limit); `null` when running
+   * normally. New dispatches are blocked until `until`, but a manual Run overrides it per-issue.
+   */
+  suspended: { until: number; reason: string | null } | null;
 }
 
 /**
