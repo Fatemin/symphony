@@ -22,6 +22,15 @@
   --color-subtle: #475569;
   /* accent is theme-independent */
   --color-accent: #6366f1;
+  /* status + priority label accents (SYM-5): dark keeps the original -300/-400 shades; the light
+     block below darkens them to -600/-700 so the colored pills/labels stay legible on white. */
+  --color-todo: #7dd3fc;
+  --color-progress: #fcd34d;
+  --color-review: #c4b5fd;
+  --color-done: #6ee7b7;
+  --color-urgent: #f87171;
+  --color-high: #fdba74;
+  --color-medium: #fde047;
 }
 
 /* Light overrides. Higher specificity than Tailwind's :root theme block — the (0,2,0)
@@ -37,6 +46,14 @@
   --color-fg: #1e293b;
   --color-muted: #64748b;
   --color-subtle: #94a3b8;
+  /* SYM-5: darker label accents (-600/-700) so status pills / priority labels read on white */
+  --color-todo: #0284c7;
+  --color-progress: #d97706;
+  --color-review: #7c3aed;
+  --color-done: #059669;
+  --color-urgent: #dc2626;
+  --color-high: #ea580c;
+  --color-medium: #a16207;
 }
 
 html,

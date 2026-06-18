@@ -110,7 +110,7 @@ const RUN_STATUS_CLASS: Record<RunStatus, string> = {
   failed: 'bg-red-500/15 text-red-300',
   timeout: 'bg-red-500/15 text-red-300',
   stalled: 'bg-orange-500/15 text-orange-300',
-  cancelled: 'bg-slate-500/15 text-slate-400',
+  cancelled: 'bg-slate-500/15 text-muted',
 };
 
 /** Seconds spanned by an issue's runs (first start → last end); 0 while still open. */
@@ -161,7 +161,7 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
     <Panel>
       <SectionHeader icon={<History className="h-3.5 w-3.5" />} title="History" count={visible.length} />
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-[#262b38] px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         <Input
           placeholder="Search issue / title…"
           value={search}
@@ -202,7 +202,7 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
       {visible.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="text-left text-[11px] uppercase tracking-wide text-slate-600">
+            <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-2 font-medium">Issue</th>
                 <th className="px-4 py-2 font-medium">Project</th>
@@ -218,13 +218,13 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
             </thead>
             <tbody>
               {visible.map((r) => (
-                <tr key={r.issue_id} className="border-t border-[#262b38]">
+                <tr key={r.issue_id} className="border-t border-border">
                   <td className="px-4 py-2">
                     <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
-                    <span className="ml-2 text-slate-400">{r.title}</span>
+                    <span className="ml-2 text-muted">{r.title}</span>
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs text-slate-500">{r.project_key}</td>
-                  <td className="px-4 py-2 text-slate-400">{r.type}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-muted">{r.project_key}</td>
+                  <td className="px-4 py-2 text-muted">{r.type}</td>
                   <td className="px-4 py-2">
                     <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
                   </td>
@@ -234,14 +234,14 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
                         {r.last_phase ? `${r.last_phase} · ${r.last_status}` : r.last_status}
                       </Badge>
                     ) : (
-                      <span className="text-slate-600">—</span>
+                      <span className="text-subtle">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-slate-400">{r.attempts}</td>
-                  <td className="px-4 py-2 text-slate-400">{r.num_turns}</td>
-                  <td className="px-4 py-2 text-slate-400">{r.total_tokens.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-slate-400">{r.ended_at ? fmtDuration(durationSecs(r)) : '—'}</td>
-                  <td className="px-4 py-2 text-slate-500">{r.ended_at ? relativeTime(r.ended_at) : '—'}</td>
+                  <td className="px-4 py-2 text-muted">{r.attempts}</td>
+                  <td className="px-4 py-2 text-muted">{r.num_turns}</td>
+                  <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-muted">{r.ended_at ? fmtDuration(durationSecs(r)) : '—'}</td>
+                  <td className="px-4 py-2 text-muted">{r.ended_at ? relativeTime(r.ended_at) : '—'}</td>
                 </tr>
               ))}
             </tbody>
