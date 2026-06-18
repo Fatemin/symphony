@@ -16,6 +16,7 @@ import {
   updateRunUsage,
 } from '../repo/runs';
 import { listRecentNotes, noteFromReport, recordIssueNote } from '../repo/notes';
+import { getRevision } from '../repo/revisions';
 import { listStoryReferenceContexts } from '../repo/issueRelations';
 import { listTasks } from '../repo/tasks';
 import { appendEvent, type EventWithCursor } from '../repo/events';
@@ -99,19 +100,25 @@ export async function runIssuePipeline(
   const fresh = getIssue(issueId)!; // re-read with branch fields + in_progress status
   const objectiveVerification = projectConfig.verification.commands.length > 0;
 
+  // Multi-round revisions (§ loop engineering): every skip/resume/failure query is scoped to the
+  // current round so round N re-runs plan→implement→qa cold on top of round N-1's commits. Round 1
+  // has no revision; round >= 2 carries the human's "request changes" feedback into every phase.
+  const round = fresh.round;
+  const revisionFeedback = round > 1 ? getRevision(issueId, round)?.feedback ?? null : null;
+
   // Cross-run memory: why the last attempt failed + distilled learnings from past issues.
-  const failure = attempt > 1 ? lastFailure(issueId) : null;
+  const failure = attempt > 1 ? lastFailure(issueId, round) : null;
   const notes = listRecentNotes(project.id);
   const storyContext = listStoryReferenceContexts(issueId);
-  let implementReport: string | null = latestSuccessfulRun(issueId, 'implement')?.report ?? null;
+  let implementReport: string | null = latestSuccessfulRun(issueId, 'implement', round)?.report ?? null;
 
   for (const phase of PHASE_ORDER) {
     if (opts.signal?.aborted) return fail(issueId, phase, 'aborted', opts);
 
-    const skipped = skipCompletedPhase(issueId, phase);
+    const skipped = skipCompletedPhase(issueId, phase, round);
     if (skipped) {
       if (phase === 'implement') {
-        implementReport = latestSuccessfulRun(issueId, 'implement')?.report ?? implementReport;
+        implementReport = latestSuccessfulRun(issueId, 'implement', round)?.report ?? implementReport;
       }
       emit(opts, {
         issue_id: issueId,
@@ -122,8 +129,8 @@ export async function runIssuePipeline(
       continue;
     }
 
-    const resumeSessionId = resumeSessionIdFor(issueId, phase);
-    const run = createRun(issueId, phase, attempt);
+    const resumeSessionId = resumeSessionIdFor(issueId, phase, round);
+    const run = createRun(issueId, phase, attempt, round);
     emit(opts, { issue_id: issueId, run_id: run.id, kind: 'phase.start', message: `${phase} started`, data: { phase } });
 
     const ctx: PhaseContext = {
@@ -143,6 +150,8 @@ export async function runIssuePipeline(
       storyContext,
       resumeSessionId,
       implementReport: phase === 'qa' ? implementReport : null,
+      round,
+      revisionFeedback,
     };
 
     let outcome: PhaseOutcome;
@@ -275,14 +284,15 @@ function emit(
   opts.onEvent?.(row);
 }
 
-function skipCompletedPhase(issueId: string, phase: RunPhase): string | null {
-  const latest = latestRun(issueId, phase);
+function skipCompletedPhase(issueId: string, phase: RunPhase, round: number): string | null {
+  const latest = latestRun(issueId, phase, round);
   if (!latest || latest.status !== 'succeeded') return null;
   if (phase === 'plan') {
+    // Round-scoped: a new round has no round-N plan run yet, so this returns null and plan re-runs.
     return listTasks(issueId).length > 0 ? 'previous successful plan with persisted tasks' : null;
   }
   if (phase === 'implement') {
-    const qa = latestRun(issueId, 'qa');
+    const qa = latestRun(issueId, 'qa', round);
     if (qa && qa.started_at > latest.started_at && qa.status === 'failed' && isQaVerdictFailure(qa.error)) {
       return null;
     }
@@ -291,10 +301,10 @@ function skipCompletedPhase(issueId: string, phase: RunPhase): string | null {
   return 'previous successful QA';
 }
 
-function resumeSessionIdFor(issueId: string, phase: RunPhase): string | null {
-  const latest = latestRun(issueId, phase);
+function resumeSessionIdFor(issueId: string, phase: RunPhase, round: number): string | null {
+  const latest = latestRun(issueId, phase, round);
   if (latest?.status === 'succeeded') return null;
-  return lastSessionId(issueId, phase);
+  return lastSessionId(issueId, phase, round);
 }
 
 function isQaVerdictFailure(error: string | null): boolean {

@@ -28,6 +28,7 @@ interface IssueRow {
   base_branch: string | null;
   branch_name: string | null;
   worktree_path: string | null;
+  round: number;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +58,7 @@ function mapRow(r: IssueRow): Issue {
     base_branch: r.base_branch,
     branch_name: r.branch_name,
     worktree_path: r.worktree_path,
+    round: r.round,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -224,6 +226,19 @@ export function updateIssue(id: string, patch: UpdateIssueInput): Issue | null {
 /** Convenience: set status + bump updated_at. */
 export function setStatus(id: string, status: IssueStatus): Issue | null {
   return updateIssue(id, { status });
+}
+
+/**
+ * Set the revision round. Deliberately NOT part of the UPDATABLE PATCH whitelist — only the
+ * request-changes flow may advance the round, so clients can't set it via PATCH /:id.
+ */
+export function setRound(id: string, round: number): Issue | null {
+  getDb()
+    .prepare(
+      `UPDATE issues SET round = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+    )
+    .run(round, id);
+  return getIssue(id);
 }
 
 export function isActive(status: IssueStatus): boolean {

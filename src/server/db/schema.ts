@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS issues (
   base_branch         TEXT,
   branch_name         TEXT,
   worktree_path       TEXT,
+  round               INTEGER NOT NULL DEFAULT 1,  -- current revision round (1 = first build, 2+ = re-review changes)
   created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,
   issue_id      TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   attempt       INTEGER NOT NULL DEFAULT 1,
+  round         INTEGER NOT NULL DEFAULT 1,  -- which revision round produced this run (skip/resume are scoped to it)
   phase         TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'running',
   session_id    TEXT,
@@ -94,6 +96,17 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 CREATE INDEX IF NOT EXISTS idx_runs_issue ON runs(issue_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+
+-- Per-round revision feedback: the user's "request changes" note that kicks off round N (N >= 2).
+-- One row per round transition; round 1 (the first build) never has a revision.
+CREATE TABLE IF NOT EXISTS issue_revisions (
+  id         TEXT PRIMARY KEY,
+  issue_id   TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  round      INTEGER NOT NULL,
+  feedback   TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_revisions_issue ON issue_revisions(issue_id, round);
 
 CREATE TABLE IF NOT EXISTS issue_plan_context (
   issue_id    TEXT PRIMARY KEY REFERENCES issues(id) ON DELETE CASCADE,

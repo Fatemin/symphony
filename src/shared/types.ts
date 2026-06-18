@@ -62,8 +62,19 @@ export interface Issue {
   base_branch: string | null;
   branch_name: string | null;
   worktree_path: string | null;
+  /** Current revision round: 1 = first build, 2+ = re-run after a human requested changes at review. */
+  round: number;
   created_at: string;
   updated_at: string;
+}
+
+/** A human "request changes" note at the review gate that starts a new revision round. */
+export interface IssueRevision {
+  id: string;
+  issue_id: string;
+  round: number; // the round this feedback kicks off (>= 2)
+  feedback: string;
+  created_at: string;
 }
 
 export type IssueRelationType = 'follow_up' | 'relates_to';
@@ -135,6 +146,8 @@ export interface Run {
   id: string;
   issue_id: string;
   attempt: number;
+  /** Revision round that produced this run — skip/resume queries are scoped to it. */
+  round: number;
   phase: RunPhase;
   status: RunStatus;
   session_id: string | null;
