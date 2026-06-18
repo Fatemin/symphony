@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, GitBranch, MonitorPlay, Play, Plus, Square, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, MonitorPlay, Play, Plus, Square, XCircle } from 'lucide-react';
 import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
@@ -19,13 +19,30 @@ export function IssueDetail() {
     queryFn: () => api.issues.get(id!),
     refetchInterval: (q) => (isRunning(q.state.data?.status) ? 2000 : false),
   });
+  // The orchestrator snapshot is the only authority on whether THIS issue is actually executing a
+  // phase vs. merely parked in the retry queue (e.g. behind a global quota suspension) — status
+  // alone can't tell them apart, both stay `in_progress`. Poll while the issue isn't terminal.
+  const { data: snap } = useQuery({
+    queryKey: ['snapshot'],
+    queryFn: api.ops.snapshot,
+    enabled: !!issue,
+    refetchInterval: issue && isRunning(issue.status) ? 2000 : false,
+  });
 
   if (!issue) return <div className="p-8 text-sm text-muted">Loading…</div>;
+
+  const runningNow = snap ? snap.running.some((r) => r.issue_id === issue.id) : isRunning(issue.status);
+  const retry = snap?.retrying.find((r) => r.issue_id === issue.id) ?? null;
+  const suspended = snap?.suspended ?? null;
+  // "Parked": in_progress on paper but not actually running — queued for retry or stuck behind a
+  // global pause. This is exactly the state where the Run button must work as a manual override.
+  const parked = isRunning(issue.status) && !runningNow;
 
   return (
     <div className="mx-auto grid max-w-6xl grid-cols-3 gap-6 p-6">
       <div className="col-span-2 space-y-5">
-        <Header issue={issue} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
+        <Header issue={issue} runningNow={runningNow} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
+        {(retry || (suspended && parked)) && <QueueStatusBanner retry={retry} suspended={suspended} />}
         <RelationsPanel issue={issue} />
         {(issue.status === 'review' || issue.status === 'done') && <ReviewPanel issue={issue} />}
         <Body issue={issue} onSaved={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
@@ -41,7 +58,43 @@ export function IssueDetail() {
 
 const isRunning = (s?: IssueStatus) => s === 'in_progress';
 
-function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
+/**
+ * Shown when an issue looks `in_progress` but is actually parked — queued for retry, and/or held
+ * behind a global queue pause (e.g. an agent quota limit). Explains why nothing is moving and that
+ * the Run button overrides the pause for this one issue.
+ */
+function QueueStatusBanner({
+  retry,
+  suspended,
+}: {
+  retry: { attempt: number; due_at: number; error: string | null } | null;
+  suspended: { until: number; reason: string | null } | null;
+}) {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+      <div className="flex items-center gap-2 text-amber-300">
+        <Clock className="h-4 w-4 shrink-0" />
+        {retry ? (
+          <span>
+            Queued for retry — attempt {retry.attempt}, due {relativeTime(retry.due_at)}.
+          </span>
+        ) : (
+          <span>Queue paused until {new Date(suspended!.until).toLocaleString()}.</span>
+        )}
+      </div>
+      {suspended ? (
+        <p className="mt-1 text-xs text-muted">
+          Orchestrator paused{suspended.reason ? ` — ${suspended.reason}` : ''}. Run dispatches this issue now,
+          overriding the pause.
+        </p>
+      ) : (
+        retry?.error && <p className="mt-1 text-xs text-red-400/80">{retry.error}</p>
+      )}
+    </div>
+  );
+}
+
+function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: boolean; onChange: () => void }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [approveOpen, setApproveOpen] = useState(false);
@@ -53,7 +106,13 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
   });
   const run = useMutation({
     mutationFn: () => api.issues.run(issue.id),
-    onSuccess: (r) => (r.ok ? toast.success('Dispatched') : toast.error(r.reason ?? 'Could not run')),
+    onSuccess: (r) => {
+      if (!r.ok) return toast.error(r.reason ?? 'Could not run');
+      toast.success('Dispatched');
+      // Reflect the new running state immediately instead of waiting for the next poll.
+      qc.invalidateQueries({ queryKey: ['snapshot'] });
+      qc.invalidateQueries({ queryKey: ['issue', issue.id] });
+    },
     onError: (e) => toast.error(String(e)),
   });
   const approve = useMutation({
@@ -111,8 +170,8 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
               </Button>
             </>
           ) : !terminal ? (
-            <Button variant="primary" disabled={isRunning(issue.status) || run.isPending} onClick={() => run.mutate()}>
-              {isRunning(issue.status) ? <Spinner /> : <Play className="h-4 w-4" />} Run
+            <Button variant="primary" disabled={runningNow || run.isPending} onClick={() => run.mutate()}>
+              {runningNow || run.isPending ? <Spinner /> : <Play className="h-4 w-4" />} Run
             </Button>
           ) : issue.status === 'done' ? (
             <Button variant="primary" onClick={() => setFollowUpOpen((v) => !v)}>

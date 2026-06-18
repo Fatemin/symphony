@@ -77,12 +77,28 @@ export class Orchestrator {
     const issue = getIssue(issueId);
     if (!issue) return { ok: false, reason: 'issue not found' };
     if (isTerminal(issue.status)) return { ok: false, reason: `issue is ${issue.status}` };
-    if (this.state.running.has(issueId) || this.state.isClaimed(issueId)) {
-      return { ok: false, reason: 'already running or queued' };
-    }
+    // A live agent can't be double-dispatched. A merely *claimed* issue (one parked in the retry
+    // queue, e.g. behind a global quota suspension) is NOT a blocker — see below.
+    if (this.state.running.has(issueId)) return { ok: false, reason: 'already running' };
     if (this.availableSlots(this.getConfig()) <= 0) {
       return { ok: false, reason: 'no free slots — raise the WIP limit or wait' };
     }
+    // A queued retry holds the claim and would otherwise leave a failed issue un-reactivatable
+    // until its timer fires (a quota failure schedules a retry that just waits out the suspension).
+    // A manual Run is an explicit human override: supersede that pending retry and dispatch now.
+    // dispatch() ignores `suspendedUntil`, so ONLY this issue runs — the queue stays paused for
+    // every other issue, so a single override never re-trips the quota for the whole backlog.
+    const queued = this.state.retry.get(issueId);
+    if (queued) {
+      cancelRetry(this.state, issueId);
+      appendEvent({
+        issue_id: issueId,
+        kind: 'orchestrator.dispatch',
+        message: 'manual run superseded a queued retry',
+        data: { superseded_attempt: queued.attempt, suspended: this.state.suspendedUntil != null },
+      });
+    }
+    this.state.release(issueId); // drop any stale claim left by the superseded retry
     // Move into an active status so reconciliation won't immediately abort it.
     if (!isActive(issue.status)) setStatus(issueId, 'todo');
     this.dispatch(getIssue(issueId)!, 1);

@@ -112,6 +112,12 @@ export class RuntimeState {
       poll_interval_ms: pollIntervalMs,
       wip_limit: wipLimit,
       enabled,
+      // Only report a suspension that is still in effect; the timer is cleared lazily (in tick/
+      // onRetryDue), so `suspendedUntil` may linger in the past until the next loop pass.
+      suspended:
+        this.suspendedUntil && this.suspendedUntil > now
+          ? { until: this.suspendedUntil, reason: this.suspendedReason }
+          : null,
     };
   }
 }

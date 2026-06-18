@@ -172,3 +172,38 @@ test('quota failures pause and retry without consuming attempts', async () => {
 
   orch.stop();
 });
+
+test('runNow supersedes a queued quota retry and dispatches past the suspension', async () => {
+  const project = createProject({ name: 'Override', key: 'OV', repo_path: env.repoPath });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Stuck behind quota',
+    status: 'todo',
+    mode: 'manual',
+  });
+
+  // A long quota window: the auto-resume timer won't fire during the test, so only a manual
+  // override can get the issue moving again.
+  const orch = new Orchestrator({
+    tracker: localTracker,
+    runner: makeFakeRunner({ quotaOncePhase: 'plan', quotaRetryAfterMs: 60_000, qa: 'pass' }),
+    getConfig: () => getConfig(),
+  });
+
+  // First manual run trips the quota error → global suspension + a retry that keeps the issue
+  // claimed. The snapshot exposes both.
+  assert.equal(orch.runNow(issue.id).ok, true);
+  await waitFor(() => orch.snapshot().retrying.some((r) => r.issue_id === issue.id), 8000);
+  assert.ok(orch.snapshot().suspended, 'queue should report a suspension after a quota error');
+
+  // Before the fix this returned { ok: false, reason: 'already running or queued' } and the issue
+  // sat until the 60s timer expired. The manual override must supersede the retry and run now —
+  // without unpausing the queue.
+  const res = orch.runNow(issue.id);
+  assert.equal(res.ok, true, res.reason);
+
+  await waitFor(() => getIssue(issue.id)!.status === 'review', 8000);
+  assert.equal(orch.snapshot().retrying.length, 0, 'the superseded retry should be gone');
+
+  orch.stop();
+});
