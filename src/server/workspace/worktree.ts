@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { sanitizeWorkspaceKey } from '../core/keys';
+import { newId, sanitizeWorkspaceKey } from '../core/keys';
 import type { CommitGuardConfig } from '../core/projectConfig';
 import { log } from '../observability/logger';
 import { branchExists, currentBranch, git, gitOrThrow, isGitRepo } from './git';
@@ -504,56 +505,217 @@ export interface MergeResult {
   ok: boolean;
   reason?: string;
   commit?: string;
+  resolved_conflicts?: boolean;
+  conflicted_files?: string[];
+  report?: string;
+}
+
+export interface MergeConflictResolverInput {
+  checkoutPath: string;
+  base: string;
+  branch: string;
+  message: string;
+  conflictedFiles: string[];
+  mergeOutput: string;
+}
+
+export interface MergeConflictResolverResult {
+  ok: boolean;
+  reason?: string;
+  report?: string;
+}
+
+export type MergeConflictResolver = (
+  input: MergeConflictResolverInput,
+) => Promise<MergeConflictResolverResult>;
+
+export type MergeVerifier = (checkoutPath: string) => Promise<{ ok: boolean; reason?: string }>;
+
+export interface MergeAgentBranchOptions {
+  resolver?: MergeConflictResolver;
+  verify?: MergeVerifier;
 }
 
 /**
- * Merge an agent branch into its base in the main repo (the review-approval action). Safe by
- * construction: relies on git's own clobber protection — uncommitted changes that don't overlap
- * the branch's diff survive the merge untouched, and git refuses (naming the files) when they
- * do overlap. A dirty tree only hard-blocks when the base isn't checked out, because switching
- * branches would carry the dirt across. Aborts cleanly on conflict and restores the repo's
- * originally checked-out branch afterward so approving doesn't move the user's HEAD.
+ * Merge an agent branch into its base for the review-approval action. The integration is built
+ * in a temporary branch + worktree first, so conflicts can be resolved and verified before the
+ * target branch moves. The user's current checkout is touched only for the final fast-forward
+ * when that checkout is the target branch; otherwise we update the target ref directly.
  */
 export async function mergeAgentBranch(
   repoPath: string,
   base: string,
   branch: string,
   message: string,
+  opts: MergeAgentBranchOptions = {},
 ): Promise<MergeResult> {
   if (!(await isGitRepo(repoPath))) return { ok: false, reason: 'project repo is not a git repository' };
   if (!(await branchExists(repoPath, branch))) return { ok: false, reason: `branch ${branch} not found` };
+  if (!(await branchExists(repoPath, base))) return { ok: false, reason: `base branch ${base} not found` };
 
   const original = await currentBranch(repoPath); // null when detached
+  const baseStart = await git(['rev-parse', base], repoPath);
+  if (!baseStart.ok) return { ok: false, reason: `could not inspect ${base}: ${baseStart.stderr.trim() || baseStart.stdout.trim()}` };
 
-  const status = await git(['status', '--porcelain'], repoPath);
-  const dirty = status.ok && status.stdout.trim() !== '';
-  if (dirty && original !== base) {
+  const tempBranch = `symphony/integration/${sanitizeWorkspaceKey(branch).replaceAll('/', '-')}-${newId()}`;
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'symphony-merge-'));
+  let keepTempBranch = false;
+  try {
+    const create = await git(['branch', tempBranch, base], repoPath);
+    if (!create.ok) return { ok: false, reason: `could not create integration branch: ${create.stderr.trim() || create.stdout.trim()}` };
+    const add = await git(['worktree', 'add', tempRoot, tempBranch], repoPath);
+    if (!add.ok) return { ok: false, reason: `could not create integration worktree: ${add.stderr.trim() || add.stdout.trim()}` };
+
+    const integrated = await mergeInCheckout(tempRoot, base, branch, message, opts);
+    if (!integrated.ok) return integrated;
+
+    if (opts.verify) {
+      const verification = await opts.verify(tempRoot);
+      if (!verification.ok) {
+        return {
+          ok: false,
+          reason: verification.reason ?? 'post-merge verification failed',
+          resolved_conflicts: integrated.resolved_conflicts,
+          conflicted_files: integrated.conflicted_files,
+          report: integrated.report,
+        };
+      }
+    }
+
+    const apply = await applyIntegratedBranch(repoPath, base, tempBranch, baseStart.stdout.trim(), original);
+    if (!apply.ok) {
+      keepTempBranch = true;
+      return {
+        ok: false,
+        reason: `${apply.reason} — resolved integration is available on ${tempBranch}`,
+        resolved_conflicts: integrated.resolved_conflicts,
+        conflicted_files: integrated.conflicted_files,
+        report: integrated.report,
+      };
+    }
+    return {
+      ok: true,
+      commit: apply.commit,
+      resolved_conflicts: integrated.resolved_conflicts,
+      conflicted_files: integrated.conflicted_files,
+      report: integrated.report,
+    };
+  } finally {
+    await removeWorktree(repoPath, tempRoot);
+    if (!keepTempBranch) await git(['branch', '-D', tempBranch], repoPath);
+  }
+}
+
+async function mergeInCheckout(
+  checkoutPath: string,
+  base: string,
+  branch: string,
+  message: string,
+  opts: MergeAgentBranchOptions,
+): Promise<MergeResult> {
+  const merge = await git(['merge', '--no-ff', branch, '-m', message], checkoutPath);
+  if (merge.ok) return { ok: true };
+
+  const mergeOutput = merge.stderr.trim() || merge.stdout.trim();
+  const conflictedFiles = await listConflictedFiles(checkoutPath);
+  if (conflictedFiles.length === 0 || !opts.resolver) {
+    await git(['merge', '--abort'], checkoutPath);
+    return { ok: false, reason: `merge failed — resolve manually: ${mergeOutput}` };
+  }
+
+  const resolved = await opts.resolver({
+    checkoutPath,
+    base,
+    branch,
+    message,
+    conflictedFiles,
+    mergeOutput,
+  });
+  if (!resolved.ok) {
+    await git(['merge', '--abort'], checkoutPath);
     return {
       ok: false,
-      reason: `repo at ${repoPath} has uncommitted changes and ${base} is not checked out — commit/stash them or merge manually`,
+      reason: resolved.reason ?? 'conflict resolver failed',
+      conflicted_files: conflictedFiles,
+      report: resolved.report,
     };
   }
 
-  if (original !== base) {
-    const co = await git(['checkout', base], repoPath);
-    if (!co.ok) return { ok: false, reason: `could not switch to ${base}: ${co.stderr.trim() || co.stdout.trim()}` };
+  const markerFiles = filesWithConflictMarkers(checkoutPath, conflictedFiles);
+  if (markerFiles.length > 0) {
+    await git(['merge', '--abort'], checkoutPath);
+    return {
+      ok: false,
+      reason: `conflict resolver left conflict markers in: ${markerFiles.join(', ')}`,
+      conflicted_files: markerFiles,
+      report: resolved.report,
+    };
   }
 
-  const restore = async () => {
-    if (original && original !== base) await git(['checkout', original], repoPath);
-  };
+  const add = await git(['add', '-A'], checkoutPath);
+  if (!add.ok) {
+    await git(['merge', '--abort'], checkoutPath);
+    return { ok: false, reason: `could not stage resolved conflicts: ${add.stderr.trim() || add.stdout.trim()}`, conflicted_files: conflictedFiles, report: resolved.report };
+  }
+  const remaining = await listConflictedFiles(checkoutPath);
+  if (remaining.length > 0) {
+    await git(['merge', '--abort'], checkoutPath);
+    return {
+      ok: false,
+      reason: `conflict resolver left unresolved files: ${remaining.join(', ')}`,
+      conflicted_files: remaining,
+      report: resolved.report,
+    };
+  }
+  const commit = await git(['commit', '--no-edit'], checkoutPath);
+  if (!commit.ok) {
+    await git(['merge', '--abort'], checkoutPath);
+    return { ok: false, reason: `could not commit resolved merge: ${commit.stderr.trim() || commit.stdout.trim()}`, conflicted_files: conflictedFiles, report: resolved.report };
+  }
+  return { ok: true, resolved_conflicts: true, conflicted_files: conflictedFiles, report: resolved.report };
+}
 
-  const merge = await git(['merge', '--no-ff', branch, '-m', message], repoPath);
-  if (!merge.ok) {
-    // If the merge never started (e.g. git's clobber protection refused), abort is a no-op.
-    await git(['merge', '--abort'], repoPath);
-    await restore();
-    return { ok: false, reason: `merge failed — resolve manually: ${merge.stderr.trim() || merge.stdout.trim()}` };
+async function applyIntegratedBranch(
+  repoPath: string,
+  base: string,
+  integrationBranch: string,
+  expectedBaseSha: string,
+  originalBranch: string | null,
+): Promise<MergeResult> {
+  const currentBase = await git(['rev-parse', base], repoPath);
+  if (!currentBase.ok) return { ok: false, reason: `could not inspect ${base}: ${currentBase.stderr.trim() || currentBase.stdout.trim()}` };
+  if (currentBase.stdout.trim() !== expectedBaseSha) {
+    return { ok: false, reason: `${base} moved while integration was running — retry approval` };
   }
 
+  const apply = originalBranch === base
+    ? await git(['merge', '--ff-only', integrationBranch], repoPath)
+    : await git(['branch', '-f', base, integrationBranch], repoPath);
+  if (!apply.ok) {
+    return { ok: false, reason: `could not apply integrated result to ${base}: ${apply.stderr.trim() || apply.stdout.trim()}` };
+  }
   const head = await git(['rev-parse', '--short', base], repoPath);
-  await restore();
   return { ok: true, commit: head.ok ? head.stdout.trim() : undefined };
+}
+
+async function listConflictedFiles(worktreePath: string): Promise<string[]> {
+  const result = await git(['diff', '--name-only', '--diff-filter=U'], worktreePath);
+  if (!result.ok) return [];
+  return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function filesWithConflictMarkers(worktreePath: string, files: string[]): string[] {
+  const out: string[] = [];
+  for (const file of files) {
+    const full = path.join(worktreePath, file);
+    try {
+      if (!fs.statSync(full).isFile()) continue;
+      if (/^(<<<<<<<|=======|>>>>>>>)/m.test(fs.readFileSync(full, 'utf8'))) out.push(file);
+    } catch {
+      /* deleted or binary file */
+    }
+  }
+  return out;
 }
 
 export interface DeleteBranchResult {

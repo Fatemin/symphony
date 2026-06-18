@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import { Hono } from 'hono';
 import type { Issue } from '../../../shared/types';
+import { runClaudeCode } from '../../agent/claudeRunner';
+import type { AgentEvent } from '../../agent/types';
 import {
   createIssue,
   deleteIssue,
@@ -12,12 +14,23 @@ import {
 import { mergeProjectConfigs } from '../../core/projectConfig';
 import { loadWorkflow } from '../../core/workflow';
 import { getProject, updateProject } from '../../repo/projects';
+import { getConfig as readEngineConfig } from '../../repo/settings';
 import { listTasks } from '../../repo/tasks';
 import { listRuns } from '../../repo/runs';
 import { appendEvent, listEvents } from '../../repo/events';
 import { createFollowUpIssue, listIssueRelations } from '../../repo/issueRelations';
 import { promoteViaPullRequest } from '../../workspace/promotion';
-import { deleteBranch, ensureBranch, getBranchDiff, mergeAgentBranch, pushBranch, removeWorktree } from '../../workspace/worktree';
+import { runVerificationCommands } from '../../workspace/verification';
+import {
+  deleteBranch,
+  ensureBranch,
+  getBranchDiff,
+  mergeAgentBranch,
+  pushBranch,
+  removeWorktree,
+  type MergeAgentBranchOptions,
+  type MergeConflictResolverInput,
+} from '../../workspace/worktree';
 import { DEFAULT_PREVIEW_COMMAND, getPreview, startPreview, stopPreview } from '../../preview/manager';
 import { getOrchestrator } from '../../orchestrator/orchestrator';
 
@@ -211,9 +224,10 @@ issueRoutes.post('/:id/approve', async (c) => {
     targetBranch,
     issue.branch_name,
     `Merge ${issue.key}: ${issue.title}`,
+    mergeOptionsForApproval(issue, project, projectConfig, workflow),
   );
   if (!merge.ok) {
-    appendEvent({ issue_id: issue.id, kind: 'approve.failed', level: 'error', message: merge.reason ?? 'merge failed' });
+    appendEvent({ issue_id: issue.id, kind: 'approve.failed', level: 'error', message: merge.reason ?? 'merge failed', data: merge });
     return c.json(merge, 409);
   }
 
@@ -223,11 +237,160 @@ issueRoutes.post('/:id/approve', async (c) => {
   appendEvent({
     issue_id: issue.id,
     kind: 'approve.merged',
-    message: `approved — merged into ${targetBranch} (${merge.commit ?? '?'}) and marked done`,
-    data: { base: targetBranch, commit: merge.commit, created_branch: ensured.created, set_default_branch: setDefaultBranch },
+    message: merge.resolved_conflicts
+      ? `approved — resolved conflicts and merged into ${targetBranch} (${merge.commit ?? '?'})`
+      : `approved — merged into ${targetBranch} (${merge.commit ?? '?'}) and marked done`,
+    data: {
+      base: targetBranch,
+      commit: merge.commit,
+      created_branch: ensured.created,
+      set_default_branch: setDefaultBranch,
+      resolved_conflicts: merge.resolved_conflicts === true,
+      conflicted_files: merge.conflicted_files ?? [],
+    },
   });
   return c.json({ ok: true, commit: merge.commit, target_branch: targetBranch });
 });
+
+function mergeOptionsForApproval(
+  issue: Issue,
+  project: NonNullable<ReturnType<typeof getProject>>,
+  projectConfig: ReturnType<typeof mergeProjectConfigs>,
+  workflow: ReturnType<typeof loadWorkflow>,
+): MergeAgentBranchOptions {
+  return {
+    resolver: async (input) => resolveMergeConflicts(issue, project, projectConfig, workflow, input),
+    verify: projectConfig.verification.commands.length
+      ? async (checkoutPath) => verifyIntegratedMerge(issue.id, checkoutPath, projectConfig.verification.commands)
+      : undefined,
+  };
+}
+
+async function resolveMergeConflicts(
+  issue: Issue,
+  project: NonNullable<ReturnType<typeof getProject>>,
+  projectConfig: ReturnType<typeof mergeProjectConfigs>,
+  workflow: ReturnType<typeof loadWorkflow>,
+  input: MergeConflictResolverInput,
+) {
+  appendEvent({
+    issue_id: issue.id,
+    kind: 'approve.conflict',
+    level: 'warn',
+    message: `merge conflict in ${input.conflictedFiles.join(', ')}`,
+    data: { base: input.base, branch: input.branch, files: input.conflictedFiles, merge_output: input.mergeOutput },
+  });
+
+  const engineConfig = readEngineConfig();
+  const result = await runClaudeCode({
+    cwd: input.checkoutPath,
+    prompt: conflictPrompt(issue, project, input),
+    systemPrompt: 'You are Symphony conflict-resolution automation. Resolve the merge conflict completely, do not commit, and never ask the user questions.',
+    model: workflow?.model || project.model?.trim() || engineConfig.model,
+    permissionMode: workflow?.permission_mode ?? projectConfig.agent.permission_mode ?? engineConfig.permission_mode,
+    maxTurns:
+      workflow?.max_turns_by_phase?.implement ??
+      workflow?.max_turns ??
+      projectConfig.agent.max_turns_by_phase?.implement ??
+      projectConfig.agent.max_turns ??
+      engineConfig.max_turns,
+    timeoutMs: engineConfig.phase_timeout_ms,
+    cliPath: engineConfig.cli_path,
+  }, (event) => persistApproveAgentEvent(issue.id, event));
+
+  if (!result.ok) {
+    appendEvent({
+      issue_id: issue.id,
+      kind: 'approve.conflict_resolution_failed',
+      level: 'error',
+      message: result.error ?? 'conflict resolver failed',
+      data: { files: input.conflictedFiles, session_id: result.sessionId, report: result.text },
+    });
+    return { ok: false, reason: result.error ?? 'conflict resolver failed', report: result.text };
+  }
+
+  appendEvent({
+    issue_id: issue.id,
+    kind: 'approve.conflict_resolved',
+    message: `conflicts resolved in ${input.conflictedFiles.join(', ')}`,
+    data: { files: input.conflictedFiles, session_id: result.sessionId, report: result.text },
+  });
+  return { ok: true, report: result.text };
+}
+
+function persistApproveAgentEvent(issueId: string, event: AgentEvent): void {
+  if (event.type === 'text') return;
+  if (event.type === 'usage') {
+    appendEvent({ issue_id: issueId, kind: 'approve.agent_usage', level: 'debug', message: `${event.usage.total_tokens} tokens`, data: event.usage });
+  } else if (event.type === 'init') {
+    appendEvent({ issue_id: issueId, kind: 'approve.agent_init', message: `conflict resolver session ${event.sessionId.slice(0, 8)} (${event.model})`, data: event });
+  } else if (event.type === 'tool_use') {
+    appendEvent({
+      issue_id: issueId,
+      kind: 'approve.agent_tool',
+      message: `resolver: ${event.name} ${JSON.stringify(event.input ?? {}).slice(0, 200)}`,
+      data: { name: event.name },
+    });
+  } else if (event.type === 'tool_result') {
+    appendEvent({ issue_id: issueId, kind: 'approve.agent_tool_result', level: 'debug', message: event.text.slice(0, 300) });
+  } else if (event.type === 'error') {
+    appendEvent({ issue_id: issueId, kind: 'approve.agent_error', level: 'error', message: event.message });
+  }
+}
+
+function conflictPrompt(issue: Issue, project: NonNullable<ReturnType<typeof getProject>>, input: MergeConflictResolverInput): string {
+  return [
+    `Resolve the merge conflict for ${issue.key}: ${issue.title}.`,
+    '',
+    `Project: ${project.name} (${project.key})`,
+    `Target branch: ${input.base}`,
+    `Agent branch: ${input.branch}`,
+    `Integration worktree: ${input.checkoutPath}`,
+    '',
+    'Issue description:',
+    issue.description?.trim() || '_(none)_',
+    '',
+    'Acceptance criteria:',
+    issue.acceptance_criteria?.trim() || '_(none)_',
+    '',
+    'Merge output:',
+    input.mergeOutput,
+    '',
+    'Conflicted files:',
+    ...input.conflictedFiles.map((file) => `- ${file}`),
+    '',
+    'Instructions:',
+    '- Preserve the current target-branch behavior and the story implementation.',
+    '- Resolve every conflict marker in the conflicted files.',
+    '- Read nearby files when needed, but keep edits tightly scoped to the integration conflict.',
+    '- Do not commit; Symphony will stage and commit the merge after checking your work.',
+    '- Run lightweight checks when useful, and finish with a short summary of what you resolved.',
+  ].join('\n');
+}
+
+async function verifyIntegratedMerge(
+  issueId: string,
+  checkoutPath: string,
+  commands: ReturnType<typeof mergeProjectConfigs>['verification']['commands'],
+) {
+  appendEvent({ issue_id: issueId, kind: 'approve.verification_start', message: 'verifying integrated merge' });
+  const verification = await runVerificationCommands(checkoutPath, commands);
+  for (const command of verification.commands) {
+    appendEvent({
+      issue_id: issueId,
+      kind: command.ok ? 'approve.verification_command_passed' : 'approve.verification_command_failed',
+      level: command.ok ? 'info' : 'error',
+      message: `${command.command} ${command.ok ? 'passed' : 'failed'} (${command.duration_ms}ms)`,
+      data: command,
+    });
+  }
+  if (!verification.ok) {
+    appendEvent({ issue_id: issueId, kind: 'approve.verification_failed', level: 'error', message: verification.summary, data: verification });
+    return { ok: false, reason: verification.summary };
+  }
+  appendEvent({ issue_id: issueId, kind: 'approve.verification_passed', message: verification.summary, data: verification });
+  return { ok: true };
+}
 
 async function cleanupIssueResources(
   issue: Issue,

@@ -52,16 +52,50 @@ test('merge is refused when uncommitted changes overlap the branch diff', async 
   assert.match(fs.readFileSync(path.join(env.repoPath, 'README.md'), 'utf8'), /conflicting local edit/);
 });
 
-test('merge is refused when dirty and the base branch is not checked out', async () => {
+test('merge uses a temporary base worktree when the main repo is on another dirty branch', async () => {
   g('checkout', '--', 'README.md');
   makeBranch('agent/t3', 'feature3.txt', 'three\n');
   g('checkout', '-b', 'elsewhere');
   write('README.md', '# scratch repo\ndirty on another branch\n');
 
   const result = await mergeAgentBranch(env.repoPath, 'main', 'agent/t3', 'merge t3');
-  assert.equal(result.ok, false);
-  assert.match(result.reason ?? '', /not checked out/);
+  assert.equal(result.ok, true, result.reason);
+  assert.ok(result.commit, 'expected a merge commit hash');
+  assert.equal(g('branch', '--show-current').trim(), 'elsewhere');
+  assert.match(fs.readFileSync(path.join(env.repoPath, 'README.md'), 'utf8'), /dirty on another branch/);
+  assert.equal(g('show', 'main:feature3.txt'), 'three\n');
 
   g('checkout', '--', 'README.md');
   g('checkout', 'main');
+});
+
+test('merge resolver handles content conflicts in an integration worktree', async () => {
+  write('conflict.txt', 'title=base\n');
+  g('add', '-A');
+  g('commit', '-m', 'add conflict fixture');
+
+  g('checkout', '-b', 'agent/t4', 'main');
+  write('conflict.txt', 'title=agent story\n');
+  g('add', '-A');
+  g('commit', '-m', 'agent edits conflict fixture');
+  g('checkout', 'main');
+  write('conflict.txt', 'title=main sidebar\n');
+  g('add', '-A');
+  g('commit', '-m', 'main edits conflict fixture');
+
+  const result = await mergeAgentBranch(env.repoPath, 'main', 'agent/t4', 'merge t4', {
+    resolver: async ({ checkoutPath, conflictedFiles, mergeOutput }) => {
+      assert.deepEqual(conflictedFiles, ['conflict.txt']);
+      assert.match(mergeOutput, /CONFLICT/);
+      assert.match(fs.readFileSync(path.join(checkoutPath, 'conflict.txt'), 'utf8'), /<<<<<<<|>>>>>>>/);
+      fs.writeFileSync(path.join(checkoutPath, 'conflict.txt'), 'title=main sidebar + agent story\n');
+      return { ok: true, report: 'combined both edits' };
+    },
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.resolved_conflicts, true);
+  assert.deepEqual(result.conflicted_files, ['conflict.txt']);
+  assert.equal(result.report, 'combined both edits');
+  assert.equal(g('show', 'main:conflict.txt'), 'title=main sidebar + agent story\n');
 });
