@@ -4,6 +4,7 @@ import type {
   IssueRelation,
   IssueRelationMap,
   IssueTask,
+  OpsHistoryRow,
   Project,
   Run,
   Snapshot,
@@ -188,6 +189,8 @@ export const api = {
   },
   ops: {
     snapshot: () => req<Snapshot>('/api/ops/snapshot'),
+    history: (projectId?: string) =>
+      req<OpsHistoryRow[]>(`/api/ops/history${projectId ? `?project_id=${projectId}` : ''}`),
     kick: () => req<{ ok: boolean }>('/api/ops/snapshot/kick', { method: 'POST' }),
     getSettings: () => req<EngineConfig>('/api/ops/settings'),
     updateSettings: (data: Partial<EngineConfig>) =>

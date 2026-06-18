@@ -208,3 +208,27 @@ export interface Snapshot {
   wip_limit: number;
   enabled: boolean;
 }
+
+/**
+ * One row per issue that has been run at least once — the persisted history behind the Ops
+ * page (the live Snapshot only holds in-flight work). Token/turn totals are summed across all
+ * of the issue's runs; `last_status`/`last_phase` describe its most recent run.
+ */
+export interface OpsHistoryRow {
+  issue_id: string;
+  issue_key: string;
+  title: string;
+  type: IssueType;
+  status: IssueStatus; // current issue status
+  project_id: string;
+  project_key: string;
+  run_count: number;
+  attempts: number; // highest attempt number reached
+  total_tokens: number; // SUM across runs
+  num_turns: number; // SUM across runs
+  started_at: string | null; // MIN(run.started_at), ISO
+  ended_at: string | null; // MAX(run.ended_at), ISO — null while a run is still open
+  updated_at: string; // issue.updated_at, ISO
+  last_status: RunStatus | null; // most recent run's status
+  last_phase: RunPhase | null; // most recent run's phase
+}
