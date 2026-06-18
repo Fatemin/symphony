@@ -4,6 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import { log } from '../observability/logger';
 import type { RunPhase } from '../../shared/types';
 import type { PermissionMode } from './config';
+import type { ProjectConfigInput } from './projectConfig';
 
 /**
  * Optional per-repository policy (Symphony's "policy lives in the repo" principle). A target repo
@@ -17,6 +18,7 @@ export interface WorkflowPolicy {
   /** Per-phase caps (YAML: `max_turns: {implement: 150}`) — implement typically needs far more turns than qa. */
   max_turns_by_phase?: Partial<Record<RunPhase, number>>;
   prompts: { plan?: string; implement?: string; qa?: string };
+  config?: ProjectConfigInput;
 }
 
 const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
@@ -57,6 +59,7 @@ export function loadWorkflow(repoPath: string): WorkflowPolicy | null {
       implement: typeof prompts.implement === 'string' ? prompts.implement : undefined,
       qa: typeof prompts.qa === 'string' ? prompts.qa : undefined,
     },
+    config: workflowConfig(obj),
   };
 }
 
@@ -93,6 +96,14 @@ function coerceTurns(value: unknown): number | null {
   if (typeof value === 'string' && value.trim() === '') return null;
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function workflowConfig(obj: Record<string, unknown>): ProjectConfigInput | undefined {
+  const config: ProjectConfigInput = {};
+  if ('verification' in obj) config.verification = obj.verification as ProjectConfigInput['verification'];
+  if ('promotion' in obj) config.promotion = obj.promotion as ProjectConfigInput['promotion'];
+  if ('commit_guard' in obj) config.commit_guard = obj.commit_guard as ProjectConfigInput['commit_guard'];
+  return Object.keys(config).length > 0 ? config : undefined;
 }
 
 /** Pull the YAML between a leading `---` fence and the next `---`. */

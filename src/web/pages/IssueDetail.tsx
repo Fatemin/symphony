@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, MonitorPlay, Play, Square, XCircle } from 'lucide-react';
 import type { Event, IssueStatus } from '../../shared/types';
-import { api, streamIssue, type IssueDetail as Detail } from '../api';
+import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
+import { ApproveDialog } from '../components/ApproveDialog';
 import { Badge, Button, Panel, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeTime, STATUS_META } from '../lib/format';
 
@@ -40,6 +41,7 @@ export function IssueDetail() {
 const isRunning = (s?: IssueStatus) => s === 'in_progress';
 
 function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
+  const [approveOpen, setApproveOpen] = useState(false);
   const update = useMutation({
     mutationFn: (patch: Partial<Detail>) => api.issues.update(issue.id, patch),
     onSuccess: onChange,
@@ -51,10 +53,12 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
     onError: (e) => toast.error(String(e)),
   });
   const approve = useMutation({
-    mutationFn: () => api.issues.approve(issue.id),
+    mutationFn: (options: ApproveOptions) => api.issues.approve(issue.id, options),
     onSuccess: (r) => {
-      if (r.ok) toast.success(`Merged into ${issue.base_branch} (${r.commit}) — done`);
+      if (r.ok && r.pr_url) toast.success(`PR opened: ${r.pr_url}`);
+      else if (r.ok) toast.success(`Merged into ${r.target_branch ?? 'target branch'}${r.commit ? ` (${r.commit})` : ''} — done`);
       else toast.error(r.reason ?? 'Approve failed');
+      setApproveOpen(false);
       onChange();
     },
     onError: (e) => toast.error(String(e)),
@@ -97,7 +101,7 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
               >
                 {run.isPending ? <Spinner /> : <Play className="h-4 w-4" />} Re-run
               </Button>
-              <Button variant="primary" disabled={approve.isPending} onClick={() => approve.mutate()} title={`Merge ${issue.branch_name} into ${issue.base_branch} and mark done`}>
+              <Button variant="primary" disabled={approve.isPending} onClick={() => setApproveOpen(true)} title={`Merge ${issue.branch_name} and mark done`}>
                 {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
               </Button>
             </>
@@ -113,6 +117,16 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
           )}
         </div>
       </div>
+      {approveOpen && (
+        <ApproveDialog
+          projectId={issue.project_id}
+          initialBranch={issue.base_branch ?? 'main'}
+          count={1}
+          pending={approve.isPending}
+          onCancel={() => setApproveOpen(false)}
+          onConfirm={(options) => approve.mutate(options)}
+        />
+      )}
     </div>
   );
 }

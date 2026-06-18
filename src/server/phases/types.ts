@@ -1,5 +1,6 @@
 import type { Issue, Project, ProjectNote, RunPhase } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
+import type { ProjectConfig } from '../core/projectConfig';
 import type { WorkflowPolicy } from '../core/workflow';
 import type {
   AgentErrorKind,
@@ -19,6 +20,8 @@ export interface PhaseContext {
   worktreePath: string;
   attempt: number;
   config: EngineConfig;
+  /** Effective per-project policy from DB config overlaid by WORKFLOW.md. */
+  projectConfig: ProjectConfig;
   /** Optional per-repo policy from WORKFLOW.md (overrides config + appends prompt guidance). */
   workflow: WorkflowPolicy | null;
   runner: AgentRunner;

@@ -191,6 +191,19 @@ export class Orchestrator {
       return;
     }
 
+    if (result.park) {
+      updateIssue(issue.id, { mode: 'manual' });
+      appendEvent({
+        issue_id: issue.id,
+        kind: 'orchestrator.park',
+        level: 'warn',
+        message: 'parked to manual by project policy',
+        data: { attempt, error: result.error },
+      });
+      this.state.release(issue.id);
+      return;
+    }
+
     // Failure while still active → retry with backoff, or give up after max attempts. This
     // applies to every dispatched issue regardless of `mode` — see onRetryDue.
     const cfg = this.getConfig();

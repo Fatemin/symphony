@@ -29,6 +29,31 @@ prompts:
     If this repo needs a specific venv or tool path, record it here so every issue reuses it.
   qa: |
     Treat a failing build or test as an automatic FAIL.
+
+# Objective verification gate. Commands run in order inside the issue worktree; every command must
+# exit 0 and leave the worktree clean before the issue can reach review/done.
+verification:
+  commands:
+    - command: npm test
+      cwd: .
+      timeout_ms: 120000
+      on_failure: retry
+
+# Promotion remains direct-merge by default. Use pull-request when the repository has a GitHub
+# remote and branch protection/required CI should be the merge authority.
+promotion:
+  mode: direct-merge
+  remote: origin
+  # base_branch: testing
+  auto_merge: false
+
+# Disabled by default for backwards compatibility. When enabled, the worktree hook blocks manual
+# commits and Symphony refuses configured scratch files / oversized commits.
+commit_guard:
+  enabled: false
+  blocked_untracked_globs:
+    - "*_TEMP.*"
+    - "scratch*.md"
 ---
 
 # Workflow notes

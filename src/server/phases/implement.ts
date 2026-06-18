@@ -1,7 +1,7 @@
 import { buildImplementPrompt } from '../core/prompt';
 import { getPlanContext } from '../repo/planContext';
 import { listTasks, setAllTaskStatus } from '../repo/tasks';
-import { commitAll } from '../workspace/worktree';
+import { commitWorktree } from '../workspace/worktree';
 import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
@@ -37,14 +37,26 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
     };
   }
 
-  const committed = await commitAll(ctx.worktreePath, `${ctx.issue.key}: ${ctx.issue.title}`);
+  const commit = await commitWorktree(ctx.worktreePath, `${ctx.issue.key}: ${ctx.issue.title}`, {
+    guard: ctx.projectConfig.commit_guard,
+  });
+  if (!commit.ok) {
+    setAllTaskStatus(ctx.issue.id, 'failed');
+    return {
+      ok: false,
+      usage: result.usage,
+      sessionId: result.sessionId,
+      summary: 'implementation commit failed',
+      error: commit.reason ?? 'implementation commit failed',
+    };
+  }
   setAllTaskStatus(ctx.issue.id, 'done');
 
   return {
     ok: true,
     usage: result.usage,
     sessionId: result.sessionId,
-    summary: committed ? 'implemented and committed' : 'implemented (no file changes to commit)',
+    summary: commit.committed ? 'implemented and committed' : 'implemented (no file changes to commit)',
     report: result.text,
   };
 }

@@ -81,7 +81,6 @@ export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
     }
 
     if (opts.failPhase === phase) return result(`forced ${phase} failure`, false);
-
     if (opts.failOncePhase === phase && !failedOnce) {
       failedOnce = true;
       return result(`forced one-time ${phase} failure`, false);

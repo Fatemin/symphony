@@ -41,6 +41,7 @@ export interface Project {
   context: string | null; // optional extra context appended to agent prompts
   model: string | null; // optional per-project model override
   preview_command: string | null; // command to launch a preview from a worktree ({port} substituted)
+  config: unknown | null; // optional per-project JSON policy (verification/promotion/commit guard)
   created_at: string;
 }
 
