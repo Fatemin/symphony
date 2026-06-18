@@ -76,6 +76,20 @@ export interface IssueTask {
   created_at: string;
 }
 
+export interface PlanKeyFile {
+  path: string;
+  purpose: string;
+}
+
+export interface IssuePlanContext {
+  issue_id: string;
+  notes: string | null;
+  context: string | null;
+  key_files: PlanKeyFile[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Run {
   id: string;
   issue_id: string;
@@ -84,12 +98,25 @@ export interface Run {
   status: RunStatus;
   session_id: string | null;
   error: string | null;
+  report: string | null;
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
   num_turns: number;
+  /** Prompt-cache traffic — the bulk of real token throughput; without it runs look misleadingly cheap. */
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
   started_at: string;
   ended_at: string | null;
+}
+
+/** A distilled learning from a completed issue, injected into later agent prompts. */
+export interface ProjectNote {
+  id: string;
+  project_id: string;
+  issue_id: string | null;
+  content: string;
+  created_at: string;
 }
 
 export type EventLevel = 'debug' | 'info' | 'warn' | 'error';

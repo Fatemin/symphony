@@ -66,15 +66,27 @@ CREATE TABLE IF NOT EXISTS runs (
   status        TEXT NOT NULL DEFAULT 'running',
   session_id    TEXT,
   error         TEXT,
+  report        TEXT,
   input_tokens  INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
   total_tokens  INTEGER NOT NULL DEFAULT 0,
   num_turns     INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
   started_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   ended_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_issue ON runs(issue_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+
+CREATE TABLE IF NOT EXISTS issue_plan_context (
+  issue_id    TEXT PRIMARY KEY REFERENCES issues(id) ON DELETE CASCADE,
+  notes       TEXT,
+  context     TEXT,
+  key_files   TEXT NOT NULL DEFAULT '[]',
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
 
 CREATE TABLE IF NOT EXISTS events (
   id         TEXT PRIMARY KEY,
@@ -88,6 +100,15 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_issue ON events(issue_id, id);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, id);
+
+CREATE TABLE IF NOT EXISTS project_notes (
+  id         TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  issue_id   TEXT REFERENCES issues(id) ON DELETE SET NULL,
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_notes_project ON project_notes(project_id, created_at);
 
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,

@@ -1,6 +1,7 @@
 import { buildPlanPrompt, parsePlan } from '../core/prompt';
+import { savePlanContext } from '../repo/planContext';
 import { replaceTasks } from '../repo/tasks';
-import { agentInput, type PhaseContext, type PhaseOutcome } from './types';
+import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Plan phase: the agent reads the repo + issue and produces a task checklist (no code).
@@ -9,10 +10,10 @@ import { agentInput, type PhaseContext, type PhaseOutcome } from './types';
  */
 export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
   const prompt = buildPlanPrompt(
-    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt },
+    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
     ctx.workflow?.prompts.plan,
   );
-  const result = await ctx.runner(agentInput(ctx, prompt), ctx.onAgentEvent);
+  const result = await runPhaseAgent(ctx, prompt);
 
   if (!result.ok) {
     return {
@@ -21,6 +22,9 @@ export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
       sessionId: result.sessionId,
       summary: 'planning failed',
       error: result.error ?? 'agent failed during planning',
+      errorKind: result.errorKind,
+      retryAfterMs: result.retryAfterMs,
+      report: result.text,
     };
   }
 
@@ -29,11 +33,17 @@ export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
     ? parsed.tasks
     : [{ role: 'impl' as const, title: `Implement: ${ctx.issue.title}`, intent: null }];
   replaceTasks(ctx.issue.id, tasks);
+  savePlanContext(ctx.issue.id, {
+    notes: parsed.notes,
+    context: parsed.context,
+    key_files: parsed.key_files,
+  });
 
   return {
     ok: true,
     usage: result.usage,
     sessionId: result.sessionId,
-    summary: `planned ${tasks.length} task(s)${parsed.notes ? ` — ${parsed.notes}` : ''}`,
+    summary: `planned ${tasks.length} task(s), mapped ${parsed.key_files.length} file(s)${parsed.notes ? ` — ${parsed.notes}` : ''}`,
+    report: result.text,
   };
 }

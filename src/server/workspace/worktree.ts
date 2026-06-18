@@ -74,9 +74,43 @@ export async function ensureWorktree(spec: WorktreeSpec): Promise<EnsureResult> 
     ? ['worktree', 'add', spec.worktreePath, spec.branch]
     : ['worktree', 'add', '-b', spec.branch, spec.worktreePath, spec.baseBranch];
   await gitOrThrow(args, spec.repoPath);
+  seedDependencyArtifacts(spec.repoPath, spec.worktreePath);
 
   log.info('worktree created', { path: spec.worktreePath, branch: spec.branch });
   return { path: spec.worktreePath, created: true };
+}
+
+const DEPENDENCY_SEED_DIRS = ['node_modules'];
+
+/**
+ * New git worktrees do not include ignored dependency trees. When the source checkout already has
+ * one, seed the worktree with a local clone so agents do not spend each issue rediscovering and
+ * reinstalling the same packages. This is best-effort; package managers can still repair drift.
+ */
+function seedDependencyArtifacts(repoPath: string, worktreePath: string): void {
+  for (const name of DEPENDENCY_SEED_DIRS) {
+    const source = path.join(repoPath, name);
+    const target = path.join(worktreePath, name);
+    if (!fs.existsSync(source) || fs.existsSync(target)) continue;
+    try {
+      fs.cpSync(source, target, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        dereference: false,
+        verbatimSymlinks: true,
+        mode: fs.constants.COPYFILE_FICLONE,
+      });
+      log.info('dependency tree seeded into worktree', { source, target });
+    } catch (e) {
+      try {
+        fs.rmSync(target, { recursive: true, force: true });
+      } catch {
+        /* ignore cleanup errors */
+      }
+      log.warn('dependency tree seed failed', { source, target, err: String(e) });
+    }
+  }
 }
 
 /** Remove an issue's worktree (and prune the registration). Best-effort. */
@@ -171,9 +205,11 @@ export interface MergeResult {
 
 /**
  * Merge an agent branch into its base in the main repo (the review-approval action). Safe by
- * construction: refuses if the main working tree is dirty, aborts cleanly on conflict, and
- * restores the repo's originally checked-out branch afterward so approving doesn't move the
- * user's HEAD out from under them.
+ * construction: relies on git's own clobber protection — uncommitted changes that don't overlap
+ * the branch's diff survive the merge untouched, and git refuses (naming the files) when they
+ * do overlap. A dirty tree only hard-blocks when the base isn't checked out, because switching
+ * branches would carry the dirt across. Aborts cleanly on conflict and restores the repo's
+ * originally checked-out branch afterward so approving doesn't move the user's HEAD.
  */
 export async function mergeAgentBranch(
   repoPath: string,
@@ -184,12 +220,17 @@ export async function mergeAgentBranch(
   if (!(await isGitRepo(repoPath))) return { ok: false, reason: 'project repo is not a git repository' };
   if (!(await branchExists(repoPath, branch))) return { ok: false, reason: `branch ${branch} not found` };
 
+  const original = await currentBranch(repoPath); // null when detached
+
   const status = await git(['status', '--porcelain'], repoPath);
-  if (status.ok && status.stdout.trim() !== '') {
-    return { ok: false, reason: 'main repo has uncommitted changes — commit/stash them or merge manually' };
+  const dirty = status.ok && status.stdout.trim() !== '';
+  if (dirty && original !== base) {
+    return {
+      ok: false,
+      reason: `repo at ${repoPath} has uncommitted changes and ${base} is not checked out — commit/stash them or merge manually`,
+    };
   }
 
-  const original = await currentBranch(repoPath); // null when detached
   if (original !== base) {
     const co = await git(['checkout', base], repoPath);
     if (!co.ok) return { ok: false, reason: `could not switch to ${base}: ${co.stderr.trim() || co.stdout.trim()}` };
@@ -201,9 +242,10 @@ export async function mergeAgentBranch(
 
   const merge = await git(['merge', '--no-ff', branch, '-m', message], repoPath);
   if (!merge.ok) {
+    // If the merge never started (e.g. git's clobber protection refused), abort is a no-op.
     await git(['merge', '--abort'], repoPath);
     await restore();
-    return { ok: false, reason: `merge conflict or failure — resolve manually: ${merge.stderr.trim() || merge.stdout.trim()}` };
+    return { ok: false, reason: `merge failed — resolve manually: ${merge.stderr.trim() || merge.stdout.trim()}` };
   }
 
   const head = await git(['rev-parse', '--short', base], repoPath);
@@ -211,7 +253,22 @@ export async function mergeAgentBranch(
   return { ok: true, commit: head.ok ? head.stdout.trim() : undefined };
 }
 
-/** Delete a branch (safe `-d`; only succeeds if already merged). Best-effort. */
-export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
-  await git(['branch', '-d', branch], repoPath);
+export interface DeleteBranchResult {
+  ok: boolean;
+  deleted: boolean;
+  reason?: string;
+}
+
+/** Delete an agent branch. Safe mode uses `-d`; abandoned stories can opt into force `-D`. */
+export async function deleteBranch(
+  repoPath: string,
+  branch: string,
+  opts: { force?: boolean } = {},
+): Promise<DeleteBranchResult> {
+  if (!(await branchExists(repoPath, branch))) return { ok: true, deleted: false };
+  const r = await git(['branch', opts.force ? '-D' : '-d', branch], repoPath);
+  if (r.ok) return { ok: true, deleted: true };
+  const reason = r.stderr.trim() || r.stdout.trim() || `git branch ${opts.force ? '-D' : '-d'} failed`;
+  log.warn('branch delete failed', { repoPath, branch, force: opts.force === true, reason });
+  return { ok: false, deleted: false, reason };
 }

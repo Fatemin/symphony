@@ -88,9 +88,19 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
             <option value="auto">auto</option>
           </Select>
           {issue.status === 'review' ? (
-            <Button variant="primary" disabled={approve.isPending} onClick={() => approve.mutate()} title={`Merge ${issue.branch_name} into ${issue.base_branch} and mark done`}>
-              {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
-            </Button>
+            <>
+              <Button
+                variant="subtle"
+                disabled={run.isPending}
+                onClick={() => run.mutate()}
+                title="Re-run the pipeline on the same branch/worktree — update the description with what to change first"
+              >
+                {run.isPending ? <Spinner /> : <Play className="h-4 w-4" />} Re-run
+              </Button>
+              <Button variant="primary" disabled={approve.isPending} onClick={() => approve.mutate()} title={`Merge ${issue.branch_name} into ${issue.base_branch} and mark done`}>
+                {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
+              </Button>
+            </>
           ) : (
             <Button variant="primary" disabled={isRunning(issue.status) || run.isPending} onClick={() => run.mutate()}>
               {isRunning(issue.status) ? <Spinner /> : <Play className="h-4 w-4" />} Run
@@ -283,11 +293,18 @@ function Preview({ issueId }: { issueId: string }) {
           )}
         </div>
       ) : (
-        <div className="flex items-center justify-between">
-          <span className="text-slate-500">Launch the project from this worktree to click through it.</span>
-          <Button variant="subtle" className="px-2 py-1" disabled={start.isPending} onClick={() => start.mutate()}>
-            <MonitorPlay className="h-3.5 w-3.5" /> Preview
-          </Button>
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Launch the project from this worktree to click through it.</span>
+            <Button variant="subtle" className="px-2 py-1" disabled={start.isPending} onClick={() => start.mutate()}>
+              <MonitorPlay className="h-3.5 w-3.5" /> Preview
+            </Button>
+          </div>
+          {status?.error && (
+            <pre className="mt-1.5 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-[#0b0d12] p-2 font-mono text-[10px] text-red-300">
+              {status.error.slice(-1500)}
+            </pre>
+          )}
         </div>
       )}
     </div>

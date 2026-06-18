@@ -1,7 +1,8 @@
 import { buildImplementPrompt } from '../core/prompt';
+import { getPlanContext } from '../repo/planContext';
 import { listTasks, setAllTaskStatus } from '../repo/tasks';
 import { commitAll } from '../workspace/worktree';
-import { agentInput, type PhaseContext, type PhaseOutcome } from './types';
+import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Implement phase: ONE agent session implements the whole issue against its planned checklist
@@ -11,14 +12,16 @@ import { agentInput, type PhaseContext, type PhaseOutcome } from './types';
  */
 export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
   const tasks = listTasks(ctx.issue.id);
+  const planContext = getPlanContext(ctx.issue.id);
   setAllTaskStatus(ctx.issue.id, 'running');
 
   const prompt = buildImplementPrompt(
-    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt },
+    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
     tasks,
+    planContext,
     ctx.workflow?.prompts.implement,
   );
-  const result = await ctx.runner(agentInput(ctx, prompt), ctx.onAgentEvent);
+  const result = await runPhaseAgent(ctx, prompt);
 
   if (!result.ok) {
     setAllTaskStatus(ctx.issue.id, 'failed');
@@ -28,6 +31,9 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
       sessionId: result.sessionId,
       summary: 'implementation failed',
       error: result.error ?? 'agent failed during implementation',
+      errorKind: result.errorKind,
+      retryAfterMs: result.retryAfterMs,
+      report: result.text,
     };
   }
 
@@ -39,5 +45,6 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
     usage: result.usage,
     sessionId: result.sessionId,
     summary: committed ? 'implemented and committed' : 'implemented (no file changes to commit)',
+    report: result.text,
   };
 }

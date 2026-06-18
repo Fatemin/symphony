@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import { Hono } from 'hono';
+import type { Issue } from '../../../shared/types';
 import {
   createIssue,
   deleteIssue,
   getIssue,
   isTerminal,
   listIssues,
-  setStatus,
   updateIssue,
 } from '../../repo/issues';
 import { getProject } from '../../repo/projects';
@@ -55,13 +55,22 @@ issueRoutes.patch('/:id', async (c) => {
   // If the issue was just cancelled/finished while a run is active, kick a tick so reconciliation
   // aborts it promptly instead of waiting for the next poll.
   if (issue && body.status && isTerminal(issue.status)) {
+    getOrchestrator().cancelIssue(issue.id);
+    if (issue.status === 'cancelled') {
+      await cleanupIssueResources(before, { forceBranch: true, reason: 'cancelled' });
+      return c.json(updateIssue(issue.id, { branch_name: null, worktree_path: null }));
+    }
     void getOrchestrator().kick();
   }
   return c.json(issue);
 });
 
-issueRoutes.delete('/:id', (c) => {
-  deleteIssue(c.req.param('id'));
+issueRoutes.delete('/:id', async (c) => {
+  const issue = getIssue(c.req.param('id'));
+  if (!issue) return c.body(null, 204);
+  getOrchestrator().cancelIssue(issue.id);
+  await cleanupIssueResources(issue, { forceBranch: true, reason: 'deleted' });
+  deleteIssue(issue.id);
   return c.body(null, 204);
 });
 
@@ -105,12 +114,8 @@ issueRoutes.post('/:id/approve', async (c) => {
     return c.json(merge, 409);
   }
 
-  // Best-effort cleanup: stop any preview, remove the worktree, delete the now-merged branch.
-  stopPreview(issue.id);
-  if (issue.worktree_path) await removeWorktree(project.repo_path, issue.worktree_path);
-  await deleteBranch(project.repo_path, issue.branch_name);
-
-  setStatus(issue.id, 'done');
+  await cleanupIssueResources(issue, { forceBranch: false, reason: 'approved' });
+  updateIssue(issue.id, { status: 'done', branch_name: null, worktree_path: null });
   appendEvent({
     issue_id: issue.id,
     kind: 'approve.merged',
@@ -119,6 +124,36 @@ issueRoutes.post('/:id/approve', async (c) => {
   });
   return c.json({ ok: true, commit: merge.commit });
 });
+
+async function cleanupIssueResources(
+  issue: Issue,
+  opts: { forceBranch: boolean; reason: 'approved' | 'cancelled' | 'deleted' },
+): Promise<void> {
+  stopPreview(issue.id);
+  const project = getProject(issue.project_id);
+  if (!project?.repo_path) return;
+  if (issue.worktree_path) await removeWorktree(project.repo_path, issue.worktree_path);
+  if (issue.branch_name) {
+    const result = await deleteBranch(project.repo_path, issue.branch_name, { force: opts.forceBranch });
+    if (!result.ok && opts.reason !== 'deleted') {
+      appendEvent({
+        issue_id: issue.id,
+        kind: 'cleanup.branch_failed',
+        level: 'warn',
+        message: result.reason ?? `could not delete branch ${issue.branch_name}`,
+        data: { branch: issue.branch_name, force: opts.forceBranch, reason: opts.reason },
+      });
+    }
+  }
+  if (opts.reason !== 'deleted') {
+    appendEvent({
+      issue_id: issue.id,
+      kind: 'cleanup.done',
+      message: `cleaned up story resources (${opts.reason})`,
+      data: { branch: issue.branch_name, worktree_path: issue.worktree_path },
+    });
+  }
+}
 
 // Manual "Run" button — dispatch this issue now regardless of auto/manual mode.
 issueRoutes.post('/:id/run', (c) => {
@@ -138,7 +173,9 @@ issueRoutes.post('/:id/preview', async (c) => {
   const project = getProject(issue.project_id);
   const command = project?.preview_command || DEFAULT_PREVIEW_COMMAND;
   const status = await startPreview(issue.id, issue.worktree_path, command);
-  appendEvent({ issue_id: issue.id, kind: 'preview.start', message: `preview at ${status.url} (${status.command})` });
+  if (status.running) {
+    appendEvent({ issue_id: issue.id, kind: 'preview.start', message: `preview at ${status.url} (${status.command})` });
+  }
   return c.json(status);
 });
 

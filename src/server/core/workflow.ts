@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { log } from '../observability/logger';
+import type { RunPhase } from '../../shared/types';
 import type { PermissionMode } from './config';
 
 /**
@@ -13,6 +14,8 @@ export interface WorkflowPolicy {
   model?: string;
   permission_mode?: PermissionMode;
   max_turns?: number;
+  /** Per-phase caps (YAML: `max_turns: {implement: 150}`) — implement typically needs far more turns than qa. */
+  max_turns_by_phase?: Partial<Record<RunPhase, number>>;
   prompts: { plan?: string; implement?: string; qa?: string };
 }
 
@@ -48,13 +51,48 @@ export function loadWorkflow(repoPath: string): WorkflowPolicy | null {
   return {
     model: typeof agent.model === 'string' ? agent.model : undefined,
     permission_mode: mode && PERMISSION_MODES.includes(mode as PermissionMode) ? (mode as PermissionMode) : undefined,
-    max_turns: Number.isFinite(Number(agent.max_turns)) && agent.max_turns != null ? Number(agent.max_turns) : undefined,
+    ...parseMaxTurns(agent.max_turns),
     prompts: {
       plan: typeof prompts.plan === 'string' ? prompts.plan : undefined,
       implement: typeof prompts.implement === 'string' ? prompts.implement : undefined,
       qa: typeof prompts.qa === 'string' ? prompts.qa : undefined,
     },
   };
+}
+
+/**
+ * `max_turns` accepts a single number or a `{plan, implement, qa}` map of per-phase caps.
+ * `0` disables the cap, matching the engine setting (claudeRunner omits --max-turns for 0).
+ * Invalid values are dropped WITH a warning — a repo author whose cap is being ignored should
+ * get a signal instead of silently running on the engine default.
+ */
+function parseMaxTurns(value: unknown): Pick<WorkflowPolicy, 'max_turns' | 'max_turns_by_phase'> {
+  if (value == null) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const byPhase: Partial<Record<RunPhase, number>> = {};
+    for (const phase of ['plan', 'implement', 'qa'] as const) {
+      const raw = (value as Record<string, unknown>)[phase];
+      if (raw == null) continue;
+      const n = coerceTurns(raw);
+      if (n == null) log.warn('WORKFLOW.md max_turns value ignored', { phase, value: String(raw) });
+      else byPhase[phase] = n;
+    }
+    return Object.keys(byPhase).length ? { max_turns_by_phase: byPhase } : {};
+  }
+  const n = coerceTurns(value);
+  if (n == null) {
+    log.warn('WORKFLOW.md max_turns value ignored', { value: String(value) });
+    return {};
+  }
+  return { max_turns: n };
+}
+
+/** Numbers and numeric strings only (YAML quoting happens); booleans/arrays/blank are invalid. */
+function coerceTurns(value: unknown): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /** Pull the YAML between a leading `---` fence and the next `---`. */

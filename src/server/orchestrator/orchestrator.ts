@@ -89,6 +89,14 @@ export class Orchestrator {
     return { ok: true };
   }
 
+  /** Abort active work and drop queued retries for an issue before its resources are cleaned up. */
+  cancelIssue(issueId: string): void {
+    const entry = this.state.running.get(issueId);
+    if (entry && !entry.abort.signal.aborted) entry.abort.abort();
+    cancelRetry(this.state, issueId);
+    this.state.release(issueId);
+  }
+
   snapshot(): Snapshot {
     const cfg = this.getConfig();
     return this.state.snapshot(cfg.poll_interval_ms, cfg.wip_limit, cfg.enabled);
@@ -111,6 +119,8 @@ export class Orchestrator {
       const cfg = this.getConfig();
       reconcile(this.state, this.tracker, cfg.stall_timeout_ms);
       if (!cfg.enabled) return;
+      this.state.clearExpiredSuspension();
+      if (this.state.suspendedUntil && this.state.suspendedUntil > Date.now()) return;
 
       for (const issue of this.tracker.fetchCandidates()) {
         if (this.availableSlots(cfg) <= 0) break;
@@ -181,8 +191,28 @@ export class Orchestrator {
       return;
     }
 
-    // Failure while still active → retry with backoff, or give up after max attempts.
+    // Failure while still active → retry with backoff, or give up after max attempts. This
+    // applies to every dispatched issue regardless of `mode` — see onRetryDue.
     const cfg = this.getConfig();
+    if (result.errorKind === 'quota') {
+      const delayMs = quotaDelayMs(result.retryAfterMs);
+      const until = Date.now() + delayMs;
+      this.state.suspendUntil(until, result.error ?? 'agent quota limit');
+      appendEvent({
+        issue_id: issue.id,
+        kind: 'orchestrator.suspend',
+        level: 'warn',
+        message: `agent quota limit — queue paused until ${new Date(until).toLocaleString()}`,
+        data: { attempt, delayMs, error: result.error },
+      });
+      scheduleRetry(
+        this.state,
+        { issueId: issue.id, issueKey: issue.key, nextAttempt: attempt, delayMs, error: result.error ?? null },
+        () => this.onRetryDue(issue.id, attempt),
+      );
+      return;
+    }
+
     if (attempt >= cfg.max_attempts) {
       updateIssue(issue.id, { mode: 'manual' });
       appendEvent({
@@ -213,8 +243,31 @@ export class Orchestrator {
 
   private onRetryDue(issueId: string, attempt: number): void {
     const issue = this.tracker.fetchByIds([issueId])[0];
-    if (!issue || !isActive(issue.status) || issue.mode !== 'auto') {
+    // Deleted or moved out of an active status (e.g. cancelled by a human) while queued: drop
+    // the retry, but say so — handleOutcome already announced "retrying in Ns", so a silent
+    // drop reads as a scheduler bug. `mode` is deliberately NOT checked here: it only gates
+    // poll-loop pickup; retries follow the dispatch (§8.4), so manually-run issues retry too.
+    if (!issue || !isActive(issue.status)) {
+      appendEvent({
+        issue_id: issue?.id,
+        kind: 'orchestrator.drop',
+        level: 'warn',
+        message: issue
+          ? `queued retry dropped — issue is ${issue.status}`
+          : 'queued retry dropped — issue was deleted',
+        data: { attempt },
+      });
       this.state.release(issueId);
+      return;
+    }
+    this.state.clearExpiredSuspension();
+    if (this.state.suspendedUntil && this.state.suspendedUntil > Date.now()) {
+      const delayMs = this.state.suspendedUntil - Date.now();
+      scheduleRetry(
+        this.state,
+        { issueId, issueKey: issue.key, nextAttempt: attempt, delayMs, error: this.state.suspendedReason },
+        () => this.onRetryDue(issueId, attempt),
+      );
       return;
     }
     if (this.availableSlots(this.getConfig()) <= 0) {
@@ -241,6 +294,12 @@ export class Orchestrator {
     // Issues stuck `in_progress` + `auto` are still active candidates and will be re-dispatched
     // by the normal poll loop — no special handling needed.
   }
+}
+
+function quotaDelayMs(retryAfterMs: number | undefined): number {
+  const fallback = 60 * 60_000;
+  const value = Number.isFinite(Number(retryAfterMs)) ? Number(retryAfterMs) : fallback;
+  return Math.max(value, 1_000);
 }
 
 // Process-wide singleton for the HTTP server to share.

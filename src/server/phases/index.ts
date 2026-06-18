@@ -2,10 +2,20 @@ import type { IssueStatus, RunPhase } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
 import { agentBranch } from '../core/keys';
 import { loadWorkflow } from '../core/workflow';
-import type { AgentEvent, AgentRunner } from '../agent/types';
+import type { AgentErrorKind, AgentEvent, AgentRunner } from '../agent/types';
 import { getProject } from '../repo/projects';
 import { getIssue, updateIssue } from '../repo/issues';
-import { createRun, finishRun, updateRunUsage } from '../repo/runs';
+import {
+  createRun,
+  finishRun,
+  lastFailure,
+  lastSessionId,
+  latestRun,
+  latestSuccessfulRun,
+  updateRunUsage,
+} from '../repo/runs';
+import { listRecentNotes, noteFromReport, recordIssueNote } from '../repo/notes';
+import { listTasks } from '../repo/tasks';
 import { appendEvent, type EventWithCursor } from '../repo/events';
 import { ensureWorktree, worktreePathFor } from '../workspace/worktree';
 import { log } from '../observability/logger';
@@ -28,6 +38,8 @@ export interface PipelineResult {
   finalStatus: IssueStatus;
   failedPhase?: RunPhase;
   error?: string;
+  errorKind?: AgentErrorKind;
+  retryAfterMs?: number;
 }
 
 /**
@@ -75,15 +87,36 @@ export async function runIssuePipeline(
   const fresh = getIssue(issueId)!; // re-read with branch fields + in_progress status
   const workflow = loadWorkflow(project.repo_path); // optional per-repo policy
 
+  // Cross-run memory: why the last attempt failed + distilled learnings from past issues.
+  const failure = attempt > 1 ? lastFailure(issueId) : null;
+  const notes = listRecentNotes(project.id);
+  let implementReport: string | null = latestSuccessfulRun(issueId, 'implement')?.report ?? null;
+
   for (const phase of PHASE_ORDER) {
     if (opts.signal?.aborted) return fail(issueId, phase, 'aborted', opts);
 
+    const skipped = skipCompletedPhase(issueId, phase);
+    if (skipped) {
+      if (phase === 'implement') {
+        implementReport = latestSuccessfulRun(issueId, 'implement')?.report ?? implementReport;
+      }
+      emit(opts, {
+        issue_id: issueId,
+        kind: 'phase.skip',
+        message: `${phase} skipped (${skipped})`,
+        data: { phase, reason: skipped },
+      });
+      continue;
+    }
+
+    const resumeSessionId = resumeSessionIdFor(issueId, phase);
     const run = createRun(issueId, phase, attempt);
     emit(opts, { issue_id: issueId, run_id: run.id, kind: 'phase.start', message: `${phase} started`, data: { phase } });
 
     const ctx: PhaseContext = {
       project,
       issue: fresh,
+      phase,
       worktreePath,
       attempt,
       config: opts.config,
@@ -91,6 +124,10 @@ export async function runIssuePipeline(
       runner: opts.runner,
       signal: opts.signal,
       onAgentEvent: (event) => persistAgentEvent(opts, issueId, run.id, phase, event),
+      lastFailure: failure,
+      notes,
+      resumeSessionId,
+      implementReport: phase === 'qa' ? implementReport : null,
     };
 
     let outcome: PhaseOutcome;
@@ -101,7 +138,7 @@ export async function runIssuePipeline(
     }
 
     updateRunUsage(run.id, { session_id: outcome.sessionId, ...outcome.usage });
-    finishRun(run.id, outcome.ok ? 'succeeded' : 'failed', outcome.error ?? null);
+    finishRun(run.id, outcome.ok ? 'succeeded' : 'failed', outcome.error ?? null, outcome.report ?? null);
     emit(opts, {
       issue_id: issueId,
       run_id: run.id,
@@ -113,8 +150,21 @@ export async function runIssuePipeline(
 
     if (!outcome.ok) {
       log.warn('phase failed', { issue: issue.key, phase, error: outcome.error });
-      return { ok: false, finalStatus: 'in_progress', failedPhase: phase, error: outcome.error };
+      return {
+        ok: false,
+        finalStatus: 'in_progress',
+        failedPhase: phase,
+        error: outcome.error,
+        errorKind: outcome.errorKind,
+        retryAfterMs: outcome.retryAfterMs,
+      };
     }
+    if (phase === 'implement') implementReport = outcome.report ?? null;
+  }
+
+  // Distill the implement report into the project's long-term notes (fed to future prompts).
+  if (implementReport) {
+    recordIssueNote(project.id, issueId, `[${fresh.key}] ${fresh.title} — ${noteFromReport(implementReport)}`);
   }
 
   // All phases passed → park at the review gate (or finish if the gate is disabled).
@@ -163,6 +213,32 @@ function emit(
 ): void {
   const row = appendEvent(e);
   opts.onEvent?.(row);
+}
+
+function skipCompletedPhase(issueId: string, phase: RunPhase): string | null {
+  const latest = latestRun(issueId, phase);
+  if (!latest || latest.status !== 'succeeded') return null;
+  if (phase === 'plan') {
+    return listTasks(issueId).length > 0 ? 'previous successful plan with persisted tasks' : null;
+  }
+  if (phase === 'implement') {
+    const qa = latestRun(issueId, 'qa');
+    if (qa && qa.started_at > latest.started_at && qa.status === 'failed' && isQaVerdictFailure(qa.error)) {
+      return null;
+    }
+    return 'previous successful implementation';
+  }
+  return 'previous successful QA';
+}
+
+function resumeSessionIdFor(issueId: string, phase: RunPhase): string | null {
+  const latest = latestRun(issueId, phase);
+  if (latest?.status === 'succeeded') return null;
+  return lastSessionId(issueId, phase);
+}
+
+function isQaVerdictFailure(error: string | null): boolean {
+  return !!error && /^QA failed:/i.test(error);
 }
 
 function fail(issueId: string, phase: RunPhase, error: string, opts: RunPipelineOptions): PipelineResult {

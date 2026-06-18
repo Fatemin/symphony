@@ -47,7 +47,9 @@ export const DEFAULT_SETTINGS: EngineConfig = {
   workspace_root: DEFAULT_WORKSPACE_ROOT,
   phase_timeout_ms: 20 * 60_000,
   stall_timeout_ms: 5 * 60_000,
-  max_turns: 60,
+  // 60 proved too low in practice: real implement phases died at the 61st turn with their
+  // work unfinished. phase_timeout_ms remains the cost backstop; this cap is a safety net.
+  max_turns: 120,
   max_attempts: 3,
   max_retry_backoff_ms: 5 * 60_000,
 };

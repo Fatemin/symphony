@@ -30,6 +30,8 @@ export class RuntimeState {
   readonly retry = new Map<string, RetryEntry>();
   readonly claimed = new Set<string>();
   readonly completed = new Set<string>();
+  suspendedUntil: number | null = null;
+  suspendedReason: string | null = null;
   /** Cumulative wall-clock seconds of sessions that have already ended. */
   endedSeconds = 0;
 
@@ -48,6 +50,20 @@ export class RuntimeState {
   markEventActivity(issueId: string): void {
     const entry = this.running.get(issueId);
     if (entry) entry.lastEventAt = Date.now();
+  }
+
+  suspendUntil(until: number, reason: string): void {
+    if (!this.suspendedUntil || until > this.suspendedUntil) {
+      this.suspendedUntil = until;
+      this.suspendedReason = reason;
+    }
+  }
+
+  clearExpiredSuspension(now = Date.now()): void {
+    if (this.suspendedUntil && this.suspendedUntil <= now) {
+      this.suspendedUntil = null;
+      this.suspendedReason = null;
+    }
   }
 
   /** Build the observability snapshot (Symphony §13.3). Phase/tokens come from DB run rows. */

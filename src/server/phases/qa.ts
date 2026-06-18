@@ -1,6 +1,6 @@
 import { buildQaPrompt, parseQa } from '../core/prompt';
 import { commitAll } from '../workspace/worktree';
-import { agentInput, type PhaseContext, type QaOutcome } from './types';
+import { runPhaseAgent, type PhaseContext, type QaOutcome } from './types';
 
 /**
  * QA phase: a fresh agent verifies the committed work against the acceptance criteria and emits
@@ -9,10 +9,11 @@ import { agentInput, type PhaseContext, type QaOutcome } from './types';
  */
 export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
   const prompt = buildQaPrompt(
-    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt },
+    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
+    ctx.implementReport ?? null,
     ctx.workflow?.prompts.qa,
   );
-  const result = await ctx.runner(agentInput(ctx, prompt), ctx.onAgentEvent);
+  const result = await runPhaseAgent(ctx, prompt);
 
   if (!result.ok) {
     return {
@@ -22,6 +23,9 @@ export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
       sessionId: result.sessionId,
       summary: 'QA run failed',
       error: result.error ?? 'agent failed during QA',
+      errorKind: result.errorKind,
+      retryAfterMs: result.retryAfterMs,
+      report: result.text,
     };
   }
 
@@ -35,5 +39,6 @@ export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
     sessionId: result.sessionId,
     summary: `QA ${verdict.pass ? 'PASS' : 'FAIL'} — ${verdict.reason}`,
     error: verdict.pass ? undefined : `QA failed: ${verdict.reason}`,
+    report: result.text,
   };
 }

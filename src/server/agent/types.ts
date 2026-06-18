@@ -12,6 +12,8 @@ export interface AgentRunInput {
   prompt: string;
   /** Optional extra system prompt appended to the CLI's. */
   systemPrompt?: string;
+  /** Resume a previous CLI session (set on retries) instead of starting cold. */
+  resumeSessionId?: string | null;
   model: string;
   permissionMode: PermissionMode;
   maxTurns: number;
@@ -26,7 +28,12 @@ export interface AgentUsage {
   output_tokens: number;
   total_tokens: number;
   num_turns: number;
+  /** Prompt-cache traffic (the CLI's cache_read/creation_input_tokens). Optional: fakes may omit. */
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }
+
+export type AgentErrorKind = 'quota';
 
 /** Streamed, normalized agent events (observability + token accounting). */
 export type AgentEvent =
@@ -45,6 +52,9 @@ export interface AgentResult {
   usage: AgentUsage;
   durationMs: number;
   error?: string;
+  /** Machine-readable transient failure class. Quota errors should not burn issue attempts. */
+  errorKind?: AgentErrorKind;
+  retryAfterMs?: number;
 }
 
 /**

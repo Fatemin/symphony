@@ -19,6 +19,8 @@ interface PreviewProc {
 }
 
 const previews = new Map<string, PreviewProc>();
+/** Why the last attempt for an issue died (boot failure or later crash) — shown in the UI. */
+const lastError = new Map<string, string>();
 
 export interface PreviewStatus {
   running: boolean;
@@ -27,11 +29,12 @@ export interface PreviewStatus {
   command?: string;
   startedAt?: number;
   output?: string;
+  error?: string;
 }
 
 function statusOf(issueId: string): PreviewStatus {
   const p = previews.get(issueId);
-  if (!p) return { running: false };
+  if (!p) return { running: false, error: lastError.get(issueId) };
   return {
     running: true,
     url: `http://localhost:${p.port}`,
@@ -89,6 +92,7 @@ export async function startPreview(
     if (!still) return;
     previews.delete(issueId);
     const tail = still.output.slice(-300).trim();
+    lastError.set(issueId, `preview exited (code ${code ?? '?'})${tail ? ` — ${tail}` : ''}`);
     log.warn('preview crashed', { issueId, code });
     appendEvent({
       issue_id: issueId,
@@ -99,6 +103,23 @@ export async function startPreview(
   });
 
   previews.set(issueId, entry);
+  lastError.delete(issueId);
+
+  // Fail fast: a broken command (no package.json, unknown script, missing binary) dies within
+  // milliseconds. Give it a short grace period so the caller gets the real error instead of a
+  // URL that never answers. A healthy dev server is still booting after this and stays running.
+  const earlyExit = await Promise.race<number | null>([
+    new Promise((resolve) => proc.once('exit', (code) => resolve(code ?? -1))),
+    new Promise((resolve) => {
+      const t = setTimeout(() => resolve(null), 1500);
+      t.unref?.();
+    }),
+  ]);
+  if (earlyExit !== null) {
+    // The exit handler above already cleaned up and recorded lastError.
+    return { running: false, error: lastError.get(issueId) ?? `preview exited (code ${earlyExit})` };
+  }
+
   log.info('preview started', { issueId, port, command });
   return statusOf(issueId);
 }
