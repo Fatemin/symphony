@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, type EngineConfig } from '../api';
 import { Button, Field, Input, Panel, Select } from '../components/ui';
+import { AVAILABLE_MODELS } from '../../shared/models';
 
 const NUMERIC: (keyof EngineConfig)[] = [
   'wip_limit',
@@ -48,7 +49,16 @@ export function Settings() {
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Model">
-            <Input value={form.model} onChange={(e) => set('model', e.target.value)} />
+            <Select value={form.model} onChange={(e) => set('model', e.target.value)}>
+              {!AVAILABLE_MODELS.some((m) => m.id === form.model) && (
+                <option value={form.model}>{form.model} (custom)</option>
+              )}
+              {AVAILABLE_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="Permission mode">
             <Select value={form.permission_mode} onChange={(e) => set('permission_mode', e.target.value)}>
