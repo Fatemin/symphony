@@ -69,3 +69,27 @@ test('listIssueHistory aggregates runs per issue, recent-first, and scopes by pr
     'project query returns only its issues, most-recently-active first',
   );
 });
+
+test('listIssueHistory includes never-run cancelled issues but still excludes never-run open ones', () => {
+  const project = createProject({ name: 'Cancelled', key: 'CX', repo_path: env.repoPath });
+
+  // Cancelled with no runs at all — this is the only UI entry point for it, so it must appear.
+  const c = createIssue({ project_id: project.id, title: 'Cancelled no run', status: 'cancelled' });
+  // A never-run open issue must remain excluded so History is not flooded with backlog/todo.
+  createIssue({ project_id: project.id, title: 'Backlog no run', status: 'backlog' });
+
+  const rows = listIssueHistory(project.id);
+  assert.equal(rows.length, 1, 'only the cancelled-never-run issue is listed');
+
+  const rowC = rows.find((r) => r.issue_id === c.id)!;
+  assert.ok(rowC, 'never-run cancelled issue is listed');
+  assert.equal(rowC.run_count, 0, 'no runs aggregated');
+  assert.equal(rowC.total_tokens, 0);
+  assert.equal(rowC.attempts, 0);
+  assert.equal(rowC.last_status, null, 'no latest-run status for a never-run issue');
+  assert.equal(rowC.last_phase, null);
+  assert.equal(rowC.started_at, null);
+  assert.equal(rowC.ended_at, null);
+
+  assert.ok(!rows.some((r) => r.title === 'Backlog no run'), 'never-run open issue stays excluded');
+});

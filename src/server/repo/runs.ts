@@ -189,8 +189,11 @@ interface HistoryRow {
  * happens to join issues + projects for display — it lives here, rather than splitting the repo's
  * one-file-per-table convention, for the same reason sumTokens() does: the grain is "runs".
  * One row per issue with >=1 run, summing tokens/turns and exposing the latest run's phase/status
- * via correlated subqueries. Bounded to 500 rows, most-recently-active first — never an unbounded
- * list. `projectId`, when given, scopes the result to a single project.
+ * via correlated subqueries. Cancelled issues are included even with zero runs (LEFT JOIN +
+ * `OR i.status = 'cancelled'`) so the only UI entry point for never-run cancelled issues stays
+ * complete; for those rows COUNT/SUM fall back to 0 and last_status/last_phase are NULL. Bounded
+ * to 500 rows, most-recently-active first — never an unbounded list. `projectId`, when given,
+ * scopes the result to a single project.
  */
 export function listIssueHistory(projectId?: string): OpsHistoryRow[] {
   const rows = getDb()
@@ -208,8 +211,8 @@ export function listIssueHistory(projectId?: string): OpsHistoryRow[] {
               (SELECT phase  FROM runs WHERE issue_id = i.id ORDER BY started_at DESC, rowid DESC LIMIT 1) AS last_phase
        FROM issues i
        JOIN projects p ON p.id = i.project_id
-       JOIN runs r ON r.issue_id = i.id
-       ${projectId ? 'WHERE i.project_id = ?' : ''}
+       LEFT JOIN runs r ON r.issue_id = i.id
+       WHERE (r.id IS NOT NULL OR i.status = 'cancelled')${projectId ? ' AND i.project_id = ?' : ''}
        GROUP BY i.id
        ORDER BY COALESCE(MAX(r.ended_at), i.updated_at) DESC
        LIMIT 500`,
