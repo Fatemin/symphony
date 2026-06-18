@@ -146,6 +146,63 @@ test('a queued retry for a no-longer-active issue is dropped with an event, not 
   orch.stop();
 });
 
+test('a human-cancelled active run is recorded as cancelled, not failed', async () => {
+  const project = createProject({ name: 'CancelRun', key: 'CR', repo_path: env.repoPath });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Cancel while planning',
+    status: 'todo',
+    mode: 'manual',
+  });
+
+  let started = false;
+  const zeroUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    num_turns: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+  };
+  const orch = new Orchestrator({
+    tracker: localTracker,
+    runner: async (input, onEvent) => {
+      started = true;
+      onEvent?.({ type: 'init', sessionId: 'fake-abort-plan', model: input.model });
+      await new Promise<void>((resolve) => {
+        if (input.signal?.aborted) resolve();
+        input.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return {
+        ok: false,
+        sessionId: 'fake-abort-plan',
+        text: '',
+        usage: zeroUsage,
+        durationMs: 1,
+        error: 'aborted',
+      };
+    },
+    getConfig: () => getConfig(),
+  });
+
+  assert.equal(orch.runNow(issue.id).ok, true);
+  await waitFor(() => started);
+
+  setStatus(issue.id, 'cancelled');
+  orch.cancelIssue(issue.id);
+
+  await waitFor(() => listRuns(issue.id).some((r) => r.status === 'cancelled'), 8000);
+  const run = listRuns(issue.id)[0]!;
+  assert.equal(run.phase, 'plan');
+  assert.equal(run.status, 'cancelled');
+  assert.equal(run.error, 'aborted');
+  const end = listEvents({ issue_id: issue.id }).find((e) => e.kind === 'phase.end')!;
+  assert.equal(end.level, 'info');
+  assert.equal(end.message, 'plan cancelled');
+
+  orch.stop();
+});
+
 test('quota failures pause and retry without consuming attempts', async () => {
   const project = createProject({ name: 'Quota', key: 'QT', repo_path: env.repoPath });
   const issue = createIssue({

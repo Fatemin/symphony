@@ -1,11 +1,11 @@
-import type { IssueStatus, RunPhase } from '../../shared/types';
+import type { IssueStatus, RunPhase, RunStatus } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
 import { agentBranch } from '../core/keys';
 import { mergeProjectConfigs } from '../core/projectConfig';
 import { loadWorkflow } from '../core/workflow';
 import type { AgentErrorKind, AgentEvent, AgentRunner } from '../agent/types';
 import { getProject } from '../repo/projects';
-import { getIssue, updateIssue } from '../repo/issues';
+import { getIssue, isTerminal, updateIssue } from '../repo/issues';
 import {
   createRun,
   finishRun,
@@ -154,21 +154,26 @@ export async function runIssuePipeline(
 
     updateRunUsage(run.id, { session_id: outcome.sessionId, ...outcome.usage });
     const auxiliaryQa = phase === 'qa' && objectiveVerification && !outcome.ok;
-    finishRun(run.id, outcome.ok ? 'succeeded' : 'failed', outcome.error ?? null, outcome.report ?? null);
+    const runStatus = runStatusForOutcome(issueId, outcome);
+    finishRun(run.id, runStatus, outcome.error ?? null, outcome.report ?? null);
     emit(opts, {
       issue_id: issueId,
       run_id: run.id,
       kind: 'phase.end',
-      level: outcome.ok ? 'info' : 'warn',
-      message: outcome.summary,
-      data: { phase, ok: outcome.ok, auxiliary: auxiliaryQa },
+      level: outcome.ok || runStatus === 'cancelled' ? 'info' : 'warn',
+      message: runStatus === 'cancelled' ? `${phase} cancelled` : outcome.summary,
+      data: { phase, ok: outcome.ok, status: runStatus, auxiliary: auxiliaryQa },
     });
 
     if (!outcome.ok && !auxiliaryQa) {
-      log.warn('phase failed', { issue: issue.key, phase, error: outcome.error });
+      if (runStatus === 'cancelled') {
+        log.info('phase cancelled', { issue: issue.key, phase, error: outcome.error });
+      } else {
+        log.warn('phase failed', { issue: issue.key, phase, error: outcome.error });
+      }
       return {
         ok: false,
-        finalStatus: 'in_progress',
+        finalStatus: getIssue(issueId)?.status ?? 'in_progress',
         failedPhase: phase,
         error: outcome.error,
         errorKind: outcome.errorKind,
@@ -289,6 +294,13 @@ function skipCompletedPhase(issueId: string, phase: RunPhase): string | null {
     return 'previous successful implementation';
   }
   return 'previous successful QA';
+}
+
+function runStatusForOutcome(issueId: string, outcome: PhaseOutcome): RunStatus {
+  if (outcome.ok) return 'succeeded';
+  const issue = getIssue(issueId);
+  if (outcome.error === 'aborted' && issue && isTerminal(issue.status)) return 'cancelled';
+  return 'failed';
 }
 
 function resumeSessionIdFor(issueId: string, phase: RunPhase): string | null {
