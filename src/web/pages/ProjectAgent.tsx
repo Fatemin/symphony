@@ -80,7 +80,7 @@ export function ProjectAgent() {
     onError: (e) => toast.error(String(e)),
   });
 
-  if (!project || !form) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
+  if (!project || !form) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
   const setConfig = (updater: (config: ProjectWorkflowConfig) => ProjectWorkflowConfig) => {
     setForm((current) => (current ? { ...current, config: updater(current.config) } : current));
@@ -91,7 +91,7 @@ export function ProjectAgent() {
     <div className="flex h-full flex-col p-6">
       <header className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/" className="text-slate-500 hover:text-slate-300">
+          <Link to="/" className="text-muted hover:text-fg">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <span className="grid h-7 w-7 place-items-center rounded text-xs font-bold" style={{ background: project.color + '33', color: project.color }}>
@@ -109,7 +109,7 @@ export function ProjectAgent() {
       <div className="grid max-w-6xl grid-cols-1 gap-4 pb-8 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-4">
           <Panel className="p-4">
-            <div className="mb-4 flex items-center gap-2 text-sm font-medium text-slate-200">
+            <div className="mb-4 flex items-center gap-2 text-sm font-medium text-fg">
               <Bot className="h-4 w-4 text-indigo-300" />
               Agent
             </div>
@@ -183,7 +183,7 @@ export function ProjectAgent() {
           </Panel>
 
           <Panel className="p-4">
-            <div className="mb-4 text-sm font-medium text-slate-200">Prompting</div>
+            <div className="mb-4 text-sm font-medium text-fg">Prompting</div>
             <div className="space-y-4">
               <Field label="Project context">
                 <Textarea
@@ -214,14 +214,14 @@ export function ProjectAgent() {
 
           <Panel className="p-4">
             <div className="mb-4 flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-200">Verification</div>
+              <div className="text-sm font-medium text-fg">Verification</div>
               <Button onClick={() => setConfig((c) => ({ ...c, verification: { commands: [...c.verification.commands, { command: '' }] } }))}>
                 <Plus className="h-4 w-4" /> Command
               </Button>
             </div>
             <div className="space-y-3">
               {config.verification.commands.length === 0 && (
-                <div className="rounded-md border border-dashed border-[#262b38] px-3 py-4 text-sm text-slate-600">No commands</div>
+                <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted">No commands</div>
               )}
               {config.verification.commands.map((command, index) => (
                 <div key={index} className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_120px_110px_90px_36px]">
@@ -269,7 +269,7 @@ export function ProjectAgent() {
 
         <div className="space-y-4">
           <Panel className="p-4">
-            <div className="mb-4 text-sm font-medium text-slate-200">Promotion</div>
+            <div className="mb-4 text-sm font-medium text-fg">Promotion</div>
             <div className="space-y-3">
               <Field label="Mode">
                 <Select
@@ -337,7 +337,7 @@ export function ProjectAgent() {
           </Panel>
 
           <Panel className="p-4">
-            <div className="mb-4 text-sm font-medium text-slate-200">Commit Guard</div>
+            <div className="mb-4 text-sm font-medium text-fg">Commit Guard</div>
             <div className="space-y-3">
               <Field label="Enabled">
                 <Select
