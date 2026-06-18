@@ -198,7 +198,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
     title: '',
     type: 'feature',
     priority: 2,
-    mode: 'manual',
+    mode: 'auto',
     status: 'todo',
     description: '',
     acceptance_criteria: '',
