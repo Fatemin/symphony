@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckSquare, Plus, Sparkles, Square } from 'lucide-react';
+import { ArrowLeft, Ban, Check, CheckSquare, Plus, Sparkles, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
@@ -25,9 +25,11 @@ export function Board() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [approveOpen, setApproveOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
 
   const byStatus = (status: IssueStatus) => (project?.issues ?? []).filter((i) => i.status === status);
   const reviewIssues = byStatus('review');
+  const cancelledIssues = byStatus('cancelled');
   const selectedReviewIssues = reviewIssues.filter((issue) => selected.has(issue.id));
   const allReviewSelected = reviewIssues.length > 0 && selectedReviewIssues.length === reviewIssues.length;
   const approveMany = useMutation({
@@ -104,6 +106,11 @@ export function Board() {
               <Check className="h-4 w-4" /> Approve selected
             </Button>
           )}
+          {cancelledIssues.length > 0 && (
+            <Button onClick={() => setShowCancelled((v) => !v)}>
+              <Ban className="h-4 w-4" /> Cancelled {cancelledIssues.length}
+            </Button>
+          )}
           <Button variant="primary" onClick={() => setOpen((v) => !v)}>
             <Plus className="h-4 w-4" /> New issue
           </Button>
@@ -139,6 +146,22 @@ export function Board() {
           );
         })}
       </div>
+      {showCancelled && cancelledIssues.length > 0 && (
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <span className={`h-2 w-2 rounded-full ${STATUS_META['cancelled'].dot}`} />
+            <span className="text-xs font-medium text-fg">{STATUS_META['cancelled'].label}</span>
+            <span className="text-xs text-subtle">{cancelledIssues.length}</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {cancelledIssues.map((issue) => (
+              <div key={issue.id} className="w-[220px]">
+                <IssueCard issue={issue} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {approveOpen && (
         <ApproveDialog
           projectId={project.id}
