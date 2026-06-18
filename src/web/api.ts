@@ -1,4 +1,5 @@
 import type {
+  AgentType,
   Event,
   Issue,
   IssueRelation,
@@ -13,7 +14,10 @@ import type {
 
 export type EngineConfig = Record<string, unknown> & {
   enabled: boolean;
+  agent: AgentType;
   model: string;
+  codex_cli_path: string;
+  codex_model: string;
   permission_mode: string;
   wip_limit: number;
   poll_interval_ms: number;

@@ -3,8 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Bot, Plus, Save, Trash2 } from 'lucide-react';
-import type { Project } from '../../shared/types';
-import { AVAILABLE_MODELS } from '../../shared/models';
+import type { AgentType, Project } from '../../shared/types';
+import { AGENT_OPTIONS, AVAILABLE_MODELS } from '../../shared/models';
 import {
   api,
   type ProjectRunPhase,
@@ -18,6 +18,7 @@ const PHASES: ProjectRunPhase[] = ['plan', 'implement', 'qa'];
 
 interface AgentForm {
   context: string;
+  agent: AgentType | ''; // '' ⇒ inherit the global default agent
   model: string;
   config: ProjectWorkflowConfig;
 }
@@ -53,6 +54,7 @@ export function ProjectAgent() {
     if (!project) return;
     setForm({
       context: project.context ?? '',
+      agent: project.agent ?? '',
       model: project.model ?? '',
       config: normalizeConfig(project.config),
     });
@@ -63,6 +65,7 @@ export function ProjectAgent() {
       if (!project || !form) throw new Error('project not loaded');
       return api.projects.update(project.id, {
         context: blankToNull(form.context),
+        agent: form.agent || null, // null ⇒ clear the override and inherit the global default
         model: blankToNull(form.model),
         config: sanitizeConfig(form.config),
       } satisfies Partial<Project>);
@@ -72,6 +75,7 @@ export function ProjectAgent() {
       qc.invalidateQueries({ queryKey: ['project', updated.id] });
       setForm({
         context: updated.context ?? '',
+        agent: updated.agent ?? '',
         model: updated.model ?? '',
         config: normalizeConfig(updated.config),
       });
@@ -114,6 +118,17 @@ export function ProjectAgent() {
               Agent
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Agent">
+                <Select
+                  value={form.agent}
+                  onChange={(e) => setForm({ ...form, agent: e.target.value as AgentType | '' })}
+                >
+                  <option value="">global default</option>
+                  {AGENT_OPTIONS.map((a) => (
+                    <option key={a.id} value={a.id}>{a.label}</option>
+                  ))}
+                </Select>
+              </Field>
               <Field label="Model override">
                 <Input
                   list="agent-models"
@@ -122,7 +137,7 @@ export function ProjectAgent() {
                   placeholder="global default"
                 />
                 <datalist id="agent-models">
-                  {AVAILABLE_MODELS.map((m) => (
+                  {AVAILABLE_MODELS.filter((m) => !form.agent || m.agent === form.agent).map((m) => (
                     <option key={m.id} value={m.id}>{m.label}</option>
                   ))}
                 </datalist>

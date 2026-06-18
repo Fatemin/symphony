@@ -1,4 +1,5 @@
 import type { PermissionMode } from '../core/config';
+import type { AgentType } from '../../shared/types';
 
 // The agent-runner contract. The orchestrator/phases depend only on these types, never on
 // the Claude CLI directly — so tests inject a fake runner with the same signature (no module
@@ -6,6 +7,8 @@ import type { PermissionMode } from '../core/config';
 // token-spending agent process.
 
 export interface AgentRunInput {
+  /** Which CLI to drive (resolved per-phase). The dispatcher routes on this. */
+  agent: AgentType;
   /** Working directory — MUST be the issue's worktree (Safety Invariant §9.5). */
   cwd: string;
   /** Fully rendered prompt fed to the agent on stdin. */

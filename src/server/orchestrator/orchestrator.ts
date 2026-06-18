@@ -5,7 +5,7 @@ import { appendEvent, type EventWithCursor } from '../repo/events';
 import { getIssue, isActive, isTerminal, setStatus, updateIssue } from '../repo/issues';
 import { finishRun, listDanglingRuns } from '../repo/runs';
 import { getConfig as readConfig } from '../repo/settings';
-import { runClaudeCode } from '../agent/claudeRunner';
+import { runAgent } from '../agent/runAgent';
 import type { AgentRunner } from '../agent/types';
 import { localTracker, type Tracker } from '../tracker/localTracker';
 import type { PipelineResult } from '../phases/index';
@@ -40,7 +40,7 @@ export class Orchestrator {
 
   constructor(deps: OrchestratorDeps = {}) {
     this.tracker = deps.tracker ?? localTracker;
-    this.runner = deps.runner ?? runClaudeCode;
+    this.runner = deps.runner ?? runAgent;
     this.getConfig = deps.getConfig ?? readConfig;
     this.onEvent = deps.onEvent;
   }

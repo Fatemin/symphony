@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ROOT } from '../env';
+import type { AgentType } from '../../shared/types';
 
 // Engine-wide runtime configuration. Defaults live here; the `settings` table holds
 // UI-editable overrides; per-project rows can further override `model`. This module is
@@ -13,10 +14,16 @@ export type PermissionMode =
 export interface EngineConfig {
   /** Master switch — when false the orchestrator dispatches nothing. */
   enabled: boolean;
+  /** Default agent CLI driving the pipeline; per-project rows / WORKFLOW.md can override. */
+  agent: AgentType;
   /** Path to the Claude Code CLI binary (resolved on PATH by default). */
   cli_path: string;
-  /** Default model passed to the CLI (`--model`). */
+  /** Default model passed to the Claude CLI (`--model`). */
   model: string;
+  /** Path to the Codex CLI binary (resolved on PATH by default). */
+  codex_cli_path: string;
+  /** Default model passed to the Codex CLI (`-m`) when the project uses the codex agent. */
+  codex_model: string;
   /** CLI permission mode for headless runs. */
   permission_mode: PermissionMode;
   /** Max concurrent issue runs. */
@@ -39,8 +46,11 @@ export interface EngineConfig {
 
 export const DEFAULT_SETTINGS: EngineConfig = {
   enabled: true,
+  agent: 'claude',
   cli_path: process.platform === 'win32' ? 'claude.cmd' : 'claude',
   model: 'claude-sonnet-4-6',
+  codex_cli_path: process.platform === 'win32' ? 'codex.cmd' : 'codex',
+  codex_model: 'gpt-5-codex',
   permission_mode: 'bypassPermissions',
   wip_limit: 3,
   poll_interval_ms: 30_000,

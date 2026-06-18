@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { log } from '../observability/logger';
-import type { RunPhase } from '../../shared/types';
+import type { AgentType, RunPhase } from '../../shared/types';
 import type { PermissionMode } from './config';
 import type { ProjectConfigInput } from './projectConfig';
 
@@ -12,6 +12,7 @@ import type { ProjectConfigInput } from './projectConfig';
  * phase-specific prompt guidance. Read fresh per run (no file watching), so edits apply next run.
  */
 export interface WorkflowPolicy {
+  agent?: AgentType;
   model?: string;
   permission_mode?: PermissionMode;
   max_turns?: number;
@@ -49,8 +50,10 @@ export function loadWorkflow(repoPath: string): WorkflowPolicy | null {
   const agent = (obj.agent ?? {}) as Record<string, unknown>;
   const prompts = (obj.prompts ?? {}) as Record<string, unknown>;
   const mode = typeof agent.permission_mode === 'string' ? agent.permission_mode : undefined;
+  const agentType = agent.type === 'codex' || agent.type === 'claude' ? agent.type : undefined;
 
   return {
+    agent: agentType,
     model: typeof agent.model === 'string' ? agent.model : undefined,
     permission_mode: mode && PERMISSION_MODES.includes(mode as PermissionMode) ? (mode as PermissionMode) : undefined,
     ...parseMaxTurns(agent.max_turns),

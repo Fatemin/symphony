@@ -1,7 +1,7 @@
 import { getDb } from '../db/client';
 import { newId, deriveProjectKey } from '../core/keys';
 import { parseProjectConfig, serializeProjectConfig } from '../core/projectConfig';
-import type { Project } from '../../shared/types';
+import type { AgentType, Project } from '../../shared/types';
 
 interface ProjectRow {
   id: string;
@@ -13,6 +13,7 @@ interface ProjectRow {
   default_branch: string;
   context: string | null;
   model: string | null;
+  agent: AgentType | null;
   preview_command: string | null;
   config: string | null;
   created_at: string;
@@ -29,6 +30,7 @@ export interface CreateProjectInput {
   default_branch?: string;
   context?: string | null;
   model?: string | null;
+  agent?: AgentType | null;
   preview_command?: string | null;
   config?: unknown;
 }
@@ -38,8 +40,8 @@ export function createProject(input: CreateProjectInput): Project {
   const key = (input.key?.trim() || deriveProjectKey(input.name)).toUpperCase();
   getDb()
     .prepare(
-      `INSERT INTO projects (id, key, name, description, color, repo_path, default_branch, context, model, preview_command, config)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (id, key, name, description, color, repo_path, default_branch, context, model, agent, preview_command, config)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -51,6 +53,7 @@ export function createProject(input: CreateProjectInput): Project {
       input.default_branch ?? 'main',
       input.context ?? null,
       input.model ?? null,
+      input.agent ?? null,
       input.preview_command ?? null,
       serializeProjectConfig(input.config),
     );
@@ -79,6 +82,7 @@ const UPDATABLE = [
   'default_branch',
   'context',
   'model',
+  'agent',
   'preview_command',
   'config',
 ] as const;
