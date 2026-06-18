@@ -83,7 +83,7 @@ test('approval rejects a missing target branch unless creation is requested', as
   assert.throws(() => g('rev-parse', '--verify', 'does-not-exist'));
 });
 
-test('pull-request promotion pushes the branch and opens a PR without merging', async () => {
+test('pull-request promotion (auto_merge off) opens a PR and marks the issue done in one approve', async () => {
   const remote = path.join(env.root, 'remote.git');
   execFileSync('git', ['init', '--bare', remote], { stdio: 'pipe' });
   g('remote', 'add', 'origin', remote);
@@ -137,10 +137,12 @@ test('pull-request promotion pushes the branch and opens a PR without merging', 
 
     const res = await issueRoutes.request(`/${issue.id}/approve`, { method: 'POST' });
     assert.equal(res.status, 200);
-    const body = await res.json() as { ok: boolean; pr_url?: string; merged?: boolean; reason?: string };
+    const body = await res.json() as { ok: boolean; pr_url?: string; merged?: boolean; done?: boolean; reason?: string };
     assert.equal(body.ok, true, body.reason);
     assert.equal(body.pr_url, 'https://github.com/example/repo/pull/42');
     assert.equal(body.merged, false);
+    // auto_merge is off, so opening the PR is the handoff/completion point — one approve reaches 'done'.
+    assert.equal(body.done, true);
 
     const pushed = execFileSync('git', ['ls-remote', '--heads', 'origin', review.branch_name!], {
       cwd: env.repoPath,
@@ -148,8 +150,81 @@ test('pull-request promotion pushes the branch and opens a PR without merging', 
     }).toString();
     assert.match(pushed, new RegExp(review.branch_name!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(execFileSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, stdio: 'pipe' }).toString().trim(), remoteMain);
-    assert.equal(getIssue(issue.id)!.status, 'review');
+    const done = getIssue(issue.id)!;
+    assert.equal(done.status, 'done');
+    assert.equal(done.branch_name, null);
+    assert.equal(done.worktree_path, null);
     assert.match(fs.readFileSync(ghLog, 'utf8'), /pr create/);
+  } finally {
+    process.env.PATH = oldPath;
+    delete process.env.GH_LOG;
+  }
+});
+
+test('pull-request promotion (auto_merge on) keeps the issue in review when the PR is not yet mergeable', async () => {
+  const remote = path.join(env.root, 'remote-am.git');
+  execFileSync('git', ['init', '--bare', remote], { stdio: 'pipe' });
+  g('remote', 'add', 'origin-am', remote);
+  g('push', '-u', 'origin-am', 'main');
+
+  const ghBin = path.join(env.root, 'bin-am');
+  const ghLog = path.join(env.root, 'gh-am.log');
+  fs.mkdirSync(ghBin, { recursive: true });
+  fs.writeFileSync(
+    path.join(ghBin, 'gh'),
+    [
+      '#!/bin/sh',
+      'echo "$@" >> "$GH_LOG"',
+      'if [ "$1" = "pr" ] && [ "$2" = "create" ]; then',
+      '  echo "https://github.com/example/repo/pull/77"',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then',
+      // PR is blocked on a required review, so auto-merge never fires.
+      '  echo \'{"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}\'',
+      '  exit 0',
+      'fi',
+      'echo "unexpected gh call: $@" >&2',
+      'exit 1',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${ghBin}:${oldPath}`;
+  process.env.GH_LOG = ghLog;
+  try {
+    const project = createProject({
+      name: 'Auto Merge',
+      key: 'AM',
+      repo_path: env.repoPath,
+      config: {
+        verification: { commands: [{ command: `node -e "process.exit(0)"` }] },
+        // check_timeout_ms:0 makes the auto-merge poll bail out immediately instead of waiting.
+        promotion: { mode: 'pull-request', remote: 'origin-am', base_branch: 'main', auto_merge: true, check_timeout_ms: 0, check_poll_interval_ms: 0 },
+      },
+    });
+    const issue = createIssue({ project_id: project.id, title: 'Auto-merge promotion', status: 'todo', mode: 'auto' });
+
+    const result = await runIssuePipeline(issue.id, {
+      runner: makeFakeRunner({ qa: 'pass', fileName: 'am.txt', fileContent: 'am\n' }),
+      config: getConfig(),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(getIssue(issue.id)!.status, 'review');
+
+    const res = await issueRoutes.request(`/${issue.id}/approve`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json() as { ok: boolean; merged?: boolean; done?: boolean; reason?: string };
+    assert.equal(body.ok, true, body.reason);
+    assert.equal(body.merged, false);
+    assert.equal(body.done, false);
+
+    // auto_merge is on but the PR isn't mergeable, so the issue stays parked and the branch is
+    // retained so a re-approve can re-poll the PR until checks/reviews are satisfied.
+    const after = getIssue(issue.id)!;
+    assert.equal(after.status, 'review');
+    assert.ok(after.branch_name, 'branch retained for a re-approve to re-poll the PR');
   } finally {
     process.env.PATH = oldPath;
     delete process.env.GH_LOG;
