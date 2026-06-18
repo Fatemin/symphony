@@ -6,6 +6,7 @@ import type {
   Project,
   ProjectNote,
   RunPhase,
+  StoryReferenceContext,
 } from '../../shared/types';
 import type { NewTask } from '../repo/tasks';
 
@@ -17,6 +18,8 @@ export interface PromptContext {
   lastFailure?: { phase: RunPhase; error: string } | null;
   /** Recent learnings from completed issues in this project, newest first. */
   notes?: ProjectNote[];
+  /** Explicit context snapshots from predecessor stories in this issue chain. */
+  storyContext?: StoryReferenceContext[];
 }
 
 /** Append optional per-repo policy guidance (from WORKFLOW.md) to a phase prompt. */
@@ -44,6 +47,17 @@ function issueBrief(ctx: PromptContext): string {
   }
   if (project.context?.trim()) {
     lines.push(``, `## Project context`, project.context.trim());
+  }
+  const storyContext = (ctx.storyContext ?? []).slice(0, 5);
+  if (storyContext.length) {
+    lines.push(``, `## Referenced predecessor story context`);
+    for (const ref of storyContext) {
+      lines.push(
+        ``,
+        `### ${ref.source_key}: ${ref.source_title}`,
+        ref.context_summary.trim().slice(0, 2_000),
+      );
+    }
   }
   const notes = (ctx.notes ?? []).slice(0, 5);
   if (notes.length) {

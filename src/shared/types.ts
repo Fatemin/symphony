@@ -66,6 +66,46 @@ export interface Issue {
   updated_at: string;
 }
 
+export type IssueRelationType = 'follow_up' | 'relates_to';
+
+export interface IssueLink {
+  id: string;
+  project_id: string;
+  key: string;
+  type: IssueType;
+  title: string;
+  status: IssueStatus;
+  priority: Priority;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IssueRelation {
+  id: string;
+  project_id: string;
+  source_issue_id: string;
+  target_issue_id: string;
+  type: IssueRelationType;
+  context_summary: string | null;
+  created_at: string;
+  source: IssueLink;
+  target: IssueLink;
+}
+
+export interface IssueRelationMap {
+  incoming: IssueRelation[];
+  outgoing: IssueRelation[];
+}
+
+export interface StoryReferenceContext {
+  relation_id: string;
+  source_issue_id: string;
+  source_key: string;
+  source_title: string;
+  relation_type: IssueRelationType;
+  context_summary: string;
+}
+
 export interface IssueTask {
   id: string;
   issue_id: string;

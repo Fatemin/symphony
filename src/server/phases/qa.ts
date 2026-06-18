@@ -9,7 +9,14 @@ import { runPhaseAgent, type PhaseContext, type QaOutcome } from './types';
  */
 export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
   const prompt = buildQaPrompt(
-    { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
+    {
+      project: ctx.project,
+      issue: ctx.issue,
+      attempt: ctx.attempt,
+      lastFailure: ctx.lastFailure,
+      notes: ctx.notes,
+      storyContext: ctx.storyContext,
+    },
     ctx.implementReport ?? null,
     phasePrompt(ctx.projectConfig.prompts.qa, ctx.workflow?.prompts.qa),
   );

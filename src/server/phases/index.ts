@@ -16,6 +16,7 @@ import {
   updateRunUsage,
 } from '../repo/runs';
 import { listRecentNotes, noteFromReport, recordIssueNote } from '../repo/notes';
+import { listStoryReferenceContexts } from '../repo/issueRelations';
 import { listTasks } from '../repo/tasks';
 import { appendEvent, type EventWithCursor } from '../repo/events';
 import { ensureWorktree, installCommitGuardHook, worktreePathFor } from '../workspace/worktree';
@@ -101,6 +102,7 @@ export async function runIssuePipeline(
   // Cross-run memory: why the last attempt failed + distilled learnings from past issues.
   const failure = attempt > 1 ? lastFailure(issueId) : null;
   const notes = listRecentNotes(project.id);
+  const storyContext = listStoryReferenceContexts(issueId);
   let implementReport: string | null = latestSuccessfulRun(issueId, 'implement')?.report ?? null;
 
   for (const phase of PHASE_ORDER) {
@@ -138,6 +140,7 @@ export async function runIssuePipeline(
       onAgentEvent: (event) => persistAgentEvent(opts, issueId, run.id, phase, event),
       lastFailure: failure,
       notes,
+      storyContext,
       resumeSessionId,
       implementReport: phase === 'qa' ? implementReport : null,
     };

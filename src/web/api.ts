@@ -1,6 +1,8 @@
 import type {
   Event,
   Issue,
+  IssueRelation,
+  IssueRelationMap,
   IssueTask,
   Project,
   Run,
@@ -22,7 +24,12 @@ export type EngineConfig = Record<string, unknown> & {
 };
 
 export type ProjectWithIssues = Project & { issues: Issue[] };
-export type IssueDetail = Issue & { tasks: IssueTask[]; runs: Run[]; events: (Event & { cursor: number })[] };
+export type IssueDetail = Issue & {
+  tasks: IssueTask[];
+  runs: Run[];
+  events: (Event & { cursor: number })[];
+  relations: IssueRelationMap;
+};
 
 export type ProjectRunPhase = 'plan' | 'implement' | 'qa';
 
@@ -118,6 +125,11 @@ export interface PreviewStatus {
   error?: string;
 }
 
+export type CreateFollowUpIssueInput = Partial<Issue> & {
+  title: string;
+  include_context?: boolean;
+};
+
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...opts,
@@ -148,6 +160,11 @@ export const api = {
     get: (id: string) => req<IssueDetail>(`/api/issues/${id}`),
     create: (data: Partial<Issue> & { project_id: string; title: string }) =>
       req<Issue>('/api/issues', { method: 'POST', ...body(data) }),
+    createFollowUp: (sourceId: string, data: CreateFollowUpIssueInput) =>
+      req<{ issue: Issue; relation: IssueRelation }>(`/api/issues/${sourceId}/follow-ups`, {
+        method: 'POST',
+        ...body(data),
+      }),
     update: (id: string, data: Partial<Issue>) =>
       req<Issue>(`/api/issues/${id}`, { method: 'PATCH', ...body(data) }),
     remove: (id: string) => req<void>(`/api/issues/${id}`, { method: 'DELETE' }),

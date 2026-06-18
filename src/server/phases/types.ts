@@ -1,4 +1,4 @@
-import type { Issue, Project, ProjectNote, RunPhase } from '../../shared/types';
+import type { Issue, Project, ProjectNote, RunPhase, StoryReferenceContext } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
 import type { ProjectConfig } from '../core/projectConfig';
 import type { WorkflowPolicy } from '../core/workflow';
@@ -32,6 +32,8 @@ export interface PhaseContext {
   lastFailure?: { phase: RunPhase; error: string } | null;
   /** Recent project learnings injected into every phase prompt. */
   notes?: ProjectNote[];
+  /** Explicit predecessor-story context snapshots injected into every phase prompt. */
+  storyContext?: StoryReferenceContext[];
   /** Previous CLI session for this issue+phase — resumed on retries to skip re-exploration. */
   resumeSessionId?: string | null;
   /** The implement phase's final report (threaded into the QA prompt). */
