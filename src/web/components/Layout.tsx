@@ -9,10 +9,13 @@ import {
   Columns3,
   FolderKanban,
   Layers3,
+  Moon,
   Music4,
   Settings as SettingsIcon,
+  Sun,
 } from 'lucide-react';
 import { api } from '../api';
+import { useTheme } from '../theme';
 
 const links = [
   { to: '/', label: 'All projects', icon: Layers3, end: true },
@@ -24,6 +27,7 @@ const STORAGE_KEY = 'symphony.sidebar.expandedProjects';
 
 export function Layout() {
   const location = useLocation();
+  const { theme, toggleTheme } = useTheme();
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: api.projects.list });
   const currentProjectId = useMemo(() => location.pathname.match(/^\/projects\/([^/]+)/)?.[1], [location.pathname]);
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded());
@@ -51,14 +55,25 @@ export function Layout() {
   };
 
   return (
-    <div className="flex h-full bg-[#0b0d12]">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-[#24262d] bg-[#0c0d10] px-2 py-3">
-        <Link to="/" className="mb-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-slate-200 hover:bg-[#17191f]">
-          <span className="grid h-7 w-7 place-items-center rounded-md bg-[#17191f]">
-            <Music4 className="h-4 w-4 text-indigo-300" />
-          </span>
-          <span className="text-sm font-semibold tracking-tight">Symphony</span>
-        </Link>
+    <div className="flex h-full bg-bg">
+      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-bg-2 px-2 py-3">
+        <div className="mb-3 flex items-center gap-1">
+          <Link to="/" className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-fg hover:bg-hover">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-panel">
+              <Music4 className="h-4 w-4 text-indigo-300" />
+            </span>
+            <span className="truncate text-sm font-semibold tracking-tight">Symphony</span>
+          </Link>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label="Toggle theme"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg"
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+        </div>
 
         <nav className="space-y-0.5">
           {links.map(({ to, label, icon: Icon, end }) => (
@@ -70,7 +85,7 @@ export function Layout() {
         </nav>
 
         <div className="mt-4 flex min-h-0 flex-1 flex-col">
-          <div className="mb-1 flex items-center justify-between px-2 text-[11px] font-medium uppercase tracking-wide text-slate-600">
+          <div className="mb-1 flex items-center justify-between px-2 text-[11px] font-medium uppercase tracking-wide text-subtle">
             <span>Projects</span>
             <FolderKanban className="h-3.5 w-3.5" />
           </div>
@@ -80,11 +95,11 @@ export function Layout() {
               const isCurrent = currentProjectId === project.id;
               return (
                 <div key={project.id} className="mb-0.5">
-                  <div className={`group flex items-center rounded-md ${isCurrent ? 'bg-[#17191f]' : 'hover:bg-[#13151a]'}`}>
+                  <div className={`group flex items-center rounded-md ${isCurrent ? 'bg-panel' : 'hover:bg-hover'}`}>
                     <button
                       type="button"
                       aria-label={isOpen ? `Collapse ${project.name}` : `Expand ${project.name}`}
-                      className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-slate-500 hover:text-slate-200"
+                      className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-muted hover:text-fg"
                       onClick={() => toggleProject(project.id)}
                     >
                       {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -94,7 +109,7 @@ export function Layout() {
                       end
                       className={({ isActive }) =>
                         `flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-2 text-sm transition ${
-                          isActive || isCurrent ? 'text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                          isActive || isCurrent ? 'text-fg' : 'text-muted hover:text-fg'
                         }`
                       }
                     >
@@ -103,7 +118,7 @@ export function Layout() {
                     </NavLink>
                   </div>
                   {isOpen && (
-                    <div className="ml-7 mt-0.5 space-y-0.5 border-l border-[#24262d] pl-2">
+                    <div className="ml-7 mt-0.5 space-y-0.5 border-l border-border pl-2">
                       <NavLink to={`/projects/${project.id}`} end className={subNavClass}>
                         <Columns3 className="h-3.5 w-3.5" />
                         <span>Board</span>
@@ -120,7 +135,7 @@ export function Layout() {
           </div>
         </div>
 
-        <div className="mt-3 border-t border-[#24262d] px-2 pt-3 text-[11px] leading-relaxed text-slate-600">
+        <div className="mt-3 border-t border-border px-2 pt-3 text-[11px] leading-relaxed text-subtle">
           Claude Code agents · isolated worktrees
         </div>
       </aside>
@@ -133,13 +148,13 @@ export function Layout() {
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition ${
-    isActive ? 'bg-[#17191f] text-slate-100' : 'text-slate-400 hover:bg-[#13151a] hover:text-slate-200'
+    isActive ? 'bg-panel-2 text-fg' : 'text-muted hover:bg-hover hover:text-fg'
   }`;
 }
 
 function subNavClass({ isActive }: { isActive: boolean }) {
   return `flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition ${
-    isActive ? 'bg-[#1b1d24] text-slate-100' : 'text-slate-500 hover:bg-[#13151a] hover:text-slate-300'
+    isActive ? 'bg-panel-2 text-fg' : 'text-muted hover:bg-hover hover:text-fg'
   }`;
 }
 

@@ -20,7 +20,7 @@ export function IssueDetail() {
     refetchInterval: (q) => (isRunning(q.state.data?.status) ? 2000 : false),
   });
 
-  if (!issue) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
+  if (!issue) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
   return (
     <div className="mx-auto grid max-w-6xl grid-cols-3 gap-6 p-6">
@@ -72,13 +72,13 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
   const terminal = issue.status === 'done' || issue.status === 'cancelled';
   return (
     <div>
-      <Link to={`/projects/${issue.project_id}`} className="mb-3 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300">
+      <Link to={`/projects/${issue.project_id}`} className="mb-3 inline-flex items-center gap-1.5 text-xs text-muted hover:text-fg">
         <ArrowLeft className="h-3.5 w-3.5" /> Board
       </Link>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="mb-1 flex items-center gap-2 text-xs">
-            <span className="font-mono text-slate-500">{issue.key}</span>
+            <span className="font-mono text-muted">{issue.key}</span>
             <span className={`inline-flex items-center gap-1 ${meta.color}`}>
               <span className={`h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
             </span>
@@ -344,11 +344,11 @@ function Body({ issue, onSaved }: { issue: Detail; onSaved: () => void }) {
   return (
     <Panel className="space-y-4 p-4">
       <div>
-        <p className="mb-1.5 text-xs font-medium text-slate-400">Description</p>
+        <p className="mb-1.5 text-xs font-medium text-muted">Description</p>
         <Textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} />
       </div>
       <div>
-        <p className="mb-1.5 text-xs font-medium text-slate-400">Acceptance criteria</p>
+        <p className="mb-1.5 text-xs font-medium text-muted">Acceptance criteria</p>
         <Textarea rows={4} value={ac} onChange={(e) => setAc(e.target.value)} />
       </div>
       {dirty && (
@@ -364,13 +364,13 @@ function Tasks({ issue }: { issue: Detail }) {
   if (issue.tasks.length === 0) return null;
   return (
     <Panel className="p-4">
-      <p className="mb-3 text-xs font-medium text-slate-400">Plan ({issue.tasks.length} tasks)</p>
+      <p className="mb-3 text-xs font-medium text-muted">Plan ({issue.tasks.length} tasks)</p>
       <ul className="space-y-1.5">
         {issue.tasks.map((t) => (
           <li key={t.id} className="flex items-center gap-2 text-sm">
             <span className={`h-3.5 w-3.5 rounded-sm border ${t.status === 'done' ? 'border-emerald-500 bg-emerald-500/30' : t.status === 'failed' ? 'border-red-500 bg-red-500/20' : t.status === 'running' ? 'border-amber-400' : 'border-slate-600'}`} />
-            <span className="rounded bg-[#1b1f2a] px-1.5 py-0.5 text-[10px] text-slate-400">{t.role}</span>
-            <span className={t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-200'}>{t.title}</span>
+            <span className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-muted">{t.role}</span>
+            <span className={t.status === 'done' ? 'text-muted line-through' : 'text-fg'}>{t.title}</span>
           </li>
         ))}
       </ul>
@@ -382,18 +382,18 @@ function Runs({ issue }: { issue: Detail }) {
   if (issue.runs.length === 0) return null;
   return (
     <Panel className="p-4">
-      <p className="mb-3 text-xs font-medium text-slate-400">Runs</p>
+      <p className="mb-3 text-xs font-medium text-muted">Runs</p>
       <div className="space-y-1.5">
         {issue.runs.map((r) => (
           <div key={r.id} className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
-              <span className="w-20 font-mono text-slate-400">{r.phase}</span>
+              <span className="w-20 font-mono text-muted">{r.phase}</span>
               <Badge className={r.status === 'succeeded' ? 'bg-emerald-500/15 text-emerald-300' : r.status === 'running' ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}>
                 {r.status}
               </Badge>
-              <span className="text-slate-600">att {r.attempt}</span>
+              <span className="text-subtle">att {r.attempt}</span>
             </div>
-            <span className="text-slate-600">{r.total_tokens.toLocaleString()} tok · {r.num_turns} turns</span>
+            <span className="text-subtle">{r.total_tokens.toLocaleString()} tok · {r.num_turns} turns</span>
           </div>
         ))}
       </div>
@@ -417,7 +417,7 @@ function ReviewPanel({ issue }: { issue: Detail }) {
 
   return (
     <Panel className="p-4">
-      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
         <FileDiff className="h-3.5 w-3.5" /> Review evidence
       </div>
 
@@ -429,7 +429,7 @@ function ReviewPanel({ issue }: { issue: Detail }) {
             <span className={pass ? 'font-medium text-emerald-300' : 'font-medium text-red-300'}>
               QA {pass ? 'PASS' : 'FAIL'}
             </span>
-            <span className="text-slate-400"> — {(verdict ?? '').replace(/^QA (PASS|FAIL)\s*[—-]?\s*/i, '') || 'self-QA verdict'}</span>
+            <span className="text-muted"> — {(verdict ?? '').replace(/^QA (PASS|FAIL)\s*[—-]?\s*/i, '') || 'self-QA verdict'}</span>
           </div>
         </div>
       )}
@@ -437,12 +437,12 @@ function ReviewPanel({ issue }: { issue: Detail }) {
       {/* What the QA agent ran (evidence the checks actually executed) */}
       {qaActivity.length > 0 && (
         <details className="mb-3">
-          <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300">
+          <summary className="cursor-pointer text-xs text-muted hover:text-fg">
             QA ran {qaActivity.length} step(s)
           </summary>
           <ul className="mt-1.5 space-y-0.5 pl-2">
             {qaActivity.slice(0, 12).map((e) => (
-              <li key={e.cursor} className="truncate font-mono text-[11px] text-slate-500">
+              <li key={e.cursor} className="truncate font-mono text-[11px] text-muted">
                 {e.message.replace(/^qa:\s*/, '')}
               </li>
             ))}
@@ -456,9 +456,9 @@ function ReviewPanel({ issue }: { issue: Detail }) {
       {/* Diff */}
       <div className="text-xs">
         {isLoading ? (
-          <span className="text-slate-600">Loading diff…</span>
+          <span className="text-subtle">Loading diff…</span>
         ) : !diff?.available ? (
-          <span className="text-slate-600">No diff (no committed changes on the agent branch).</span>
+          <span className="text-subtle">No diff (no committed changes on the agent branch).</span>
         ) : (
           <Diff diff={diff} />
         )}
@@ -489,7 +489,7 @@ function Preview({ issueId }: { issueId: string }) {
   });
 
   return (
-    <div className="mb-3 rounded-md border border-[#262b38] bg-[#0f1218] p-2.5 text-xs">
+    <div className="mb-3 rounded-md border border-border bg-bg-2 p-2.5 text-xs">
       {status?.running ? (
         <div>
           <div className="flex items-center justify-between">
@@ -500,9 +500,9 @@ function Preview({ issueId }: { issueId: string }) {
               <Square className="h-3 w-3" /> Stop
             </Button>
           </div>
-          <p className="mt-1 font-mono text-[10px] text-slate-600">{status.command}</p>
+          <p className="mt-1 font-mono text-[10px] text-subtle">{status.command}</p>
           {status.output && (
-            <pre className="mt-1.5 max-h-28 overflow-auto rounded bg-[#0b0d12] p-2 font-mono text-[10px] text-slate-500">
+            <pre className="mt-1.5 max-h-28 overflow-auto rounded bg-bg p-2 font-mono text-[10px] text-muted">
               {status.output.slice(-1500)}
             </pre>
           )}
@@ -510,13 +510,13 @@ function Preview({ issueId }: { issueId: string }) {
       ) : (
         <div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">Launch the project from this worktree to click through it.</span>
+            <span className="text-muted">Launch the project from this worktree to click through it.</span>
             <Button variant="subtle" className="px-2 py-1" disabled={start.isPending} onClick={() => start.mutate()}>
               <MonitorPlay className="h-3.5 w-3.5" /> Preview
             </Button>
           </div>
           {status?.error && (
-            <pre className="mt-1.5 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-[#0b0d12] p-2 font-mono text-[10px] text-red-300">
+            <pre className="mt-1.5 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-bg p-2 font-mono text-[10px] text-red-300">
               {status.error.slice(-1500)}
             </pre>
           )}
@@ -531,8 +531,8 @@ function Diff({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof api.issues
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-slate-500">
-          {diff.files.length} file(s) changed on <span className="font-mono text-slate-400">{diff.branch}</span>
+        <span className="text-muted">
+          {diff.files.length} file(s) changed on <span className="font-mono text-muted">{diff.branch}</span>
         </span>
         <button className="text-indigo-300 hover:underline" onClick={() => setOpen((v) => !v)}>
           {open ? 'Hide patch' : 'Show patch'}
@@ -544,12 +544,12 @@ function Diff({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof api.issues
             <span className={`w-4 ${f.status[0] === 'A' ? 'text-emerald-400' : f.status[0] === 'D' ? 'text-red-400' : 'text-amber-400'}`}>
               {f.status[0]}
             </span>
-            <span className="truncate text-slate-300">{f.path}</span>
+            <span className="truncate text-fg">{f.path}</span>
           </li>
         ))}
       </ul>
       {open && (
-        <pre className="max-h-96 overflow-auto rounded-md bg-[#0b0d12] p-3 font-mono text-[11px] leading-relaxed">
+        <pre className="max-h-96 overflow-auto rounded-md bg-bg p-3 font-mono text-[11px] leading-relaxed">
           {diff.patch.split('\n').map((line, i) => (
             <div key={i} className={diffLineColor(line)}>
               {line || ' '}
@@ -566,8 +566,8 @@ function diffLineColor(line: string): string {
   if (line.startsWith('+') && !line.startsWith('+++')) return 'text-emerald-300';
   if (line.startsWith('-') && !line.startsWith('---')) return 'text-red-300';
   if (line.startsWith('@@')) return 'text-cyan-400';
-  if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')) return 'text-slate-600';
-  return 'text-slate-400';
+  if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')) return 'text-subtle';
+  return 'text-muted';
 }
 
 function Activity({ issueId, initial }: { issueId: string; initial: LiveEvent[] }) {
@@ -590,16 +590,16 @@ function Activity({ issueId, initial }: { issueId: string; initial: LiveEvent[] 
 
   return (
     <Panel className="flex h-[calc(100vh-7rem)] flex-col p-0">
-      <div className="border-b border-[#262b38] px-4 py-2.5 text-xs font-medium text-slate-400">Activity</div>
+      <div className="border-b border-border px-4 py-2.5 text-xs font-medium text-muted">Activity</div>
       <div ref={scroller} className="flex-1 space-y-2 overflow-y-auto p-4">
-        {events.length === 0 && <p className="text-xs text-slate-600">No activity yet.</p>}
+        {events.length === 0 && <p className="text-xs text-subtle">No activity yet.</p>}
         {events.map((e) => (
           <div key={e.cursor} className="text-xs">
             <div className="flex items-baseline gap-2">
               <span className={`font-mono ${levelColor(e.level)}`}>{e.kind}</span>
-              <span className="text-slate-600">{relativeTime(e.created_at)}</span>
+              <span className="text-subtle">{relativeTime(e.created_at)}</span>
             </div>
-            <p className="text-slate-400">{e.message}</p>
+            <p className="text-muted">{e.message}</p>
           </div>
         ))}
       </div>

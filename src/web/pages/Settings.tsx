@@ -27,19 +27,19 @@ export function Settings() {
     onError: (e) => toast.error(String(e)),
   });
 
-  if (!form) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
+  if (!form) return <div className="p-8 text-sm text-muted">Loading…</div>;
   const set = (k: keyof EngineConfig, v: unknown) => setForm({ ...form, [k]: v });
 
   return (
     <div className="mx-auto max-w-2xl p-8">
       <h1 className="mb-1 text-xl font-semibold">Settings</h1>
-      <p className="mb-6 text-sm text-slate-500">Engine configuration. Changes apply to future dispatches.</p>
+      <p className="mb-6 text-sm text-muted">Engine configuration. Changes apply to future dispatches.</p>
 
       <Panel className="space-y-4 p-5">
-        <div className="flex items-center justify-between rounded-md bg-[#0f1218] px-3 py-2.5">
+        <div className="flex items-center justify-between rounded-md bg-bg-2 px-3 py-2.5">
           <div>
             <p className="text-sm font-medium">Orchestrator enabled</p>
-            <p className="text-xs text-slate-500">Master switch for auto-dispatch.</p>
+            <p className="text-xs text-muted">Master switch for auto-dispatch.</p>
           </div>
           <Select value={String(form.enabled)} onChange={(e) => set('enabled', e.target.value === 'true')} className="w-auto">
             <option value="true">on</option>

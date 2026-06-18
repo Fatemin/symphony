@@ -32,7 +32,7 @@ export function ApproveDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4">
-      <div className="w-full max-w-md rounded-lg border border-[#262b38] bg-[#14171f] p-4 shadow-2xl">
+      <div className="w-full max-w-md rounded-lg border border-border bg-panel p-4 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-indigo-300" />
@@ -59,7 +59,7 @@ export function ApproveDialog({
             </>
           </Field>
 
-          <label className="flex items-center gap-2 text-sm text-slate-300">
+          <label className="flex items-center gap-2 text-sm text-fg">
             <input
               type="checkbox"
               className="h-4 w-4 accent-indigo-500"
@@ -67,11 +67,11 @@ export function ApproveDialog({
               disabled={exists}
               onChange={(e) => setCreateBranch(e.target.checked)}
             />
-            <Plus className="h-3.5 w-3.5 text-slate-500" />
+            <Plus className="h-3.5 w-3.5 text-muted" />
             Create branch
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-slate-300">
+          <label className="flex items-center gap-2 text-sm text-fg">
             <input
               type="checkbox"
               className="h-4 w-4 accent-indigo-500"

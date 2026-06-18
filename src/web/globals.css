@@ -5,13 +5,38 @@
 @source './**/*.{tsx,ts,html}';
 @source '../shared/**/*.ts';
 
+/* Semantic surface + foreground tokens. Dark is the DEFAULT so the no-JS fallback (and
+   index.html's data-theme="dark") matches the original look; light is opt-in. Tailwind v4
+   emits these onto :root and auto-generates the utilities (bg-panel, text-fg, border-border…). */
 @theme {
+  /* surfaces, darkest → lightest by elevation */
   --color-bg: #0b0d12;
+  --color-bg-2: #0f1218;
   --color-panel: #14171f;
   --color-panel-2: #1b1f2a;
   --color-border: #262b38;
+  --color-hover: #222735;
+  /* foreground, brightest → dimmest */
+  --color-fg: #e7e9ee;
   --color-muted: #8b93a7;
+  --color-subtle: #475569;
+  /* accent is theme-independent */
   --color-accent: #6366f1;
+}
+
+/* Light overrides. Higher specificity than Tailwind's :root theme block — the (0,2,0)
+   attribute selector reliably beats :root regardless of source order — so it wins at runtime
+   when <html data-theme="light"> is set (see theme.tsx / the anti-FOUC script in index.html). */
+:root[data-theme='light'] {
+  --color-bg: #f8fafc;
+  --color-bg-2: #ffffff;
+  --color-panel: #ffffff;
+  --color-panel-2: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-hover: #e2e8f0;
+  --color-fg: #1e293b;
+  --color-muted: #64748b;
+  --color-subtle: #94a3b8;
 }
 
 html,
@@ -23,7 +48,7 @@ body,
 body {
   margin: 0;
   background: var(--color-bg);
-  color: #e7e9ee;
+  color: var(--color-fg);
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }

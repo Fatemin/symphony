@@ -10,20 +10,20 @@ export const STATUS_ORDER: IssueStatus[] = [
 ];
 
 export const STATUS_META: Record<IssueStatus, { label: string; color: string; dot: string }> = {
-  backlog: { label: 'Backlog', color: 'text-slate-400', dot: 'bg-slate-500' },
+  backlog: { label: 'Backlog', color: 'text-muted', dot: 'bg-slate-500' },
   todo: { label: 'Todo', color: 'text-sky-300', dot: 'bg-sky-500' },
   in_progress: { label: 'In Progress', color: 'text-amber-300', dot: 'bg-amber-400' },
   review: { label: 'Review', color: 'text-violet-300', dot: 'bg-violet-400' },
   done: { label: 'Done', color: 'text-emerald-300', dot: 'bg-emerald-500' },
-  cancelled: { label: 'Cancelled', color: 'text-slate-500', dot: 'bg-slate-600' },
+  cancelled: { label: 'Cancelled', color: 'text-muted', dot: 'bg-slate-600' },
 };
 
 export const PRIORITY_META: Record<Priority, { label: string; color: string }> = {
-  0: { label: 'None', color: 'text-slate-500' },
+  0: { label: 'None', color: 'text-muted' },
   1: { label: 'Urgent', color: 'text-red-400' },
   2: { label: 'High', color: 'text-orange-300' },
   3: { label: 'Medium', color: 'text-yellow-300' },
-  4: { label: 'Low', color: 'text-slate-400' },
+  4: { label: 'Low', color: 'text-muted' },
 };
 
 export function relativeTime(iso: string | number): string {

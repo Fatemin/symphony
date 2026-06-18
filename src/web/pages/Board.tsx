@@ -53,7 +53,7 @@ export function Board() {
     onError: (e) => toast.error(String(e)),
   });
 
-  if (!project) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
+  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
   const toggleIssue = (issueId: string) => {
     setSelected((prev) => {
@@ -79,7 +79,7 @@ export function Board() {
     <div className="flex h-full flex-col p-6">
       <header className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/" className="text-slate-500 hover:text-slate-300">
+          <Link to="/" className="text-muted hover:text-fg">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <span className="grid h-7 w-7 place-items-center rounded text-xs font-bold" style={{ background: project.color + '33', color: project.color }}>
@@ -116,8 +116,8 @@ export function Board() {
             <div key={status} className="flex min-w-[180px] flex-col">
               <div className="mb-2 flex items-center gap-2 px-1">
                 <span className={`h-2 w-2 rounded-full ${STATUS_META[status].dot}`} />
-                <span className="text-xs font-medium text-slate-300">{STATUS_META[status].label}</span>
-                <span className="text-xs text-slate-600">{items.length}</span>
+                <span className="text-xs font-medium text-fg">{STATUS_META[status].label}</span>
+                <span className="text-xs text-subtle">{items.length}</span>
               </div>
               <div className="flex flex-col gap-2">
                 {items.map((issue) => (
@@ -167,7 +167,7 @@ function IssueCard({
             {selectable && (
               <button
                 type="button"
-                className="grid h-5 w-5 place-items-center rounded text-slate-500 hover:bg-[#222735] hover:text-slate-200"
+                className="grid h-5 w-5 place-items-center rounded text-muted hover:bg-hover hover:text-fg"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -177,16 +177,16 @@ function IssueCard({
                 {selected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
               </button>
             )}
-            <span className="font-mono text-[11px] text-slate-500">{issue.key}</span>
+            <span className="font-mono text-[11px] text-muted">{issue.key}</span>
           </div>
           <span className={`text-[10px] ${PRIORITY_META[issue.priority].color}`}>{issue.priority > 0 ? PRIORITY_META[issue.priority].label : ''}</span>
         </div>
-        <p className="mb-2 text-sm leading-snug text-slate-200">{issue.title}</p>
+        <p className="mb-2 text-sm leading-snug text-fg">{issue.title}</p>
         <div className="flex items-center gap-2 text-[10px]">
-          <span className={`rounded px-1.5 py-0.5 ${issue.mode === 'auto' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-600/20 text-slate-400'}`}>
+          <span className={`rounded px-1.5 py-0.5 ${issue.mode === 'auto' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-600/20 text-muted'}`}>
             {issue.mode}
           </span>
-          <span className="text-slate-600">{issue.type}</span>
+          <span className="text-subtle">{issue.type}</span>
         </div>
       </Panel>
     </Link>
