@@ -13,6 +13,7 @@ interface RunRow {
   id: string;
   issue_id: string;
   attempt: number;
+  round: number;
   phase: string;
   status: string;
   session_id: string | null;
@@ -34,13 +35,13 @@ const mapRow = (r: RunRow): Run => ({
   status: r.status as RunStatus,
 });
 
-export function createRun(issueId: string, phase: RunPhase, attempt: number): Run {
+export function createRun(issueId: string, phase: RunPhase, attempt: number, round = 1): Run {
   const id = newId();
   getDb()
     .prepare(
-      `INSERT INTO runs (id, issue_id, attempt, phase, status) VALUES (?, ?, ?, ?, 'running')`,
+      `INSERT INTO runs (id, issue_id, attempt, round, phase, status) VALUES (?, ?, ?, ?, ?, 'running')`,
     )
-    .run(id, issueId, attempt, phase);
+    .run(id, issueId, attempt, round, phase);
   return getRun(id)!;
 }
 
@@ -110,51 +111,57 @@ export function sumTokens(): { input_tokens: number; output_tokens: number; tota
   return row;
 }
 
-/** The most recent failed run's phase + error for an issue — fed into retry prompts. */
-export function lastFailure(issueId: string): { phase: RunPhase; error: string } | null {
+/**
+ * The most recent failed run's phase + error for an issue — fed into retry prompts. Scoped to the
+ * current round so a fresh revision round doesn't inherit a stale failure from an earlier round.
+ */
+export function lastFailure(issueId: string, round = 1): { phase: RunPhase; error: string } | null {
   const row = getDb()
     .prepare(
       `SELECT phase, error FROM runs
-       WHERE issue_id = ? AND status IN ('failed', 'timeout', 'stalled') AND error IS NOT NULL
+       WHERE issue_id = ? AND round = ? AND status IN ('failed', 'timeout', 'stalled') AND error IS NOT NULL
        ORDER BY started_at DESC, rowid DESC LIMIT 1`,
     )
-    .get(issueId) as { phase: string; error: string } | undefined;
+    .get(issueId, round) as { phase: string; error: string } | undefined;
   return row ? { phase: row.phase as RunPhase, error: row.error } : null;
 }
 
-/** Latest recorded CLI session for an issue+phase — lets a retry resume instead of cold-start. */
-export function lastSessionId(issueId: string, phase: RunPhase): string | null {
+/** Latest recorded CLI session for an issue+phase in a round — lets a retry resume instead of cold-start. */
+export function lastSessionId(issueId: string, phase: RunPhase, round = 1): string | null {
   const row = getDb()
     .prepare(
       `SELECT session_id FROM runs
-       WHERE issue_id = ? AND phase = ? AND session_id IS NOT NULL
+       WHERE issue_id = ? AND phase = ? AND round = ? AND session_id IS NOT NULL
        ORDER BY started_at DESC, rowid DESC LIMIT 1`,
     )
-    .get(issueId, phase) as { session_id: string } | undefined;
+    .get(issueId, phase, round) as { session_id: string } | undefined;
   return row?.session_id ?? null;
 }
 
-/** Latest run for an issue+phase, regardless of status. */
-export function latestRun(issueId: string, phase: RunPhase): Run | null {
+/**
+ * Latest run for an issue+phase in a round, regardless of status. Round-scoping is what lets a new
+ * revision round re-run plan→implement→qa cold instead of skipping phases completed in a prior round.
+ */
+export function latestRun(issueId: string, phase: RunPhase, round = 1): Run | null {
   const row = getDb()
     .prepare(
       `SELECT * FROM runs
-       WHERE issue_id = ? AND phase = ?
+       WHERE issue_id = ? AND phase = ? AND round = ?
        ORDER BY started_at DESC, rowid DESC LIMIT 1`,
     )
-    .get(issueId, phase) as RunRow | undefined;
+    .get(issueId, phase, round) as RunRow | undefined;
   return row ? mapRow(row) : null;
 }
 
-/** Latest successful run for an issue+phase, used to resume pipelines after process restarts. */
-export function latestSuccessfulRun(issueId: string, phase: RunPhase): Run | null {
+/** Latest successful run for an issue+phase in a round, used to resume pipelines after process restarts. */
+export function latestSuccessfulRun(issueId: string, phase: RunPhase, round = 1): Run | null {
   const row = getDb()
     .prepare(
       `SELECT * FROM runs
-       WHERE issue_id = ? AND phase = ? AND status = 'succeeded'
+       WHERE issue_id = ? AND phase = ? AND round = ? AND status = 'succeeded'
        ORDER BY started_at DESC, rowid DESC LIMIT 1`,
     )
-    .get(issueId, phase) as RunRow | undefined;
+    .get(issueId, phase, round) as RunRow | undefined;
   return row ? mapRow(row) : null;
 }
 

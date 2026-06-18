@@ -23,6 +23,8 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
       lastFailure: ctx.lastFailure,
       notes: ctx.notes,
       storyContext: ctx.storyContext,
+      round: ctx.round,
+      revisionFeedback: ctx.revisionFeedback,
     },
     tasks,
     planContext,

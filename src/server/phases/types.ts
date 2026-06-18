@@ -38,6 +38,10 @@ export interface PhaseContext {
   resumeSessionId?: string | null;
   /** The implement phase's final report (threaded into the QA prompt). */
   implementReport?: string | null;
+  /** Current revision round (1 = first build, 2+ = re-run after the human requested changes). */
+  round?: number;
+  /** The human's "request changes" feedback for the current round (round >= 2), threaded into prompts. */
+  revisionFeedback?: string | null;
 }
 
 export interface PhaseOutcome {

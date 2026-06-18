@@ -16,6 +16,8 @@ export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
       lastFailure: ctx.lastFailure,
       notes: ctx.notes,
       storyContext: ctx.storyContext,
+      round: ctx.round,
+      revisionFeedback: ctx.revisionFeedback,
     },
     ctx.implementReport ?? null,
     phasePrompt(ctx.projectConfig.prompts.qa, ctx.workflow?.prompts.qa),

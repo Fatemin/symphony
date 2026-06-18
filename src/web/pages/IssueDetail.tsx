@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, GitBranch, MonitorPlay, Play, Plus, Square, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, ExternalLink, FileDiff, GitBranch, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Square, X, XCircle } from 'lucide-react';
 import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
@@ -28,6 +28,7 @@ export function IssueDetail() {
         <Header issue={issue} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
         <RelationsPanel issue={issue} />
         {(issue.status === 'review' || issue.status === 'done') && <ReviewPanel issue={issue} />}
+        <Revisions issue={issue} />
         <Body issue={issue} onSaved={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
         <Tasks issue={issue} />
         <Runs issue={issue} />
@@ -45,6 +46,7 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [approveOpen, setApproveOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const update = useMutation({
     mutationFn: (patch: Partial<Detail>) => api.issues.update(issue.id, patch),
@@ -67,6 +69,19 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
     },
     onError: (e) => toast.error(String(e)),
   });
+  const requestChanges = useMutation({
+    mutationFn: (feedback: string) => api.issues.requestChanges(issue.id, { feedback }),
+    onSuccess: (r) => {
+      if (r.ok) {
+        toast.success(`Round ${r.round} started${r.dispatched ? '' : ' — queued (no free slots yet)'}`);
+        setChangesOpen(false);
+        onChange();
+      } else {
+        toast.error(r.reason ?? 'Could not request changes');
+      }
+    },
+    onError: (e) => toast.error(String(e)),
+  });
 
   const meta = STATUS_META[issue.status];
   const terminal = issue.status === 'done' || issue.status === 'cancelled';
@@ -83,6 +98,9 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
               <span className={`h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
             </span>
             <span className={PRIORITY_META[issue.priority].color}>{PRIORITY_META[issue.priority].label}</span>
+            {issue.round > 1 && (
+              <Badge className="bg-indigo-500/10 text-indigo-300">Round {issue.round}</Badge>
+            )}
           </div>
           <h1 className="text-xl font-semibold leading-tight">{issue.title}</h1>
         </div>
@@ -100,11 +118,11 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
             <>
               <Button
                 variant="subtle"
-                disabled={run.isPending}
-                onClick={() => run.mutate()}
-                title="Re-run the pipeline on the same branch/worktree — update the description with what to change first"
+                disabled={requestChanges.isPending}
+                onClick={() => setChangesOpen(true)}
+                title="Start another round: write feedback and re-run plan → implement → QA on the same branch"
               >
-                {run.isPending ? <Spinner /> : <Play className="h-4 w-4" />} Re-run
+                {requestChanges.isPending ? <Spinner /> : <MessageSquarePlus className="h-4 w-4" />} Request changes
               </Button>
               <Button variant="primary" disabled={approve.isPending} onClick={() => setApproveOpen(true)} title={`Merge ${issue.branch_name} and mark done`}>
                 {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
@@ -134,6 +152,14 @@ function Header({ issue, onChange }: { issue: Detail; onChange: () => void }) {
           pending={approve.isPending}
           onCancel={() => setApproveOpen(false)}
           onConfirm={(options) => approve.mutate(options)}
+        />
+      )}
+      {changesOpen && (
+        <RequestChangesDialog
+          issue={issue}
+          pending={requestChanges.isPending}
+          onCancel={() => setChangesOpen(false)}
+          onConfirm={(feedback) => requestChanges.mutate(feedback)}
         />
       )}
       {followUpOpen && (
@@ -273,6 +299,79 @@ function FollowUpForm({
   );
 }
 
+function RequestChangesDialog({
+  issue,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  issue: Detail;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: (feedback: string) => void;
+}) {
+  const [feedback, setFeedback] = useState('');
+  const trimmed = feedback.trim();
+  const nextRound = issue.round + 1;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-panel p-4 shadow-2xl">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageSquarePlus className="h-4 w-4 text-indigo-300" />
+            <h2 className="text-sm font-semibold">Request changes · round {nextRound}</h2>
+          </div>
+          <Button variant="ghost" className="px-2" onClick={onCancel} disabled={pending}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <p className="mb-3 text-xs text-muted">
+          Not happy with this round? Describe what to fix. The agent re-plans, re-implements, and
+          re-QAs on the <span className="font-mono">{issue.branch_name}</span> branch — building on
+          what's already there, with your feedback as the top priority.
+        </p>
+        <Field label="What needs to change?">
+          <Textarea
+            rows={5}
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="e.g. Close the dialog on Escape, and tighten the empty-state copy."
+            autoFocus
+          />
+        </Field>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button onClick={onCancel} disabled={pending}>Cancel</Button>
+          <Button variant="primary" disabled={!trimmed || pending} onClick={() => onConfirm(trimmed)}>
+            {pending ? <Spinner /> : <RotateCcw className="h-4 w-4" />} Start round {nextRound}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Revisions({ issue }: { issue: Detail }) {
+  if (issue.revisions.length === 0) return null;
+  return (
+    <Panel className="p-4">
+      <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
+        <MessageSquarePlus className="h-3.5 w-3.5" /> Revision history ({issue.revisions.length})
+      </div>
+      <ol className="space-y-2">
+        {issue.revisions.map((r) => (
+          <li key={r.id} className="rounded-md border border-border bg-bg-2 px-3 py-2">
+            <div className="mb-1 flex items-center gap-2 text-[11px]">
+              <Badge className="bg-indigo-500/10 text-indigo-300">Round {r.round}</Badge>
+              <span className="text-subtle">{relativeTime(r.created_at)}</span>
+            </div>
+            <p className="whitespace-pre-wrap text-sm text-fg">{r.feedback}</p>
+          </li>
+        ))}
+      </ol>
+    </Panel>
+  );
+}
+
 function RelationsPanel({ issue }: { issue: Detail }) {
   const incoming = issue.relations.incoming;
   const outgoing = issue.relations.outgoing;
@@ -391,6 +490,7 @@ function Runs({ issue }: { issue: Detail }) {
               <Badge className={r.status === 'succeeded' ? 'bg-emerald-500/15 text-emerald-300' : r.status === 'running' ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}>
                 {r.status}
               </Badge>
+              {r.round > 1 && <span className="text-indigo-300" title={`Revision round ${r.round}`}>r{r.round}</span>}
               <span className="text-subtle">att {r.attempt}</span>
             </div>
             <span className="text-subtle">{r.total_tokens.toLocaleString()} tok · {r.num_turns} turns</span>
