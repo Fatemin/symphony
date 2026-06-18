@@ -287,6 +287,7 @@ async function resolveMergeConflicts(
 
   const engineConfig = readEngineConfig();
   const result = await runClaudeCode({
+    agent: 'claude', // this resolver always drives the Claude CLI directly
     cwd: input.checkoutPath,
     prompt: conflictPrompt(issue, project, input),
     systemPrompt: 'You are Symphony conflict-resolution automation. Resolve the merge conflict completely, do not commit, and never ask the user questions.',

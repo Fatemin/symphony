@@ -1,4 +1,6 @@
 import type {
+  AskMessage,
+  AskSuggestion,
   Issue,
   IssuePlanContext,
   IssueTask,
@@ -305,12 +307,117 @@ export function parseQa(text: string): QaVerdict {
   return { pass: match[1]!.toUpperCase() === 'PASS', reason: (match[2] ?? '').trim() };
 }
 
+// ── ask: conversational project Q&A ──────────────────────────────────────────
+
+const ASK_FENCE = 'symphony-ask';
+
+/**
+ * Prompt for the project "ask" feature: a read-only agent that answers a user's question about
+ * the repository, then decides whether the exchange describes concrete work and, if so, drafts a
+ * feature/bug the user can one-click create. The prior turns are embedded so the conversation is
+ * coherent without depending on CLI session resume (which differs per agent).
+ */
+export function buildAskPrompt(project: Project, history: AskMessage[], question: string): string {
+  const lines: string[] = [
+    `# Ask — ${project.name} (${project.key})`,
+    ``,
+    `You are a senior engineer who knows this repository well. A user is asking about this project`,
+    `in a conversation. Read the relevant parts of the repository so your answer reflects how the`,
+    `code actually works today — do not guess.`,
+  ];
+  if (project.context?.trim()) {
+    lines.push(``, `## Project context`, project.context.trim());
+  }
+  const recent = history.slice(-12); // bound the embedded transcript; keep the latest turns
+  if (recent.length) {
+    lines.push(``, `## Conversation so far`);
+    for (const m of recent) {
+      lines.push(``, `**${m.role === 'user' ? 'User' : 'You'}:** ${m.content.trim().slice(0, 4_000)}`);
+    }
+  }
+  lines.push(
+    ``,
+    `## User's question`,
+    question.trim(),
+    ``,
+    `---`,
+    ``,
+    `Answer the question directly and conversationally. Guidelines:`,
+    `- Ground every claim in the actual code; read files or grep as needed before answering.`,
+    `- Write a clear, well-structured answer in Markdown that a non-author can follow — short`,
+    `  paragraphs and bullets, and reference concrete files/symbols (e.g. \`path/to/file.ts\`).`,
+    `- You may suggest improvements when they are relevant to the question.`,
+    `- This is READ-ONLY: do not modify, create, or delete any files, and do not commit.`,
+    `- You are unattended — never use interactive tools. If something is ambiguous, state your`,
+    `  assumption and answer the most useful interpretation.`,
+    ``,
+    `After your answer, decide whether what was discussed should become a concrete unit of work`,
+    `(a new feature or bug fix) in this project. End your response with EXACTLY ONE fenced code`,
+    `block tagged \`${ASK_FENCE}\` containing JSON:`,
+    ``,
+    '```' + ASK_FENCE,
+    `{`,
+    `  "convertible": true,`,
+    `  "type": "feature",`,
+    `  "title": "short imperative issue title",`,
+    `  "description": "what should change and why, in the user's context",`,
+    `  "acceptance_criteria": "- a checkable outcome\\n- another"`,
+    `}`,
+    '```',
+    ``,
+    `Set \`"convertible": false\` (other fields optional) when the exchange is purely informational`,
+    `and there is nothing concrete to build. \`type\` is "feature" or "bug".`,
+  );
+  return lines.join('\n');
+}
+
+export interface ParsedAsk {
+  answer: string;
+  suggestion: AskSuggestion | null;
+}
+
+/**
+ * Split the agent's reply into the human-facing answer (fence removed) and an optional draft
+ * issue. A missing/malformed fence is non-fatal — the answer still stands, just without a
+ * conversion offer.
+ */
+export function parseAsk(text: string): ParsedAsk {
+  const raw = text ?? '';
+  const fence = extractFenced(raw, ASK_FENCE);
+  const answer = stripFenced(raw, ASK_FENCE).trim() || raw.trim();
+
+  let suggestion: AskSuggestion | null = null;
+  if (fence) {
+    try {
+      const obj = JSON.parse(fence) as Record<string, unknown>;
+      const title = String(obj.title ?? '').trim();
+      if (obj.convertible === true && title) {
+        suggestion = {
+          type: obj.type === 'bug' ? 'bug' : 'feature',
+          title: title.slice(0, 200),
+          description: String(obj.description ?? '').trim(),
+          acceptance_criteria: String(obj.acceptance_criteria ?? '').trim(),
+        };
+      }
+    } catch {
+      /* malformed suggestion — drop it, keep the answer */
+    }
+  }
+  return { answer, suggestion };
+}
+
 // ── fenced-block helpers ────────────────────────────────────────────────────
 
 function extractFenced(text: string, tag: string): string | null {
   const re = new RegExp('```' + tag + '\\s*\\n([\\s\\S]*?)```', 'i');
   const m = text.match(re);
   return m ? m[1]!.trim() : null;
+}
+
+/** Remove a fenced block (including its fences) from the text — used to hide the ask suggestion. */
+function stripFenced(text: string, tag: string): string {
+  const re = new RegExp('```' + tag + '\\s*\\n[\\s\\S]*?```', 'i');
+  return text.replace(re, '');
 }
 
 function extractFirstObject(text: string): string | null {

@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckSquare, Plus, Square } from 'lucide-react';
+import { ArrowLeft, Check, CheckSquare, Plus, Sparkles, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
+import { AskPanel } from '../components/AskPanel';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
 import { PRIORITY_META, STATUS_META } from '../lib/format';
@@ -23,6 +24,7 @@ export function Board() {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [approveOpen, setApproveOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
 
   const byStatus = (status: IssueStatus) => (project?.issues ?? []).filter((i) => i.status === status);
   const reviewIssues = byStatus('review');
@@ -86,6 +88,9 @@ export function Board() {
             {project.key}
           </span>
           <h1 className="text-lg font-semibold">{project.name}</h1>
+          <Button className="ml-1" onClick={() => setAskOpen(true)}>
+            <Sparkles className="h-4 w-4 text-indigo-300" /> Ask
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           {reviewIssues.length > 0 && (
@@ -142,6 +147,15 @@ export function Board() {
           pending={approveMany.isPending}
           onCancel={() => setApproveOpen(false)}
           onConfirm={(options) => approveMany.mutate(options)}
+        />
+      )}
+      {askOpen && (
+        <AskPanel
+          projectId={project.id}
+          projectKey={project.key}
+          projectName={project.name}
+          defaultAgent={project.agent}
+          onClose={() => setAskOpen(false)}
         />
       )}
     </div>

@@ -257,6 +257,9 @@ export const runCodex: AgentRunner = (input: AgentRunInput, onEvent) =>
  */
 function sandboxArgs(mode: PermissionMode): string[] {
   if (mode === 'bypassPermissions') return ['--dangerously-bypass-approvals-and-sandbox'];
+  // 'plan' means research without changes (matches Claude's plan mode) — a read-only sandbox keeps
+  // the agent from touching the working tree. This is what the read-only "ask" feature relies on.
+  if (mode === 'plan') return ['--sandbox', 'read-only'];
   // --full-auto = workspace-write sandbox with automatic, prompt-free execution.
   return ['--full-auto'];
 }
