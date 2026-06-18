@@ -40,10 +40,10 @@ function DirectoryPicker({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-xl rounded-lg border border-[#262b38] bg-[#14171f] p-4 shadow-xl"
+        className="w-full max-w-xl rounded-lg border border-border bg-panel p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-3 text-sm font-semibold text-slate-200">Choose project folder</h2>
+        <h2 className="mb-3 text-sm font-semibold text-fg">Choose project folder</h2>
 
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
@@ -57,16 +57,16 @@ function DirectoryPicker({
               <ArrowUp className="h-3.5 w-3.5" />
             </Button>
             <code
-              className="flex-1 truncate rounded-md border border-[#262b38] bg-[#0f1218] px-2 py-1.5 text-xs text-slate-400"
+              className="flex-1 truncate rounded-md border border-border bg-bg-2 px-2 py-1.5 text-xs text-muted"
               title={current}
             >
               {current}
             </code>
           </div>
 
-          <div className="h-64 overflow-y-auto rounded-md border border-[#262b38] bg-[#0f1218]">
+          <div className="h-64 overflow-y-auto rounded-md border border-border bg-bg-2">
             {isLoading && (
-              <div className="flex h-full items-center justify-center text-slate-500">
+              <div className="flex h-full items-center justify-center text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" />
               </div>
             )}
@@ -77,22 +77,22 @@ function DirectoryPicker({
             )}
             {data && !isLoading && (
               data.entries.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-xs text-slate-500">
+                <div className="flex h-full items-center justify-center text-xs text-muted">
                   No sub-folders here
                 </div>
               ) : (
-                <ul className="divide-y divide-[#262b38]">
+                <ul className="divide-y divide-border">
                   {data.entries.map((e) => (
                     <li key={e.path}>
                       <button
                         type="button"
                         onClick={() => setCwd(e.path)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-[#1b1f2a] hover:text-slate-100"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted hover:bg-panel-2 hover:text-fg"
                       >
                         {e.isGitRepo ? (
                           <FolderGit2 className="h-[15px] w-[15px] shrink-0 text-indigo-400" />
                         ) : (
-                          <Folder className="h-[15px] w-[15px] shrink-0 text-slate-500" />
+                          <Folder className="h-[15px] w-[15px] shrink-0 text-muted" />
                         )}
                         <span className="flex-1 truncate">{e.name}</span>
                         {e.isGitRepo && <span className="shrink-0 text-[10px] font-medium text-indigo-400">git</span>}
@@ -108,10 +108,10 @@ function DirectoryPicker({
             {data?.isGitRepo ? (
               <>
                 <GitBranch className="h-3.5 w-3.5 text-green-500" />
-                <span className="text-slate-400">This folder is a git repository</span>
+                <span className="text-muted">This folder is a git repository</span>
               </>
             ) : (
-              <span className="text-slate-500">This folder is not a git repository (agents need one to run)</span>
+              <span className="text-muted">This folder is not a git repository (agents need one to run)</span>
             )}
           </div>
         </div>

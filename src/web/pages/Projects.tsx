@@ -69,7 +69,7 @@ export function Projects() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       ) : projects && projects.length > 0 ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
           {projects.map((p) => (
@@ -81,8 +81,8 @@ export function Projects() {
                   </span>
                   <span className="font-medium">{p.name}</span>
                 </div>
-                <p className="mb-3 line-clamp-2 text-xs text-slate-500">{p.description || 'No description'}</p>
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                <p className="mb-3 line-clamp-2 text-xs text-muted">{p.description || 'No description'}</p>
+                <div className="flex items-center gap-1.5 text-[11px] text-muted">
                   <FolderGit2 className="h-3.5 w-3.5" />
                   {p.repo_path ? <span className="truncate">{p.repo_path}</span> : <span className="text-amber-500/80">no repo set — agents can't run</span>}
                 </div>
@@ -91,7 +91,7 @@ export function Projects() {
           ))}
         </div>
       ) : (
-        <Panel className="p-8 text-center text-sm text-slate-500">
+        <Panel className="p-8 text-center text-sm text-muted">
           No projects yet. Create one and point it at a local git repo to start running agents.
         </Panel>
       )}
