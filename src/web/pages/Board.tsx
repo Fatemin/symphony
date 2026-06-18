@@ -6,6 +6,7 @@ import { ArrowLeft, Check, CheckSquare, Plus, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
+import { ProjectTabs } from '../components/ProjectTabs';
 import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
 import { PRIORITY_META, STATUS_META } from '../lib/format';
 
@@ -103,6 +104,8 @@ export function Board() {
           </Button>
         </div>
       </header>
+
+      <ProjectTabs projectId={project.id} />
 
       {open && <NewIssueForm projectId={project.id} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ['project', id] }); }} />}
 

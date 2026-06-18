@@ -96,6 +96,45 @@ test('WORKFLOW.md per-phase max_turns overrides only the named phase', async () 
   }
 });
 
+test('project agent config affects CLI input and phase prompts', async () => {
+  const project = createProject({
+    name: 'Project Agent Config',
+    key: 'PAC',
+    repo_path: env.repoPath,
+    config: {
+      agent: {
+        permission_mode: 'acceptEdits',
+        max_turns_by_phase: { plan: 11, implement: 22, qa: 33 },
+      },
+      prompts: {
+        plan: 'Project plan prompt marker',
+        implement: 'Project implement prompt marker',
+        qa: 'Project QA prompt marker',
+      },
+    },
+  });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Use project agent config',
+    status: 'todo',
+    mode: 'auto',
+  });
+
+  const inputs: AgentRunInput[] = [];
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', inputs }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(inputs.length, 3, 'plan, implement, qa each ran once');
+  assert.deepEqual(inputs.map((input) => input.permissionMode), ['acceptEdits', 'acceptEdits', 'acceptEdits']);
+  assert.deepEqual(inputs.map((input) => input.maxTurns), [11, 22, 33]);
+  assert.match(inputs[0]!.prompt, /Project plan prompt marker/);
+  assert.match(inputs[1]!.prompt, /Project implement prompt marker/);
+  assert.match(inputs[2]!.prompt, /Project QA prompt marker/);
+});
+
 test('a QA FAIL leaves the issue in_progress for retry', async () => {
   const project = createProject({ name: 'QA Fail', key: 'QF', repo_path: env.repoPath });
   const issue = createIssue({

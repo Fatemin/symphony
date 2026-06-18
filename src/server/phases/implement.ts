@@ -19,7 +19,7 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
     { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
     tasks,
     planContext,
-    ctx.workflow?.prompts.implement,
+    phasePrompt(ctx.projectConfig.prompts.implement, ctx.workflow?.prompts.implement),
   );
   const result = await runPhaseAgent(ctx, prompt);
 
@@ -60,3 +60,6 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
     report: result.text,
   };
 }
+
+const phasePrompt = (...parts: (string | undefined)[]) =>
+  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;

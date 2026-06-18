@@ -11,7 +11,7 @@ import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
   const prompt = buildPlanPrompt(
     { project: ctx.project, issue: ctx.issue, attempt: ctx.attempt, lastFailure: ctx.lastFailure, notes: ctx.notes },
-    ctx.workflow?.prompts.plan,
+    phasePrompt(ctx.projectConfig.prompts.plan, ctx.workflow?.prompts.plan),
   );
   const result = await runPhaseAgent(ctx, prompt);
 
@@ -47,3 +47,6 @@ export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
     report: result.text,
   };
 }
+
+const phasePrompt = (...parts: (string | undefined)[]) =>
+  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;

@@ -1,3 +1,6 @@
+import type { RunPhase } from '../../shared/types';
+import type { PermissionMode } from './config';
+
 export type VerificationFailureAction = 'retry' | 'park';
 
 export interface VerificationCommandConfig {
@@ -30,13 +33,29 @@ export interface CommitGuardConfig {
   override_limits: boolean;
 }
 
+export interface ProjectAgentConfig {
+  permission_mode?: PermissionMode;
+  max_turns?: number;
+  max_turns_by_phase?: Partial<Record<RunPhase, number>>;
+}
+
+export interface ProjectPromptConfig {
+  plan?: string;
+  implement?: string;
+  qa?: string;
+}
+
 export interface ProjectConfig {
+  agent: ProjectAgentConfig;
+  prompts: ProjectPromptConfig;
   verification: VerificationConfig;
   promotion: PromotionConfig;
   commit_guard: CommitGuardConfig;
 }
 
 export type ProjectConfigInput = Partial<{
+  agent: Partial<ProjectAgentConfig>;
+  prompts: Partial<ProjectPromptConfig>;
   verification: Partial<VerificationConfig>;
   promotion: Partial<PromotionConfig>;
   commit_guard: Partial<CommitGuardConfig>;
@@ -51,6 +70,8 @@ export const DEFAULT_BLOCKED_UNTRACKED_GLOBS = [
 ];
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+  agent: {},
+  prompts: {},
   verification: { commands: [] },
   promotion: {
     mode: 'direct-merge',
@@ -76,6 +97,8 @@ export function mergeProjectConfigs(...configs: unknown[]): ProjectConfig {
   for (const config of configs) {
     const input = coerceConfigInput(config);
     if (!input) continue;
+    mergeAgent(out, input.agent);
+    mergePrompts(out, input.prompts);
     mergeVerification(out, input.verification);
     mergePromotion(out, input.promotion);
     mergeCommitGuard(out, input.commit_guard);
@@ -86,6 +109,30 @@ export function mergeProjectConfigs(...configs: unknown[]): ProjectConfig {
 export function serializeProjectConfig(value: unknown): string | null {
   if (value == null) return null;
   return JSON.stringify(parseProjectConfig(value));
+}
+
+function mergeAgent(out: ProjectConfig, raw: unknown): void {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  const obj = raw as Record<string, unknown>;
+  if (isPermissionMode(obj.permission_mode)) out.agent.permission_mode = obj.permission_mode;
+  const flatTurns = numberOrUndefined(obj.max_turns);
+  if (flatTurns !== undefined) out.agent.max_turns = flatTurns;
+
+  const phaseTurns = parsePhaseTurns(obj.max_turns_by_phase ?? obj.max_turns);
+  if (phaseTurns) out.agent.max_turns_by_phase = phaseTurns;
+}
+
+function mergePrompts(out: ProjectConfig, raw: unknown): void {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  const obj = raw as Record<string, unknown>;
+  for (const phase of ['plan', 'implement', 'qa'] as const) {
+    const value = obj[phase];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) out.prompts[phase] = trimmed;
+      else delete out.prompts[phase];
+    }
+  }
 }
 
 function mergeVerification(out: ProjectConfig, raw: unknown): void {
@@ -161,12 +208,33 @@ function coerceConfigInput(value: unknown): ProjectConfigInput | null {
 }
 
 function numberOrUndefined(value: unknown): number | undefined {
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && value.trim() === '') return undefined;
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+function parsePhaseTurns(value: unknown): Partial<Record<RunPhase, number>> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const out: Partial<Record<RunPhase, number>> = {};
+  for (const phase of ['plan', 'implement', 'qa'] as const) {
+    const turns = numberOrUndefined((value as Record<string, unknown>)[phase]);
+    if (turns !== undefined) out[phase] = turns;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === 'default' || value === 'acceptEdits' || value === 'bypassPermissions' || value === 'plan';
+}
+
 function cloneProjectConfig(config: ProjectConfig): ProjectConfig {
   return {
+    agent: {
+      ...config.agent,
+      max_turns_by_phase: config.agent.max_turns_by_phase ? { ...config.agent.max_turns_by_phase } : undefined,
+    },
+    prompts: { ...config.prompts },
     verification: { commands: config.verification.commands.map((c) => ({ ...c })) },
     promotion: { ...config.promotion },
     commit_guard: {

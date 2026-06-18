@@ -24,6 +24,48 @@ export type EngineConfig = Record<string, unknown> & {
 export type ProjectWithIssues = Project & { issues: Issue[] };
 export type IssueDetail = Issue & { tasks: IssueTask[]; runs: Run[]; events: (Event & { cursor: number })[] };
 
+export type ProjectRunPhase = 'plan' | 'implement' | 'qa';
+
+export interface ProjectAgentConfig {
+  permission_mode?: string;
+  max_turns?: number;
+  max_turns_by_phase?: Partial<Record<ProjectRunPhase, number>>;
+}
+
+export interface ProjectPromptConfig {
+  plan?: string;
+  implement?: string;
+  qa?: string;
+}
+
+export interface VerificationCommandConfig {
+  command: string;
+  cwd?: string;
+  timeout_ms?: number;
+  on_failure?: 'retry' | 'park';
+}
+
+export interface ProjectWorkflowConfig {
+  agent: ProjectAgentConfig;
+  prompts: ProjectPromptConfig;
+  verification: { commands: VerificationCommandConfig[] };
+  promotion: {
+    mode: 'direct-merge' | 'pull-request';
+    base_branch?: string;
+    remote: string;
+    auto_merge: boolean;
+    check_poll_interval_ms: number;
+    check_timeout_ms: number;
+  };
+  commit_guard: {
+    enabled: boolean;
+    blocked_untracked_globs: string[];
+    max_files?: number;
+    max_bytes?: number;
+    override_limits: boolean;
+  };
+}
+
 export interface BranchList {
   default_branch: string;
   branches: string[];

@@ -152,8 +152,8 @@ Design choices that fix the previous prototype's rough edges:
 ## Configuration
 
 Effective engine config = **built-in defaults** → **`settings` table** (edited on the Settings page) →
-**per-project overrides** (`model`, plus optional project `config` JSON) → **optional per-repo
-`WORKFLOW.md`**. Key engine fields:
+**per-project overrides** (`model`, `context`, plus optional project `config` JSON edited from the
+project's **Agent** tab) → **optional per-repo `WORKFLOW.md`**. Key engine fields:
 
 | Field | Default | Purpose |
 |-------|---------|---------|
@@ -181,6 +181,19 @@ Per-project policy is opt-in and can be stored in the project row's `config` JSO
 `WORKFLOW.md` front matter:
 
 ```yaml
+agent:
+  permission_mode: bypassPermissions
+  max_turns:
+    implement: 160
+
+prompts:
+  plan: |
+    Keep the checklist short and call out risky files.
+  implement: |
+    Run the repo's fast test target before final output.
+  qa: |
+    Treat type errors as a hard fail.
+
 verification:
   commands:
     - command: npm test
@@ -200,6 +213,11 @@ commit_guard:
     - "*_TEMP.*"
     - "scratch*.md"
 ```
+
+The React UI exposes these project-level knobs under each project: **Board** and **Agent** are tabs,
+and the left sidebar can expand a project directly to either view. `WORKFLOW.md` still wins for
+agent runtime fields and is appended after project prompt additions, keeping repo-versioned policy
+authoritative.
 
 With `verification.commands` configured, Symphony runs the commands in order inside the issue
 worktree after implementation/QA. Every command must exit 0 and leave the worktree clean before the

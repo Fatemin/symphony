@@ -9,6 +9,7 @@ const env = setupEnv();
 
 const { resultErrorMessage } = await import('../src/server/agent/claudeRunner');
 const { loadWorkflow } = await import('../src/server/core/workflow');
+const { parseProjectConfig } = await import('../src/server/core/projectConfig');
 const { parseQa } = await import('../src/server/core/prompt');
 
 test.after(() => env.cleanup());
@@ -74,4 +75,38 @@ test('parseQa takes the LAST verdict, so quoted policy text cannot shadow it', (
   // Single-verdict outputs and the absent case keep their existing behavior.
   assert.equal(parseQa('QA_RESULT: FAIL — build broken').pass, false);
   assert.equal(parseQa('no verdict here').pass, false);
+});
+
+test('project config parses optional agent and phase prompt overrides', () => {
+  const cfg = parseProjectConfig({
+    agent: {
+      permission_mode: 'acceptEdits',
+      max_turns: { plan: 12, implement: 34, qa: '56' },
+    },
+    prompts: {
+      plan: '  plan extra  ',
+      implement: '',
+      qa: 'qa extra',
+    },
+    verification: {
+      commands: [{ command: 'npm test', timeout_ms: '120000' }],
+    },
+  });
+
+  assert.equal(cfg.agent.permission_mode, 'acceptEdits');
+  assert.deepEqual(cfg.agent.max_turns_by_phase, { plan: 12, implement: 34, qa: 56 });
+  assert.equal(cfg.agent.max_turns, undefined);
+  assert.deepEqual(cfg.prompts, { plan: 'plan extra', qa: 'qa extra' });
+  assert.equal(cfg.verification.commands[0]!.timeout_ms, 120000);
+
+  const invalid = parseProjectConfig({
+    agent: {
+      permission_mode: 'sudo',
+      max_turns: true,
+      max_turns_by_phase: { plan: null, implement: false },
+    },
+  });
+  assert.equal(invalid.agent.permission_mode, undefined);
+  assert.equal(invalid.agent.max_turns, undefined);
+  assert.equal(invalid.agent.max_turns_by_phase, undefined);
 });

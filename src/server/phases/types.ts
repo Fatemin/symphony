@@ -60,17 +60,19 @@ export function agentInput(
   prompt: string,
   systemPrompt?: string,
 ): AgentRunInput {
-  // Precedence: WORKFLOW.md → per-project model → engine config.
+  // Precedence: WORKFLOW.md → per-project overrides → engine config.
   return {
     cwd: ctx.worktreePath,
     prompt,
     systemPrompt,
     resumeSessionId: ctx.resumeSessionId ?? undefined,
     model: ctx.workflow?.model || ctx.project.model?.trim() || ctx.config.model,
-    permissionMode: ctx.workflow?.permission_mode ?? ctx.config.permission_mode,
+    permissionMode: ctx.workflow?.permission_mode ?? ctx.projectConfig.agent.permission_mode ?? ctx.config.permission_mode,
     maxTurns:
       ctx.workflow?.max_turns_by_phase?.[ctx.phase] ??
       ctx.workflow?.max_turns ??
+      ctx.projectConfig.agent.max_turns_by_phase?.[ctx.phase] ??
+      ctx.projectConfig.agent.max_turns ??
       ctx.config.max_turns,
     timeoutMs: ctx.config.phase_timeout_ms,
     cliPath: ctx.config.cli_path,
