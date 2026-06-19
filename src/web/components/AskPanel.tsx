@@ -58,8 +58,13 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
         history: turns.map(({ role, content }) => ({ role, content })), // turns before this question
         agent: agent || undefined,
       }),
-    onSuccess: (res) =>
-      setTurns((prev) => [...prev, { role: 'assistant', content: res.answer, suggestion: res.suggestion }]),
+    onSuccess: (res) => {
+      setTurns((prev) => [...prev, { role: 'assistant', content: res.answer, suggestion: res.suggestion }]);
+      // The server just persisted this turn; refresh the cache so a later reopen reseeds it (the
+      // `seeded` guard keeps this refetch from stomping the current session's turns). Without it,
+      // a reopen within gcTime would seed stale cache and drop the conversation just had.
+      qc.invalidateQueries({ queryKey: ['ask-history', projectId] });
+    },
     onError: (e) => {
       toast.error(String(e));
       // Drop the optimistic user turn that produced no answer so a retry is clean.
