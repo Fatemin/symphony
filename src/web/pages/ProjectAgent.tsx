@@ -7,8 +7,10 @@ import type { AgentType, Project } from '../../shared/types';
 import { AGENT_OPTIONS, AVAILABLE_MODELS } from '../../shared/models';
 import {
   api,
+  THINKING_EFFORT_OPTIONS,
   type ProjectRunPhase,
   type ProjectWorkflowConfig,
+  type ThinkingEffort,
   type VerificationCommandConfig,
 } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
@@ -194,6 +196,54 @@ export function ProjectAgent() {
                     />
                   </Field>
                 ))}
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-border pt-4">
+              <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
+                Execution controls
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field
+                  label="Workflow tool"
+                  hint="Let this project's agents use Claude Code's Workflow tool (self-spawned background runs). Off by default so the orchestrator stays the sole scheduler — turn on at your own risk."
+                >
+                  <Select
+                    value={config.agent.enable_workflow_tool === undefined ? '' : String(config.agent.enable_workflow_tool)}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        agent: {
+                          ...c.agent,
+                          enable_workflow_tool: e.target.value === '' ? undefined : e.target.value === 'true',
+                        },
+                      }))
+                    }
+                  >
+                    <option value="">global default</option>
+                    <option value="false">off</option>
+                    <option value="true">on (advanced)</option>
+                  </Select>
+                </Field>
+                <Field label="Thinking effort" hint="Extended-thinking budget appended to every phase prompt.">
+                  <Select
+                    value={config.agent.thinking_effort ?? ''}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        agent: {
+                          ...c.agent,
+                          thinking_effort: (e.target.value || undefined) as ThinkingEffort | undefined,
+                        },
+                      }))
+                    }
+                  >
+                    <option value="">global default</option>
+                    {THINKING_EFFORT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </Select>
+                </Field>
               </div>
             </div>
           </Panel>
@@ -452,6 +502,9 @@ function normalizeConfig(value: unknown): ProjectWorkflowConfig {
       permission_mode: stringOrUndefined(agent.permission_mode),
       max_turns: numberOrUndefined(agent.max_turns),
       max_turns_by_phase: normalizePhaseTurns(agent.max_turns_by_phase ?? agent.max_turns),
+      // SYM-41: rebuild the agent block explicitly — an omitted field is silently stripped on save.
+      enable_workflow_tool: typeof agent.enable_workflow_tool === 'boolean' ? agent.enable_workflow_tool : undefined,
+      thinking_effort: thinkingEffortOrUndefined(agent.thinking_effort),
     },
     prompts: {
       plan: stringOrUndefined(prompts.plan),
@@ -560,6 +613,10 @@ function numberOrUndefined(value: unknown): number | undefined {
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function thinkingEffortOrUndefined(value: unknown): ThinkingEffort | undefined {
+  return THINKING_EFFORT_OPTIONS.some((o) => o.value === value) ? (value as ThinkingEffort) : undefined;
 }
 
 function blankToNull(value: string): string | null {

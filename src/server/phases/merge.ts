@@ -1,5 +1,5 @@
 import { buildMergePrompt, parseMerge } from '../core/prompt';
-import { phasePrompt, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
+import { phasePrompt, resolveThinkingEffort, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Merge phase (§SYM-16): a fresh agent pushes the issue's branch to the remote and integrates it
@@ -21,6 +21,7 @@ export async function runMerge(ctx: PhaseContext): Promise<PhaseOutcome> {
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
       attachments: ctx.attachments,
+      thinkingEffort: resolveThinkingEffort(ctx),
     },
     {
       remote: ctx.projectConfig.promotion.remote,

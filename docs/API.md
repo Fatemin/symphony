@@ -115,6 +115,12 @@ feature/bug suggestion.
 | `GET` | `/api/ops/settings` | Effective engine config (defaults merged with the `settings` table → `EngineConfig`). |
 | `PATCH` | `/api/ops/settings` | Update engine settings; returns the new effective config. |
 
+`EngineConfig` includes the SYM-41 agent-execution controls `enable_workflow_tool` (boolean, default
+`false` — off keeps the orchestrator the sole scheduler) and `thinking_effort`
+(`none`/`think`/`think-hard`/`ultrathink`, default `none`). Both are also per-project overridable
+through `PATCH /api/projects/:id`'s `config.agent` blob (undefined ⇒ inherit the engine default); see
+[DATA_MODEL.md](DATA_MODEL.md) §settings and §projects.
+
 ---
 
 ## Usage — `/api/usage` (`http/routes/usage.ts`)

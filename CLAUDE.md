@@ -30,7 +30,12 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   events) and one module per phase. Each phase is ONE agent session.
 - `src/server/agent/` — the DI seam. `types.ts` defines `AgentRunner`; `claudeRunner.ts` spawns
   `claude --print --output-format stream-json`. Orchestrator/phases never import the CLI directly;
-  tests inject a fake runner instead.
+  tests inject a fake runner instead. `AgentRunInput.disableWorkflows` (SYM-41, required) gates
+  Claude Code's built-in Workflow multi-agent tool: both runners spawn with the pure exported
+  `claudeRunner.ts#runnerEnv(process.env, disableWorkflows)`, which injects
+  `CLAUDE_CODE_DISABLE_WORKFLOWS=1` when true so a pipeline agent can't self-spawn background runs
+  (the orchestrator stays the sole scheduler). The var is claude-only — Codex ignores it; the
+  injection is mirrored for runner symmetry. Default-off ⇒ `disableWorkflows` defaults to `true`.
 - `src/server/core/prompt.ts` — all agent prompt assembly (issue brief, per-phase prompts, retry
   failure context, project learnings, fence parsing). Each phase prompt holds its role (tech lead /
   implementing engineer / QA engineer / release engineer) to a shared professional-team quality floor
@@ -40,6 +45,9 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `delivery`, a plan-emitted handoff task executed inside the implement phase (no separate phase).
   Attachments (SYM-35) are rendered as an `## Attachments` section appended to `issueBrief()` /
   `buildAskPrompt()` AFTER the other sections, so the load-bearing role substrings never shift.
+  `thinking_effort` (SYM-41) likewise appends a `## Thinking effort\n<keyword>` block in
+  `issueBrief()`'s tail (only when not `none`); `phases/types.ts#resolveThinkingEffort` resolves it
+  (project ?? engine) and only the pipeline passes it, so Ask is unaffected.
 - `src/server/repo/` — one file per table, all SQL lives here. `db/schema.ts` is idempotent
   (`CREATE TABLE IF NOT EXISTS`, runs every boot); additive `ALTER TABLE` backfills go in
   `db/migrate.ts`. There is no migration tool.
@@ -98,7 +106,13 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   relevant — match that style, not line-by-line narration.
 - Config precedence: defaults (`core/config.ts`) → `settings` table → per-project `model` →
   per-repo `WORKFLOW.md`. New settings need a default + (if numeric) an entry in `NUMERIC_KEYS`.
-  Attachment limits live here too: `max_attachment_bytes` (default 10 MB) and
+  Non-numeric keys need an explicit branch in `resolveConfig` — booleans (`enabled`,
+  `enable_workflow_tool`) get a `Boolean()` case, enums (`thinking_effort`) a value-whitelist branch
+  BEFORE the loose string fallback (which would otherwise accept any non-empty string). The SYM-41
+  agent-execution controls `enable_workflow_tool` (boolean, default `false`) and `thinking_effort`
+  (`none`/`think`/`think-hard`/`ultrathink`, default `none`) are also per-project overridable via
+  `config.agent` — copy each field-by-field in `projectConfig.ts#mergeAgent` or it is stripped on
+  save. Attachment limits live here too: `max_attachment_bytes` (default 10 MB) and
   `max_attachments_per_item` (default 10), both numeric and UI-editable via the `settings` table.
 - Privacy boundary: only framework code is tracked. Runtime/private data — `data/` (the SQLite DB +
   attachment blobs), per-issue worktrees under `workspace_root`, `.env`, and machine-local agent/editor

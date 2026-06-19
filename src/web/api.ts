@@ -22,8 +22,20 @@ import type {
   Snapshot,
 } from '../shared/types';
 
+// SYM-41: extended-thinking levels mirror the server's `ThinkingEffort` (core/config.ts).
+export type ThinkingEffort = 'none' | 'think' | 'think-hard' | 'ultrathink';
+
+/** Select options for the thinking-effort controls (value = stored keyword, label = display). */
+export const THINKING_EFFORT_OPTIONS: { value: ThinkingEffort; label: string }[] = [
+  { value: 'none', label: 'none' },
+  { value: 'think', label: 'think' },
+  { value: 'think-hard', label: 'think hard' },
+  { value: 'ultrathink', label: 'ultrathink' },
+];
+
 export type EngineConfig = Record<string, unknown> & {
   enabled: boolean;
+  enable_workflow_tool: boolean;
   agent: AgentType;
   model: string;
   codex_cli_path: string;
@@ -35,6 +47,7 @@ export type EngineConfig = Record<string, unknown> & {
   phase_timeout_ms: number;
   stall_timeout_ms: number;
   max_turns: number;
+  thinking_effort: ThinkingEffort;
   max_attempts: number;
   max_retry_backoff_ms: number;
 };
@@ -57,6 +70,9 @@ export interface ProjectAgentConfig {
   permission_mode?: string;
   max_turns?: number;
   max_turns_by_phase?: Partial<Record<ProjectRunPhase, number>>;
+  // SYM-41: agent execution controls; undefined ⇒ inherit the engine default.
+  enable_workflow_tool?: boolean;
+  thinking_effort?: ThinkingEffort;
 }
 
 export interface ProjectPromptConfig {

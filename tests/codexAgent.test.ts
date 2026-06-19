@@ -82,6 +82,7 @@ test('makeAgentRunner routes on input.agent', async () => {
     model: 'm',
     permissionMode: 'bypassPermissions',
     maxTurns: 1,
+    disableWorkflows: true,
     timeoutMs: 1000,
     cliPath: 'x',
   };
