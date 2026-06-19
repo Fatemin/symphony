@@ -18,8 +18,10 @@ agent:
   #     merge: 40
   max_turns: 120
 
-# Phase-specific prompt additions appended to the built-in phase prompts. Use this to encode
-# repo conventions the agent must follow (test commands, lint, commit style, etc.).
+# Phase-specific prompt additions APPENDED to Symphony's built-in professional-team prompt for each
+# phase (which already mandates non-functional + UX design, updating all affected docs, and
+# per-criterion QA). Use these only for repo-specific deltas the agent must follow — test commands,
+# lint, commit style, etc. — not to restate the baseline.
 prompts:
   plan: |
     Prefer the smallest set of tasks. Call out any migration or breaking change explicitly.

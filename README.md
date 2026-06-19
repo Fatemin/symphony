@@ -55,6 +55,15 @@ backoff, stall detection, and restart recovery are all handled by one authoritat
 - **Planning context is carried forward.** The plan phase saves a compact file map and implementation
   context for the issue, so the implement phase can start from the planner's exploration instead of
   rediscovering the same files.
+- **Agents are prompted as a professional team.** Every phase prompt holds its role to one shared
+  quality floor, assembled in [src/server/core/prompt.ts](src/server/core/prompt.ts): the **tech
+  lead** plans architecture, non-functional, and UX up front; the **implementing engineer** ships a
+  polished, accessible change *and* updates every affected doc; the independent **QA engineer**
+  re-checks each acceptance criterion, regressions, and that docs match the new behavior; the
+  **release engineer** publishes the branch. The planner emits a checklist whose tasks carry a role —
+  `impl`, `qa`, `frontend`, `backend`, `docs`, `delivery` (a handoff/summary task run inside the
+  implement phase), or `other`. A repo's `WORKFLOW.md` and per-project prompt additions only *append*
+  to this floor, never replace it.
 
 ### Status model
 
@@ -170,7 +179,9 @@ project's **Agent** tab) → **optional per-repo `WORKFLOW.md`**. Key engine fie
 
 **`WORKFLOW.md`** (optional, in a target repo): YAML front matter can override `agent.model`,
 `agent.permission_mode`, `agent.max_turns` (a single number or a per-phase `{plan, implement, qa}`
-map), and append phase-specific guidance under `prompts.{plan,implement,qa}`. See
+map), and append phase-specific guidance under `prompts.{plan,implement,qa,merge}`. These prompt
+additions are *appended* to Symphony's built-in professional-team prompt for that phase — they
+sharpen the baseline with repo conventions, they do not replace it. See
 [WORKFLOW.example.md](WORKFLOW.example.md). It is read fresh per run, so edits apply to future runs.
 
 Use `WORKFLOW.md` for stable environment knowledge: test commands, package manager preferences,
