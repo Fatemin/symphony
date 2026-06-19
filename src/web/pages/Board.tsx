@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -26,6 +26,12 @@ export function Board() {
   const [approveOpen, setApproveOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  // SYM-13: track which cards just changed status so we can play the lift-drop animation. The board
+  // polls every 3s and each poll yields a fresh issues array, so the diff effect below runs often —
+  // it stays a no-op unless a status actually changed. `prevStatus` seeds on the first load without
+  // flagging anything, so cards only animate on a *transition*, not on initial render.
+  const prevStatus = useRef<Map<string, IssueStatus>>(new Map());
+  const [moved, setMoved] = useState<Set<string>>(new Set());
 
   const byStatus = (status: IssueStatus) => (project?.issues ?? []).filter((i) => i.status === status);
   const reviewIssues = byStatus('review');
@@ -56,6 +62,24 @@ export function Board() {
     },
     onError: (e) => toast.error(String(e)),
   });
+
+  useEffect(() => {
+    const issues = project?.issues;
+    if (!issues) return;
+    const prev = prevStatus.current;
+    const seeded = prev.size > 0;
+    const justMoved = new Set<string>();
+    for (const issue of issues) {
+      const before = prev.get(issue.id);
+      // Only flag a real transition, and never on the very first load (require a prior snapshot).
+      if (seeded && before !== undefined && before !== issue.status) justMoved.add(issue.id);
+      prev.set(issue.id, issue.status);
+    }
+    if (justMoved.size === 0) return; // no status changed — skip the re-render the setMoved would cause
+    setMoved(justMoved);
+    const t = setTimeout(() => setMoved(new Set()), 700); // clear so the animation can replay next time
+    return () => clearTimeout(t);
+  }, [project?.issues]);
 
   if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
@@ -127,7 +151,7 @@ export function Board() {
           return (
             <div key={status} className="flex min-w-[180px] flex-col">
               <div className="mb-2 flex items-center gap-2 px-1">
-                <span className={`h-2 w-2 rounded-full ${STATUS_META[status].dot}`} />
+                <span className={`h-2 w-2 rounded-full ${STATUS_META[status].dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
                 <span className="text-xs font-medium text-fg">{STATUS_META[status].label}</span>
                 <span className="text-xs text-subtle">{items.length}</span>
               </div>
@@ -138,6 +162,7 @@ export function Board() {
                     issue={issue}
                     selectable={status === 'review'}
                     selected={selected.has(issue.id)}
+                    justMoved={moved.has(issue.id)}
                     onToggle={() => toggleIssue(issue.id)}
                   />
                 ))}
@@ -147,7 +172,7 @@ export function Board() {
         })}
       </div>
       {showCancelled && cancelledIssues.length > 0 && (
-        <div className="mt-4 border-t border-border pt-4">
+        <div className="anim-card-in mt-4 border-t border-border pt-4">
           <div className="mb-2 flex items-center gap-2 px-1">
             <span className={`h-2 w-2 rounded-full ${STATUS_META['cancelled'].dot}`} />
             <span className="text-xs font-medium text-fg">{STATUS_META['cancelled'].label}</span>
@@ -189,18 +214,27 @@ function IssueCard({
   issue,
   selectable = false,
   selected = false,
+  justMoved = false,
   onToggle,
 }: {
   issue: Issue;
   selectable?: boolean;
   selected?: boolean;
+  justMoved?: boolean;
   onToggle?: () => void;
 }) {
+  // A status change unmounts/remounts the card in its new column; `justMoved` flips the entrance
+  // animation to the lift-drop and adds a transient ring so the move reads as a deliberate placement.
+  const anim = justMoved ? 'anim-lift-drop' : 'anim-card-in';
+  const movedRing = justMoved ? 'border-indigo-400/70 ring-2 ring-indigo-400/60' : '';
   return (
     <Link to={`/issues/${issue.id}`} className="block">
-      <Panel className={`p-3 transition hover:border-indigo-500/60 ${selected ? 'border-indigo-500/80' : ''}`}>
+      <Panel className={`${anim} ${movedRing} p-3 transition hover:border-indigo-500/60 ${selected ? 'border-indigo-500/80' : ''}`}>
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
+            {issue.status === 'in_progress' && (
+              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META.in_progress.dot} anim-pulse-dot`} />
+            )}
             {selectable && (
               <button
                 type="button"
@@ -261,7 +295,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
   });
 
   return (
-    <Panel className="mb-5 p-4">
+    <Panel className="anim-card-in mb-5 p-4">
       <div className="grid grid-cols-4 gap-3">
         <div className="col-span-4">
           <Field label="Title">
