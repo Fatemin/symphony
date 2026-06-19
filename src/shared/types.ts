@@ -67,6 +67,22 @@ export interface Project {
   created_at: string;
 }
 
+/**
+ * A user-supplied file attached to an issue or an ask turn (SYM-35). The blob lives on disk under
+ * ATTACHMENTS_DIR; this view model carries only display metadata — the byte stream is served from
+ * `GET /api/attachments/:id`, and the on-disk storage_path is never exposed to the client.
+ */
+export interface Attachment {
+  id: string;
+  project_id: string;
+  issue_id: string | null;
+  ask_message_id: string | null;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+  created_at: string;
+}
+
 export interface Issue {
   id: string;
   project_id: string;
@@ -88,6 +104,8 @@ export interface Issue {
   round: number;
   /** Set when a review-gate approval failed to merge/push; null otherwise (SYM-29). */
   merge_conflict: MergeConflictInfo | null;
+  /** Files attached to this issue (SYM-35); only populated on the issue-detail read. */
+  attachments?: Attachment[];
   created_at: string;
   updated_at: string;
 }
@@ -269,6 +287,8 @@ export interface AskMessage {
    * Only ever set on assistant turns; null/absent when the answer was purely informational.
    */
   suggestion?: AskSuggestion | null;
+  /** Files the user attached to this turn (SYM-35); only ever set on user turns. */
+  attachments?: Attachment[];
 }
 
 /**

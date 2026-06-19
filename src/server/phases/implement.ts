@@ -26,6 +26,7 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
       skills: ctx.skills,
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
+      attachments: ctx.attachments,
     },
     tasks,
     planContext,

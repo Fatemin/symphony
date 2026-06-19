@@ -20,6 +20,7 @@ export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
       skills: ctx.skills,
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
+      attachments: ctx.attachments,
     },
     phasePrompt(ctx.projectConfig.prompts.plan, ctx.workflow?.prompts.plan),
   );

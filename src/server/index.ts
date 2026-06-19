@@ -9,6 +9,7 @@ import { getOrchestrator } from './orchestrator/orchestrator';
 import { stopAllPreviews } from './preview/manager';
 import { projectRoutes } from './http/routes/projects';
 import { askRoutes } from './http/routes/ask';
+import { attachmentRoutes } from './http/routes/attachments';
 import { issueRoutes } from './http/routes/issues';
 import { opsRoutes } from './http/routes/ops';
 import { streamRoutes } from './http/routes/stream';
@@ -23,6 +24,7 @@ api.get('/health', (c) => c.json({ status: 'ok' }));
 api.route('/projects', projectRoutes);
 api.route('/projects', askRoutes); // project-scoped conversational Q&A (POST /projects/:id/ask)
 api.route('/issues', issueRoutes);
+api.route('/attachments', attachmentRoutes);
 api.route('/ops', opsRoutes);
 api.route('/stream', streamRoutes);
 api.route('/fs', fsRoutes);

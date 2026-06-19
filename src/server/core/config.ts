@@ -42,6 +42,10 @@ export interface EngineConfig {
   max_attempts: number;
   /** Cap on exponential retry backoff. */
   max_retry_backoff_ms: number;
+  /** Max size of a single uploaded attachment, in bytes (SYM-35). */
+  max_attachment_bytes: number;
+  /** Max attachments linkable to one issue or one ask turn (SYM-35). */
+  max_attachments_per_item: number;
 }
 
 export const DEFAULT_SETTINGS: EngineConfig = {
@@ -62,6 +66,8 @@ export const DEFAULT_SETTINGS: EngineConfig = {
   max_turns: 120,
   max_attempts: 3,
   max_retry_backoff_ms: 5 * 60_000,
+  max_attachment_bytes: 10 * 1024 * 1024, // 10 MB — comfortably fits screenshots and small docs
+  max_attachments_per_item: 10,
 };
 
 const NUMERIC_KEYS: (keyof EngineConfig)[] = [
@@ -72,6 +78,8 @@ const NUMERIC_KEYS: (keyof EngineConfig)[] = [
   'max_turns',
   'max_attempts',
   'max_retry_backoff_ms',
+  'max_attachment_bytes',
+  'max_attachments_per_item',
 ];
 
 /**
