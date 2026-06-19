@@ -135,6 +135,57 @@ test('project agent config affects CLI input and phase prompts', async () => {
   assert.match(inputs[2]!.prompt, /Project QA prompt marker/);
 });
 
+test('autonomous done path runs a merge phase to push the branch (SYM-16)', async () => {
+  const project = createProject({ name: 'Auto Merge', key: 'AM', repo_path: env.repoPath });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Lands on the remote',
+    status: 'todo',
+    mode: 'auto',
+    require_review: false, // no review gate → autonomous done path → merge phase runs
+  });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', merge: 'pass' }),
+    config: getConfig(),
+  });
+
+  // The issue reaches 'done' only after the merge agent landed it.
+  assert.equal(result.ok, true);
+  assert.equal(result.finalStatus, 'done');
+  assert.equal(getIssue(issue.id)!.status, 'done');
+
+  // Four run rows now: plan, implement, qa, merge — all succeeded.
+  const runs = listRuns(issue.id);
+  assert.equal(runs.length, 4);
+  assert.deepEqual(
+    runs.map((r) => r.phase).sort(),
+    ['implement', 'merge', 'plan', 'qa'],
+  );
+  const merge = runs.find((r) => r.phase === 'merge');
+  assert.ok(merge && merge.status === 'succeeded', 'expected a succeeded merge run');
+});
+
+test('a merge FAIL leaves the issue in_progress for retry (SYM-16)', async () => {
+  const project = createProject({ name: 'Merge Fail', key: 'MF', repo_path: env.repoPath });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Push will fail',
+    status: 'todo',
+    mode: 'auto',
+    require_review: false,
+  });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', merge: 'fail' }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failedPhase, 'merge');
+  assert.equal(getIssue(issue.id)!.status, 'in_progress');
+});
+
 test('a QA FAIL leaves the issue in_progress for retry', async () => {
   const project = createProject({ name: 'QA Fail', key: 'QF', repo_path: env.repoPath });
   const issue = createIssue({
