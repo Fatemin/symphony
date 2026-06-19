@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
-import type { AgentType, AskMessage, AskResponse, Project } from '../../../shared/types';
+import type { AgentType, AskHistory, AskMessage, AskResponse, Project } from '../../../shared/types';
 import type { EngineConfig } from '../../core/config';
 import { buildAskPrompt, parseAsk } from '../../core/prompt';
 import { mergeProjectConfigs } from '../../core/projectConfig';
 import { loadWorkflow } from '../../core/workflow';
 import { runAgent } from '../../agent/runAgent';
 import type { AgentRunner } from '../../agent/types';
+import { appendAskTurn, listTodaysAskMessages, resetTodaysAsk, todaysAskDate } from '../../repo/ask';
 import { getProject } from '../../repo/projects';
 import { getConfig } from '../../repo/settings';
 
@@ -99,10 +100,33 @@ askRoutes.post('/:id/ask', async (c) => {
       history: normalizeHistory(body.history),
       agent: body.agent === 'codex' || body.agent === 'claude' ? body.agent : undefined,
     });
+    // Persist the exchange under today's conversation so the panel can reload it (SYM-12). Only the
+    // text is kept; suggestion cards are intentionally not restored across reloads.
+    appendAskTurn(project.id, 'user', question);
+    appendAskTurn(project.id, 'assistant', result.answer);
     return c.json(result);
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
   }
+});
+
+/** Today's persisted conversation, used to reseed the Ask panel when it opens (SYM-12). */
+askRoutes.get('/:id/ask/history', (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  const history: AskHistory = {
+    date: todaysAskDate(),
+    messages: listTodaysAskMessages(project.id),
+  };
+  return c.json(history);
+});
+
+/** Manually reset today's conversation memory ("new conversation"). */
+askRoutes.delete('/:id/ask/history', (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  resetTodaysAsk(project.id);
+  return c.json({ ok: true });
 });
 
 /** Keep only well-formed {role, content} turns from an untrusted client payload. */

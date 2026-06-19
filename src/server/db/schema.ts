@@ -145,4 +145,18 @@ CREATE TABLE IF NOT EXISTS settings (
   value      TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- Persisted "ask" conversation, scoped to one project-day (SYM-12). A conversation is the set of
+-- turns sharing a convo_date (server-local day); the panel reloads today's turns on open and the
+-- user can manually reset (delete) today's. Daily rollover is implicit in the date('now','localtime')
+-- queries — there is no scheduler.
+CREATE TABLE IF NOT EXISTS ask_messages (
+  id         TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  convo_date TEXT NOT NULL,                         -- local calendar day, e.g. '2026-06-19'
+  role       TEXT NOT NULL,                         -- 'user' | 'assistant'
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ask_messages_project_date ON ask_messages(project_id, convo_date, id);
 `;

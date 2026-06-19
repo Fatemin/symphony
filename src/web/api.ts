@@ -1,5 +1,6 @@
 import type {
   AgentType,
+  AskHistory,
   AskMessage,
   AskResponse,
   Event,
@@ -165,6 +166,9 @@ export const api = {
     remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
     ask: (id: string, data: { question: string; history?: AskMessage[]; agent?: AgentType }) =>
       req<AskResponse>(`/api/projects/${id}/ask`, { method: 'POST', ...body(data) }),
+    askHistory: (id: string) => req<AskHistory>(`/api/projects/${id}/ask/history`),
+    askReset: (id: string) =>
+      req<{ ok: boolean }>(`/api/projects/${id}/ask/history`, { method: 'DELETE' }),
   },
   issues: {
     list: (projectId?: string) => req<Issue[]>(`/api/issues${projectId ? `?project_id=${projectId}` : ''}`),

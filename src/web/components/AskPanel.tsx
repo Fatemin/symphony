@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUp, Bug, Sparkles, X } from 'lucide-react';
+import { ArrowUp, Bug, RotateCcw, Sparkles, X } from 'lucide-react';
 import type { AgentType, AskMessage, AskSuggestion, IssueStatus } from '../../shared/types';
 import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
@@ -25,6 +25,31 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   const [input, setInput] = useState('');
   const [agent, setAgent] = useState<AgentType | ''>(defaultAgent ?? '');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The panel remounts on every open (Board renders it only while askOpen), so this seeds today's
+  // persisted conversation exactly once per open without stomping turns the user adds afterward.
+  const seeded = useRef(false);
+
+  const { data: history } = useQuery({
+    queryKey: ['ask-history', projectId],
+    queryFn: () => api.projects.askHistory(projectId),
+  });
+
+  useEffect(() => {
+    if (seeded.current || !history) return;
+    seeded.current = true;
+    if (history.messages.length) {
+      setTurns(history.messages.map((m) => ({ role: m.role, content: m.content })));
+    }
+  }, [history]);
+
+  const reset = useMutation({
+    mutationFn: () => api.projects.askReset(projectId),
+    onSuccess: () => {
+      setTurns([]);
+      qc.invalidateQueries({ queryKey: ['ask-history', projectId] });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
 
   const ask = useMutation({
     mutationFn: (question: string) =>
@@ -98,6 +123,16 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
                 <option key={a.id} value={a.id}>{a.label}</option>
               ))}
             </Select>
+            <button
+              type="button"
+              aria-label="Reset conversation"
+              title="Reset today's conversation"
+              className="grid h-7 w-7 place-items-center rounded text-muted hover:bg-hover hover:text-fg disabled:opacity-40"
+              disabled={reset.isPending || (turns.length === 0 && !ask.isPending)}
+              onClick={() => reset.mutate()}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
             <button
               type="button"
               aria-label="Close"

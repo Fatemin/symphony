@@ -9,6 +9,8 @@ const { createProject } = await import('../src/server/repo/projects');
 const { listIssues } = await import('../src/server/repo/issues');
 const { getConfig } = await import('../src/server/repo/settings');
 const { runProjectAsk, askRoutes } = await import('../src/server/http/routes/ask');
+const { appendAskTurn, listTodaysAskMessages } = await import('../src/server/repo/ask');
+const { getDb } = await import('../src/server/db/client');
 
 test.after(() => env.cleanup());
 
@@ -122,4 +124,64 @@ test('POST /:id/ask validates the project, its repo, and the question', async ()
 
   // No issues were created as a side effect of validation failures.
   assert.equal(listIssues(project.id).length, 0);
+});
+
+test("GET /:id/ask/history returns today's persisted turns in order", async () => {
+  const project = createProject({ name: 'Ask Hist', key: 'ASKH', repo_path: env.repoPath });
+  // The POST handler persists a user turn then the assistant answer; simulate that pair.
+  appendAskTurn(project.id, 'user', 'What is the data flow?');
+  appendAskTurn(project.id, 'assistant', 'AskPanel → POST /ask → runProjectAsk.');
+
+  const res = await askRoutes.request(`/${project.id}/ask/history`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { date: string; messages: { role: string; content: string }[] };
+  assert.match(body.date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.deepEqual(body.messages, [
+    { role: 'user', content: 'What is the data flow?' },
+    { role: 'assistant', content: 'AskPanel → POST /ask → runProjectAsk.' },
+  ]);
+
+  // Unknown project → 404.
+  assert.equal((await askRoutes.request('/nope/ask/history')).status, 404);
+});
+
+test("DELETE /:id/ask/history resets today's conversation", async () => {
+  const project = createProject({ name: 'Ask Reset', key: 'ASKR', repo_path: env.repoPath });
+  appendAskTurn(project.id, 'user', 'Anything to clean up?');
+  appendAskTurn(project.id, 'assistant', 'Yes, several things.');
+  assert.equal(listTodaysAskMessages(project.id).length, 2);
+
+  const del = await askRoutes.request(`/${project.id}/ask/history`, { method: 'DELETE' });
+  assert.equal(del.status, 200);
+  assert.deepEqual(await del.json(), { ok: true });
+  assert.equal(listTodaysAskMessages(project.id).length, 0);
+
+  // The reset is daily-scoped, so a fresh GET reports an empty conversation for today.
+  const after = (await (await askRoutes.request(`/${project.id}/ask/history`)).json()) as {
+    messages: unknown[];
+  };
+  assert.equal(after.messages.length, 0);
+
+  // Unknown project → 404.
+  assert.equal((await askRoutes.request('/nope/ask/history', { method: 'DELETE' })).status, 404);
+});
+
+test("today's history excludes turns from an earlier conversation day", async () => {
+  const project = createProject({ name: 'Ask Days', key: 'ASKD', repo_path: env.repoPath });
+  // A turn stamped with a past convo_date must not bleed into today's conversation memory.
+  getDb()
+    .prepare(
+      `INSERT INTO ask_messages (id, project_id, convo_date, role, content)
+       VALUES ('old-row', ?, '2000-01-01', 'user', 'ancient question')`,
+    )
+    .run(project.id);
+  appendAskTurn(project.id, 'assistant', "today's answer");
+
+  const messages = listTodaysAskMessages(project.id);
+  assert.deepEqual(messages, [{ role: 'assistant', content: "today's answer" }]);
+
+  const body = (await (await askRoutes.request(`/${project.id}/ask/history`)).json()) as {
+    messages: { content: string }[];
+  };
+  assert.deepEqual(body.messages.map((m) => m.content), ["today's answer"]);
 });
