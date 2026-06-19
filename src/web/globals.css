@@ -125,6 +125,23 @@ body {
   }
 }
 
+/* SYM-31: page-switch entrance. A short fade+slide so route changes read as a flow rather than an
+   instant cut. The final keyframe MUST be `transform: none` (not translateY(0)) and the helper uses
+   `backwards` fill: any non-`none` transform — even identity — turns the wrapper into a containing
+   block for its position:fixed descendants (modals/panels render in-tree), so once the run ends the
+   wrapper must be transform-free. `backwards` also applies the opacity:0 start before first paint
+   (no flash). Opacity/transform-only and 0.24s keeps it compositor-friendly per the block invariant. */
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .anim-card-in {
   animation: cardIn 0.25s ease-out both;
 }
@@ -137,10 +154,15 @@ body {
   animation: softPulse 1.8s ease-in-out infinite;
 }
 
+.anim-page-in {
+  animation: pageIn 0.24s ease-out backwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .anim-card-in,
   .anim-lift-drop,
-  .anim-pulse-dot {
+  .anim-pulse-dot,
+  .anim-page-in {
     animation: none !important;
   }
 }

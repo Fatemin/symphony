@@ -176,7 +176,12 @@ export function Layout() {
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
-        <Outlet />
+        {/* SYM-31: keyed by pathname so the entrance animation re-runs on each navigation. The
+            wrapper stays inside <main> (the scroll container must not remount) and carries h-full so
+            full-height pages (flex h-full flex-col) still get a definite-height parent. */}
+        <div key={location.pathname} className="anim-page-in h-full">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
