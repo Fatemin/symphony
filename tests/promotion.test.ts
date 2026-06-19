@@ -14,6 +14,7 @@ const { createIssue, getIssue } = await import('../src/server/repo/issues');
 const { getConfig } = await import('../src/server/repo/settings');
 const { runIssuePipeline } = await import('../src/server/phases/index');
 const { issueRoutes } = await import('../src/server/http/routes/issues');
+const { listEvents } = await import('../src/server/repo/events');
 
 test.after(() => env.cleanup());
 
@@ -229,4 +230,121 @@ test('pull-request promotion (auto_merge on) keeps the issue in review when the 
     process.env.PATH = oldPath;
     delete process.env.GH_LOG;
   }
+});
+
+test('direct-merge approval pushes the base to the configured remote so GitHub Actions can fire', async () => {
+  const remote = path.join(env.root, 'remote-push.git');
+  execFileSync('git', ['init', '--bare', remote], { stdio: 'pipe' });
+  g('remote', 'add', 'origin-push', remote);
+  g('push', 'origin-push', 'main'); // seed the remote base with the current local main
+
+  const project = createProject({
+    name: 'Push On Approve',
+    key: 'PUSH',
+    repo_path: env.repoPath,
+    config: { promotion: { mode: 'direct-merge', remote: 'origin-push' } },
+  });
+  const issue = createIssue({ project_id: project.id, title: 'Push to remote', status: 'todo', mode: 'auto' });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', fileName: 'push.txt', fileContent: 'push\n' }),
+    config: getConfig(),
+  });
+  assert.equal(result.ok, true);
+
+  const review = getIssue(issue.id)!;
+  const res = await issueRoutes.request(`/${issue.id}/approve`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const body = await res.json() as { ok: boolean; pushed?: boolean; remote?: string; reason?: string };
+  assert.equal(body.ok, true, body.reason);
+  assert.equal(body.pushed, true);
+  assert.equal(body.remote, 'origin-push');
+  assert.equal(getIssue(issue.id)!.status, 'done');
+
+  // The local merge commit reached the remote, so the remote base now matches local main.
+  const localMain = g('rev-parse', 'main');
+  const remoteMain = execFileSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, stdio: 'pipe' }).toString().trim();
+  assert.equal(remoteMain, localMain);
+  assert.match(g('log', '--oneline', '-1'), new RegExp(`Merge ${review.key}`));
+});
+
+test('direct-merge approval fails loudly when the remote base has diverged (non-ff push)', async () => {
+  const remote = path.join(env.root, 'remote-nonff.git');
+  execFileSync('git', ['init', '--bare', remote], { stdio: 'pipe' });
+  g('remote', 'add', 'origin-nonff', remote);
+  g('push', 'origin-nonff', 'main');
+
+  // Advance the remote base out-of-band via a throwaway clone so the approve's push is non-ff.
+  const clone = path.join(env.root, 'nonff-clone');
+  execFileSync('git', ['clone', remote, clone], { stdio: 'pipe' });
+  const c = (...args: string[]) => execFileSync('git', args, { cwd: clone, stdio: 'pipe' }).toString().trim();
+  c('config', 'user.email', 'remote@example.com');
+  c('config', 'user.name', 'Remote User');
+  fs.writeFileSync(path.join(clone, 'remote-only.txt'), 'remote-only\n');
+  c('add', '-A');
+  c('commit', '-m', 'remote advanced out-of-band');
+  c('push', 'origin', 'main');
+
+  const project = createProject({
+    name: 'Non FF',
+    key: 'NFF',
+    repo_path: env.repoPath,
+    config: { promotion: { mode: 'direct-merge', remote: 'origin-nonff' } },
+  });
+  const issue = createIssue({ project_id: project.id, title: 'Non-ff push', status: 'todo', mode: 'auto' });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', fileName: 'nonff.txt', fileContent: 'nonff\n' }),
+    config: getConfig(),
+  });
+  assert.equal(result.ok, true);
+
+  const review = getIssue(issue.id)!;
+  const res = await issueRoutes.request(`/${issue.id}/approve`, { method: 'POST' });
+  assert.equal(res.status, 409);
+  const body = await res.json() as { ok: boolean; reason?: string };
+  assert.equal(body.ok, false);
+  assert.match(body.reason ?? '', /not in local|diverged|has commits/);
+
+  // The push failed, so the issue stays parked for a re-approve rather than silently marked done.
+  assert.equal(getIssue(issue.id)!.status, 'review');
+  assert.ok(listEvents({ issue_id: issue.id }).some((e) => e.kind === 'approve.failed'));
+
+  // The local merge already landed — local main carries it even though the remote rejected the push.
+  assert.match(g('log', '--oneline', '-1'), new RegExp(`Merge ${review.key}`));
+  const remoteMain = execFileSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, stdio: 'pipe' }).toString().trim();
+  assert.notEqual(remoteMain, g('rev-parse', 'main'));
+});
+
+test('direct-merge approval stays local-only when promotion.push is disabled even with a remote', async () => {
+  const remote = path.join(env.root, 'remote-optout.git');
+  execFileSync('git', ['init', '--bare', remote], { stdio: 'pipe' });
+  g('remote', 'add', 'origin-optout', remote);
+  g('push', 'origin-optout', 'main');
+  const remoteMainBefore = execFileSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, stdio: 'pipe' }).toString().trim();
+
+  const project = createProject({
+    name: 'Opt Out',
+    key: 'OPT',
+    repo_path: env.repoPath,
+    config: { promotion: { mode: 'direct-merge', remote: 'origin-optout', push: false } },
+  });
+  const issue = createIssue({ project_id: project.id, title: 'Local only', status: 'todo', mode: 'auto' });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', fileName: 'optout.txt', fileContent: 'optout\n' }),
+    config: getConfig(),
+  });
+  assert.equal(result.ok, true);
+
+  const res = await issueRoutes.request(`/${issue.id}/approve`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const body = await res.json() as { ok: boolean; pushed?: boolean; reason?: string };
+  assert.equal(body.ok, true, body.reason);
+  assert.equal(body.pushed, false);
+  assert.equal(getIssue(issue.id)!.status, 'done');
+
+  // push disabled → the remote base must not move even though a remote is configured.
+  const remoteMainAfter = execFileSync('git', ['rev-parse', 'refs/heads/main'], { cwd: remote, stdio: 'pipe' }).toString().trim();
+  assert.equal(remoteMainAfter, remoteMainBefore);
 });

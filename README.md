@@ -206,6 +206,7 @@ promotion:
   base_branch: testing
   remote: origin
   auto_merge: false
+  push: true # direct-merge only; default: true — push the base to `remote` after approve so CI fires
 
 commit_guard:
   enabled: true # default: false
@@ -232,6 +233,15 @@ The default remains the existing local `direct-merge` path for projects without 
 At approval time the UI can override the target branch for one or many review stories, create the
 target branch from the story's current base when needed, and save that target as the project's new
 default branch.
+
+In `direct-merge` mode, approval merges into the base locally and then — with `promotion.push`
+(default `true`) — pushes the base to `promotion.remote` so the merge reaches GitHub and Actions
+fire. The push is skipped automatically when no such remote is configured, so local-only repos keep
+working unchanged; set `push: false` to force local-only behaviour even when a remote exists. Before
+pushing, Symphony fetches the remote base and only fast-forwards it; if the remote base has diverged
+the approve fails with a clear reason (and an `approve.failed` event) and the issue stays in
+`review` — the local merge already landed, so a re-approve retries the push once the remote is
+reconciled.
 
 With `commit_guard.enabled`, Symphony installs a pre-commit hook in each issue worktree. Manual
 commits are blocked, Symphony stages only explicit diff-derived paths, configured scratch globs are

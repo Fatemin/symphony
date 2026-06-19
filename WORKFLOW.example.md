@@ -52,6 +52,10 @@ promotion:
   remote: origin
   # base_branch: testing
   auto_merge: false
+  # direct-merge only: after a successful approve merges into the base locally, push the base to
+  # `remote` so GitHub Actions fire. Default true; the push is skipped when no such remote exists.
+  # Set false for purely local repos that should never reach a remote.
+  push: true
 
 # Disabled by default for backwards compatibility. When enabled, the worktree hook blocks manual
 # commits and Symphony refuses configured scratch files / oversized commits.
