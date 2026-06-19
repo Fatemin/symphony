@@ -63,3 +63,14 @@ export function fmtDuration(seconds: number): string {
   if (m < 60) return `${m}m ${Math.round(seconds % 60)}s`;
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
+
+/**
+ * Compact token count for tight UI (e.g. the sidebar usage footer): 820 → "820", 45 300 → "45.3K",
+ * 1 200 000 → "1.2M". One decimal place, trailing ".0" trimmed; negatives clamped to 0.
+ */
+export function formatTokens(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n < 1_000) return String(Math.round(n));
+  const [value, suffix] = n < 1_000_000 ? [n / 1_000, 'K'] : [n / 1_000_000, 'M'];
+  return `${value.toFixed(1).replace(/\.0$/, '')}${suffix}`;
+}

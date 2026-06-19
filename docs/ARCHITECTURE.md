@@ -27,7 +27,7 @@ src/server/
   env.ts            Paths + port + prod flag (DATA_DIR, DB_PATH, DEFAULT_WORKSPACE_ROOT, PORT)
 
   http/routes/      One file per route group → see API.md
-                      projects.ts · ask.ts · issues.ts · ops.ts · stream.ts · fs.ts
+                      projects.ts · ask.ts · issues.ts · ops.ts · usage.ts · stream.ts · fs.ts
 
   orchestrator/     COORDINATION LAYER — the only mutator of RuntimeState
     orchestrator.ts   dispatch / retry / give-up / quota-suspend / restart recovery; the poll loop
@@ -61,6 +61,8 @@ src/server/
   tracker/          localTracker.ts — the Tracker interface backed by the local DB
   workspace/        per-issue git worktrees + git/promotion/verification/skills helpers;
                     docs.ts reads the project repo's documentation for the Docs tab (read-only)
+  usage/            localUsage.ts: reads the LOCAL Claude/Codex CLI session logs and aggregates
+                    today's tokens for the sidebar footer (read-only; writes nothing) — SYM-38
   observability/    structured logger + in-process event bus (SSE source)
   preview/          launch the project from an issue's worktree (preview server)
 
@@ -263,6 +265,13 @@ the built-in professional-team prompt, never replacing it. Default values are ta
   file sidebar + reading pane are backed by `GET /:id/docs` and `GET /:id/docs/content`, which read the
   allow-listed text/markdown files under `config.docs.directories` (default `['docs']`) via
   `workspace/docs.ts`; an inline editor adds/removes directories by PATCHing `config.docs`.
+
+The left sidebar (`components/Layout.tsx`) ends in a footer widget, **`SidebarUsage.tsx`** (SYM-38),
+that shows today's local Claude Code / Codex token usage from `GET /api/usage/local`. It refreshes on
+a 60s interval and whenever any issue takes an action — the latter by observing the shared
+`['issues']` poll (Layout already runs it every 3s) and invalidating the usage query when the issues'
+status/`updated_at` signature changes. It renders every state: loading, `ok` (compact token figure),
+`empty`, `not_found`, and `error` → "检测失败".
 
 The frontend is documented at module level only; its components are not part of the server contract.
 
