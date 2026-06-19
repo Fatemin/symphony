@@ -253,6 +253,31 @@ export interface MarketplaceInstallResult {
   skipped: { name: string; reason: string }[];
 }
 
+// ── Documentation tab (SYM-36) ────────────────────────────────────────────
+
+/** One documentation file discovered under a project's configured doc directories. */
+export interface DocEntry {
+  /** Repo-relative POSIX path, e.g. "docs/PRD.md". */
+  path: string;
+  /** Basename, e.g. "PRD.md". */
+  name: string;
+  /** The configured top-level directory it was found under (e.g. "docs") — used to group the list. */
+  dir: string;
+}
+
+/** The Documentation tab listing: the configured directories plus the files found within them. */
+export interface DocListing {
+  directories: string[];
+  files: DocEntry[];
+}
+
+/** A single documentation file's contents, for the reading pane. */
+export interface DocContent {
+  path: string;
+  name: string;
+  content: string;
+}
+
 /** A distilled learning from a completed issue, injected into later agent prompts. */
 export interface ProjectNote {
   id: string;

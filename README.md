@@ -157,7 +157,7 @@ src/server/
   tracker/     Tracker interface backed by the local DB (swap in Linear later, untouched orch)
   http/        Hono routes + SSE stream
   observability/ structured logger + live event bus
-src/web/       React board (Projects, Board, IssueDetail, Ops, Settings)
+src/web/       React board (Projects, Board, IssueDetail, StoryTree, Documentation, Ops, Settings)
 src/shared/    domain types shared by server + client
 tests/         offline pipeline + orchestrator tests with an injected fake runner
 ```
@@ -242,10 +242,12 @@ commit_guard:
     - "scratch*.md"
 ```
 
-The React UI exposes these project-level knobs under each project: **Board** and **Agent** are tabs,
-and the left sidebar can expand a project directly to either view. `WORKFLOW.md` still wins for
-agent runtime fields and is appended after project prompt additions, keeping repo-versioned policy
-authoritative.
+The React UI exposes these project-level knobs under each project via tabs: **Board**, **Agent**,
+**Story Tree**, **Docs**, and **Skills**; the left sidebar can expand a project directly to a view.
+The **Docs** tab (SYM-36) renders the repo's documentation — Markdown is themed, other allow-listed
+text shows as plain text — and lets you add/remove the source directories it reads (default `docs`,
+stored in `config.docs.directories`). `WORKFLOW.md` still wins for agent runtime fields and is
+appended after project prompt additions, keeping repo-versioned policy authoritative.
 
 With `verification.commands` configured, Symphony runs the commands in order inside the issue
 worktree after implementation/QA. Every command must exit 0 and leave the worktree clean before the

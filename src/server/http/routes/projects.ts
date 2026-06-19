@@ -19,7 +19,9 @@ import { listIssues } from '../../repo/issues';
 import { latestPhaseByIssue } from '../../repo/runs';
 import { listProjectRelations } from '../../repo/issueRelations';
 import { listBranches } from '../../workspace/worktree';
-import type { BoardIssue, MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
+import { listProjectDocs, readProjectDoc } from '../../workspace/docs';
+import { parseProjectConfig } from '../../core/projectConfig';
+import type { BoardIssue, DocListing, MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
 
 export const projectRoutes = new Hono();
 
@@ -66,6 +68,29 @@ projectRoutes.get('/:id/relations', (c) => {
   const project = getProject(c.req.param('id'));
   if (!project) return c.json({ error: 'not found' }, 404);
   return c.json(listProjectRelations(project.id));
+});
+
+// SYM-36: the Documentation tab. List the docs found under the project's configured directories
+// (config.docs.directories, default ['docs']). Empty listing when the project has no on-disk repo,
+// mirroring the /:id/branches route's graceful behaviour.
+projectRoutes.get('/:id/docs', (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  const { directories } = parseProjectConfig(project.config).docs;
+  if (!project.repo_path) return c.json({ directories, files: [] } satisfies DocListing);
+  return c.json(listProjectDocs(project.repo_path, directories));
+});
+
+// SYM-36: read a single doc's contents for the reading pane. The path is repo-relative and validated
+// against the configured directories + repo root (400 on traversal/disallowed, 404 on missing file).
+projectRoutes.get('/:id/docs/content', (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  if (!project.repo_path) return c.json({ error: 'this project has no linked repo' }, 404);
+  const { directories } = parseProjectConfig(project.config).docs;
+  const result = readProjectDoc(project.repo_path, directories, c.req.query('path') ?? '');
+  if (!result.ok) return c.json({ error: result.error }, result.status);
+  return c.json(result.doc);
 });
 
 projectRoutes.patch('/:id', async (c) => {

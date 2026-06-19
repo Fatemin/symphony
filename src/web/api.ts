@@ -5,6 +5,8 @@ import type {
   AskResponse,
   Attachment,
   BoardIssue,
+  DocContent,
+  DocListing,
   Event,
   Issue,
   IssueRelation,
@@ -89,6 +91,8 @@ export interface ProjectWorkflowConfig {
     max_bytes?: number;
     override_limits: boolean;
   };
+  // SYM-36: directories the Documentation tab reads docs from (default ['docs']).
+  docs?: { directories: string[] };
 }
 
 export interface BranchList {
@@ -184,6 +188,9 @@ export const api = {
     get: (id: string) => req<ProjectWithIssues>(`/api/projects/${id}`),
     branches: (id: string) => req<BranchList>(`/api/projects/${id}/branches`),
     relations: (id: string) => req<IssueRelation[]>(`/api/projects/${id}/relations`),
+    docs: (id: string) => req<DocListing>(`/api/projects/${id}/docs`),
+    docContent: (id: string, path: string) =>
+      req<DocContent>(`/api/projects/${id}/docs/content?path=${encodeURIComponent(path)}`),
     create: (data: Partial<Project>) => req<Project>('/api/projects', { method: 'POST', ...body(data) }),
     update: (id: string, data: Partial<Project>) =>
       req<Project>(`/api/projects/${id}`, { method: 'PATCH', ...body(data) }),

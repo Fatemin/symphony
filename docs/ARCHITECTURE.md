@@ -59,7 +59,8 @@ src/server/
                       notes · projectSkills · events · ask · settings · issueRelations
   db/               schema.ts (idempotent CREATE TABLE) · migrate.ts (additive backfills) · client.ts
   tracker/          localTracker.ts — the Tracker interface backed by the local DB
-  workspace/        per-issue git worktrees + git/promotion/verification/skills helpers
+  workspace/        per-issue git worktrees + git/promotion/verification/skills helpers;
+                    docs.ts reads the project repo's documentation for the Docs tab (read-only)
   observability/    structured logger + in-process event bus (SSE source)
   preview/          launch the project from an issue's worktree (preview server)
 
@@ -257,6 +258,11 @@ the built-in professional-team prompt, never replacing it. Default values are ta
 - **Ops.tsx** — orchestrator snapshot, token totals, and run history.
 - **Settings.tsx** — the engine `settings` table editor.
 - **ProjectAgent.tsx / ProjectSkills.tsx** — per-project policy (`config` JSON) and project skills.
+- **StoryTree.tsx** — the per-project story forest folded from `issue_relations` (SYM-30).
+- **Documentation.tsx** — the Docs tab (SYM-36): a master/detail reader over the repo's docs. The
+  file sidebar + reading pane are backed by `GET /:id/docs` and `GET /:id/docs/content`, which read the
+  allow-listed text/markdown files under `config.docs.directories` (default `['docs']`) via
+  `workspace/docs.ts`; an inline editor adds/removes directories by PATCHing `config.docs`.
 
 The frontend is documented at module level only; its components are not part of the server contract.
 

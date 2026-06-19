@@ -69,10 +69,12 @@ One target repository + its agent policy. The top of the ownership tree.
 | `model` | TEXT | optional per-project model override |
 | `agent` | TEXT | optional per-project agent override (`claude`/`codex`); null ⇒ engine default |
 | `preview_command` | TEXT | command to launch a preview from a worktree (`{port}` substituted) |
-| `config` | TEXT (JSON) | per-project policy: verification / promotion / commit_guard / prompts (see [projectConfig](#project-config-json)) |
+| `config` | TEXT (JSON) | per-project policy: `agent` / `prompts` / `verification` / `promotion` / `commit_guard` / `docs` (see [projectConfig](#project-config-json)) |
 | `created_at` | TEXT | |
 
 Mapped to `Project` (`src/shared/types.ts`). Repo: `repo/projects.ts`.
+
+The `config` blob is parsed/serialized by `core/projectConfig.ts` (`parseProjectConfig` → `mergeProjectConfigs`), which copies **only** known sections — each new section needs its own merge/clone path or it is silently stripped on save. `docs.directories` (default `['docs']`, SYM-36) drives the Documentation tab's source folders; it is additive JSON, so no migration was needed and pre-existing projects get the default applied at parse time.
 
 ### 2. `issues`
 
