@@ -75,6 +75,7 @@ export async function runProjectAsk(
     model,
     permissionMode: 'plan', // read-only: the agent explores and answers, it does not edit
     maxTurns: Math.min(config.max_turns, ASK_MAX_TURNS),
+    disableWorkflows: true, // SYM-41: Ask never needs the Workflow tool; stay default-off
     timeoutMs: config.phase_timeout_ms,
     cliPath: agent === 'codex' ? config.codex_cli_path : config.cli_path,
   });

@@ -1,5 +1,5 @@
 import { buildDeliveryPrompt } from '../core/prompt';
-import { phasePrompt, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
+import { phasePrompt, resolveThinkingEffort, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Delivery phase (§SYM-22): after QA passes, a fresh agent summarizes the round in user-friendly
@@ -21,6 +21,7 @@ export async function runDelivery(ctx: PhaseContext): Promise<PhaseOutcome> {
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
       attachments: ctx.attachments,
+      thinkingEffort: resolveThinkingEffort(ctx),
     },
     ctx.implementReport ?? null,
     phasePrompt(ctx.projectConfig.prompts.delivery, ctx.workflow?.prompts.delivery),

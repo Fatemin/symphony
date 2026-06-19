@@ -424,6 +424,7 @@ async function resolveMergeConflicts(
       projectConfig.agent.max_turns_by_phase?.implement ??
       projectConfig.agent.max_turns ??
       engineConfig.max_turns,
+    disableWorkflows: true, // SYM-41: the conflict resolver is a focused edit; stay default-off
     timeoutMs: engineConfig.phase_timeout_ms,
     cliPath: engineConfig.cli_path,
   }, (event) => persistApproveAgentEvent(issue.id, event));

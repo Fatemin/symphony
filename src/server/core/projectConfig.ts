@@ -1,5 +1,6 @@
 import type { RunPhase } from '../../shared/types';
-import type { PermissionMode } from './config';
+import type { PermissionMode, ThinkingEffort } from './config';
+import { THINKING_EFFORTS } from './config';
 
 export type VerificationFailureAction = 'retry' | 'park';
 
@@ -42,6 +43,10 @@ export interface ProjectAgentConfig {
   permission_mode?: PermissionMode;
   max_turns?: number;
   max_turns_by_phase?: Partial<Record<RunPhase, number>>;
+  /** Opt-in to the Workflow tool for this project (SYM-41); undefined ⇒ inherit the engine default. */
+  enable_workflow_tool?: boolean;
+  /** Extended-thinking keyword for this project (SYM-41); undefined ⇒ inherit the engine default. */
+  thinking_effort?: ThinkingEffort;
 }
 
 export interface ProjectPromptConfig {
@@ -141,6 +146,10 @@ function mergeAgent(out: ProjectConfig, raw: unknown): void {
   if (isPermissionMode(obj.permission_mode)) out.agent.permission_mode = obj.permission_mode;
   const flatTurns = numberOrUndefined(obj.max_turns);
   if (flatTurns !== undefined) out.agent.max_turns = flatTurns;
+  // SYM-41 agent-execution controls — copied field-by-field (like permission_mode) or they are
+  // silently stripped on every save.
+  if (typeof obj.enable_workflow_tool === 'boolean') out.agent.enable_workflow_tool = obj.enable_workflow_tool;
+  if (isThinkingEffort(obj.thinking_effort)) out.agent.thinking_effort = obj.thinking_effort;
 
   // Merge per-phase so a later layer (e.g. WORKFLOW.md) that sets one phase doesn't wipe the
   // phases an earlier layer set — matching mergePromotion/mergeCommitGuard's field-wise merge.
@@ -272,6 +281,10 @@ function parsePhaseTurns(value: unknown): Partial<Record<RunPhase, number>> | un
 
 function isPermissionMode(value: unknown): value is PermissionMode {
   return value === 'default' || value === 'acceptEdits' || value === 'bypassPermissions' || value === 'plan';
+}
+
+function isThinkingEffort(value: unknown): value is ThinkingEffort {
+  return typeof value === 'string' && (THINKING_EFFORTS as string[]).includes(value);
 }
 
 function cloneProjectConfig(config: ProjectConfig): ProjectConfig {

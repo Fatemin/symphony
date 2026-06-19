@@ -142,6 +142,41 @@ test('project agent config affects CLI input and phase prompts', async () => {
   assert.match(inputs[3]!.prompt, /\*\*delivery lead\*\*/);
 });
 
+test('disableWorkflows defaults to true for every phase (orchestrator stays sole scheduler, SYM-41)', async () => {
+  const project = createProject({ name: 'WF Default', key: 'WFD', repo_path: env.repoPath });
+  const issue = createIssue({ project_id: project.id, title: 'Default off', status: 'todo', mode: 'auto' });
+
+  const inputs: AgentRunInput[] = [];
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', inputs }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(inputs.length, 4, 'plan, implement, qa, delivery each ran once');
+  assert.ok(inputs.every((i) => i.disableWorkflows === true), 'every phase disables the Workflow tool by default');
+});
+
+test('a project that enables the Workflow tool flips disableWorkflows to false across phases (SYM-41)', async () => {
+  const project = createProject({
+    name: 'WF Enabled',
+    key: 'WFE',
+    repo_path: env.repoPath,
+    config: { agent: { enable_workflow_tool: true } },
+  });
+  const issue = createIssue({ project_id: project.id, title: 'Opt in', status: 'todo', mode: 'auto' });
+
+  const inputs: AgentRunInput[] = [];
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', inputs }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(inputs.length, 4);
+  assert.ok(inputs.every((i) => i.disableWorkflows === false), 'the project override reaches every phase');
+});
+
 test('autonomous done path runs a merge phase to push the branch (SYM-16)', async () => {
   const project = createProject({ name: 'Auto Merge', key: 'AM', repo_path: env.repoPath });
   const issue = createIssue({

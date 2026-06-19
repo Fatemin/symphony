@@ -1,7 +1,9 @@
 # 设计文档：pipeline agent 执行控制（Workflow 工具开关 + thinking effort）
 
-> 状态：**提案 / 未实现**（本期只设计，不写代码）。
-> 文中 `file:line` 为撰写时的指示位置，实现前以当前代码为准。
+> 状态：**已实现**（SYM-41）。引擎默认 + 项目两层落地；WORKFLOW.md 第三层、per-phase
+> `thinking_effort_by_phase`、受控/可观测的嵌套编排仍为范围外（见 §9 / §15）。**一项 CI 验不到的声明**：
+> `CLAUDE_CODE_DISABLE_WORKFLOWS=1` 真正移除 Workflow 工具、思考关键词在 user turn 触发，须按 §8 手动用真实 CLI 验证（消耗 token，不在 `npm test`）。
+> 文中 `file:line` 为撰写时的指示位置，以当前代码为准。
 
 本文档涵盖**两个共用同一套配置机器**（config 优先级链 + `agentInput()` 解析骨架）的 pipeline agent
 执行控制特性：

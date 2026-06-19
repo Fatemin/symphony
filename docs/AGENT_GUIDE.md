@@ -73,7 +73,10 @@ Every phase prompt is built from a shared **issue brief** (`prompt.ts:issueBrief
 role-specific body. The brief already carries: the issue + acceptance criteria, the current round's
 revision feedback (round ≥ 2, surfaced *above* project context), project context, predecessor-story
 context, recent project learnings, available project skills, the worktree/branch reminder, the
-"unattended — never use interactive tools" instruction, and (on retries) the prior-failure context.
+"unattended — never use interactive tools" instruction, (on retries) the prior-failure context, and
+(SYM-41, pipeline only) a trailing `## Thinking effort\n<keyword>` block when `thinking_effort` ≠
+`none` — appended in the brief's tail *before* the role body, so `includes()`-based phase detection
+is position-insensitive and the role substrings never shift.
 
 Each role body enforces a **professional-team quality floor** that per-repo policy can only *append*
 to:
@@ -92,6 +95,15 @@ to:
 Per-repo and per-project prompt additions are **appended** under a `## Repository policy` heading
 (`prompt.ts:withPolicy`) — they sharpen the baseline with repo conventions; they never weaken it. This
 is the central design principle: *quality is the prompt floor, and policy can only add to it.*
+
+> **Runner env (SYM-41, not a prompt change).** The Workflow-tool toggle is enforced at the process
+> level, never in the prompt: `agentInput` computes `disableWorkflows = !enable_workflow_tool`, and
+> both runners spawn with `claudeRunner.ts#runnerEnv(process.env, disableWorkflows)`, which injects
+> `CLAUDE_CODE_DISABLE_WORKFLOWS=1` when disabled. Default-off keeps the orchestrator the sole
+> scheduler. Putting the toggle in env (not the prompt) is deliberate — the role substrings and the
+> fakeRunner contract stay untouched. The var is claude-only (Codex ignores it; mirrored for runner
+> symmetry). That the env var actually removes the tool is verified by a real-CLI smoke check (it
+> costs tokens — `npm test` can't prove it); the offline tests assert the field/env plumbing only.
 
 ### Fences the pipeline parses
 
@@ -126,6 +138,9 @@ What it can set (`WorkflowPolicy` / `ProjectConfig`):
 
 - `agent.model`, `agent.permission_mode`, `agent.max_turns` (a single number **or** a per-phase
   `{plan, implement, qa, delivery, merge}` map), `agent.type` (`claude`/`codex`).
+- `agent.enable_workflow_tool` (boolean) and `agent.thinking_effort` (`none`/`think`/`think-hard`/
+  `ultrathink`) — the SYM-41 agent-execution controls. **Project config only** (engine default +
+  project layers; `WorkflowPolicy` has no field for them, so WORKFLOW.md can't set them yet).
 - `prompts.{plan,implement,qa,delivery,merge}` — appended to that phase's baseline (§3).
 - `verification.commands` — objective gate (see §7).
 - `promotion` — `direct-merge` (default) or `pull-request`, plus `remote`, `base_branch`,

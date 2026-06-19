@@ -20,6 +20,12 @@ export interface AgentRunInput {
   model: string;
   permissionMode: PermissionMode;
   maxTurns: number;
+  /**
+   * Disable Claude Code's built-in Workflow multi-agent tool (SYM-41). When true the runner injects
+   * `CLAUDE_CODE_DISABLE_WORKFLOWS=1` into the spawn env so the agent can't self-spawn background
+   * runs. Required (computed by `agentInput`); read-only Ask + the conflict resolver pass `true`.
+   */
+  disableWorkflows: boolean;
   timeoutMs: number;
   cliPath: string;
   /** Abort the run (orchestrator reconciliation / shutdown). */

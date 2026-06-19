@@ -11,6 +11,7 @@ import type {
   RunPhase,
   StoryReferenceContext,
 } from '../../shared/types';
+import type { ThinkingEffort } from './config';
 import type { NewTask } from '../repo/tasks';
 
 /**
@@ -43,7 +44,24 @@ export interface PromptContext {
   revisionFeedback?: string | null;
   /** Files the requester attached to the issue (SYM-35) — rendered as an Attachments section. */
   attachments?: PromptAttachment[];
+  /**
+   * Extended-thinking level for this run (SYM-41). Only the pipeline's agentInput sets it, so Ask —
+   * which reuses issueBrief — is unaffected. `none`/undefined append nothing.
+   */
+  thinkingEffort?: ThinkingEffort;
 }
+
+/**
+ * Native extended-thinking keyword appended for each level (SYM-41). `none` is absent (append
+ * nothing). The literals match Claude's budget-escalation keywords; matching is position-insensitive
+ * so this can safely live inside issueBrief's tail without shifting the load-bearing role substrings.
+ */
+const THINKING_EFFORT_KEYWORD: Record<ThinkingEffort, string | null> = {
+  none: null,
+  think: 'think',
+  'think-hard': 'think hard',
+  ultrathink: 'ultrathink',
+};
 
 /** Append optional per-repo policy guidance (from WORKFLOW.md) to a phase prompt. */
 function withPolicy(prompt: string, extra?: string): string {
@@ -144,6 +162,13 @@ function issueBrief(ctx: PromptContext): string {
           `> Address that failure first — re-examine the working tree and prior changes before proceeding.`
         : `> This is retry attempt ${ctx.attempt}. A previous attempt failed — re-examine the working tree and prior changes before proceeding.`,
     );
+  }
+  // SYM-41: extended-thinking keyword (方案1 — appended in issueBrief's tail, BEFORE the role body
+  // that follows it, so fakeRunner's role-substring detection is unaffected; includes() is
+  // position-insensitive). Only the pipeline sets ctx.thinkingEffort, so Ask is untouched.
+  const thinkingKeyword = ctx.thinkingEffort ? THINKING_EFFORT_KEYWORD[ctx.thinkingEffort] : null;
+  if (thinkingKeyword) {
+    lines.push(``, `## Thinking effort`, thinkingKeyword);
   }
   return lines.filter((l) => l !== null).join('\n');
 }

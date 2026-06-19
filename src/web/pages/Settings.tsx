@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api, type EngineConfig } from '../api';
+import { api, THINKING_EFFORT_OPTIONS, type EngineConfig } from '../api';
 import { Button, Field, Input, Panel, Select } from '../components/ui';
 import { AGENT_OPTIONS, AVAILABLE_MODELS } from '../../shared/models';
 
@@ -88,6 +88,22 @@ export function Settings() {
               <option value="acceptEdits">acceptEdits</option>
               <option value="default">default</option>
               <option value="plan">plan</option>
+            </Select>
+          </Field>
+          <Field label="Workflow tool">
+            <Select
+              value={String(form.enable_workflow_tool ?? false)}
+              onChange={(e) => set('enable_workflow_tool', e.target.value === 'true')}
+            >
+              <option value="false">off</option>
+              <option value="true">on (allow self-spawned runs)</option>
+            </Select>
+          </Field>
+          <Field label="Thinking effort">
+            <Select value={form.thinking_effort ?? 'none'} onChange={(e) => set('thinking_effort', e.target.value)}>
+              {THINKING_EFFORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </Select>
           </Field>
           <Field label="WIP limit (max concurrent)">

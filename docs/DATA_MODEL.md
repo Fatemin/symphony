@@ -74,7 +74,7 @@ One target repository + its agent policy. The top of the ownership tree.
 
 Mapped to `Project` (`src/shared/types.ts`). Repo: `repo/projects.ts`.
 
-The `config` blob is parsed/serialized by `core/projectConfig.ts` (`parseProjectConfig` → `mergeProjectConfigs`), which copies **only** known sections — each new section needs its own merge/clone path or it is silently stripped on save. `docs.directories` (default `['docs']`, SYM-36) drives the Documentation tab's source folders; it is additive JSON, so no migration was needed and pre-existing projects get the default applied at parse time.
+The `config` blob is parsed/serialized by `core/projectConfig.ts` (`parseProjectConfig` → `mergeProjectConfigs`), which copies **only** known sections — each new section needs its own merge/clone path or it is silently stripped on save. `docs.directories` (default `['docs']`, SYM-36) drives the Documentation tab's source folders; it is additive JSON, so no migration was needed and pre-existing projects get the default applied at parse time. The `agent` section also carries the optional SYM-41 execution controls `enable_workflow_tool` (boolean) and `thinking_effort` (`none`/`think`/`think-hard`/`ultrathink`) — copied field-by-field in `mergeAgent`; undefined ⇒ inherit the engine default.
 
 ### 2. `issues`
 
@@ -256,6 +256,7 @@ keys + defaults:
 | Key | Default | Numeric? |
 |-----|---------|----------|
 | `enabled` | `true` | — |
+| `enable_workflow_tool` | `false` | — |
 | `agent` | `claude` | — |
 | `cli_path` | `claude` (`claude.cmd` on Windows) | — |
 | `model` | `claude-sonnet-4-6` | — |
@@ -268,11 +269,16 @@ keys + defaults:
 | `phase_timeout_ms` | `1200000` (20 min) | ✓ |
 | `stall_timeout_ms` | `300000` (5 min) | ✓ |
 | `max_turns` | `120` | ✓ |
+| `thinking_effort` | `none` | — |
 | `max_attempts` | `3` | ✓ |
 | `max_retry_backoff_ms` | `300000` (5 min) | ✓ |
 
 The "Numeric?" column maps to `NUMERIC_KEYS` (`core/config.ts`) — a new numeric setting needs both a
-default and a `NUMERIC_KEYS` entry, or `resolveConfig` won't coerce it.
+default and a `NUMERIC_KEYS` entry, or `resolveConfig` won't coerce it. Non-numeric keys need their own
+`resolveConfig` branch: booleans (`enabled`, `enable_workflow_tool`) use a `Boolean()` case, and the
+`thinking_effort` enum uses a value-whitelist branch placed BEFORE the loose string fallback (SYM-41).
+`enable_workflow_tool` (default off) and `thinking_effort` (default `none`) are also per-project
+overridable via the project `config.agent` blob.
 
 ### 12. `ask_messages`
 

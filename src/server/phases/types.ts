@@ -1,5 +1,5 @@
 import type { AgentType, Issue, Project, ProjectNote, ProjectSkill, RunPhase, StoryReferenceContext } from '../../shared/types';
-import type { EngineConfig } from '../core/config';
+import type { EngineConfig, ThinkingEffort } from '../core/config';
 import type { PromptAttachment } from '../core/prompt';
 import type { ProjectConfig } from '../core/projectConfig';
 import type { WorkflowPolicy } from '../core/workflow';
@@ -75,6 +75,9 @@ export function agentInput(
   // Agent resolves first because it picks which CLI binary + default model apply.
   const rawAgent = ctx.workflow?.agent || ctx.project.agent || ctx.config.agent;
   const agent: AgentType = rawAgent === 'codex' ? 'codex' : 'claude';
+  // SYM-41: project ?? engine (no WORKFLOW.md layer — WorkflowPolicy has no such field). Default
+  // false ⇒ disable, so a pipeline agent can't self-spawn background runs.
+  const enableWf = ctx.projectConfig.agent.enable_workflow_tool ?? ctx.config.enable_workflow_tool;
   return {
     agent,
     cwd: ctx.worktreePath,
@@ -92,10 +95,20 @@ export function agentInput(
       ctx.projectConfig.agent.max_turns_by_phase?.[ctx.phase] ??
       ctx.projectConfig.agent.max_turns ??
       ctx.config.max_turns,
+    disableWorkflows: !enableWf,
     timeoutMs: ctx.config.phase_timeout_ms,
     cliPath: agent === 'codex' ? ctx.config.codex_cli_path : ctx.config.cli_path,
     signal: ctx.signal,
   };
+}
+
+/**
+ * SYM-41: resolve the extended-thinking keyword for a phase — project override ?? engine default.
+ * Mirrors agentInput's precedence chain minus the WORKFLOW.md term (WorkflowPolicy has no such
+ * field). Threaded into the prompt as data (never the system prompt / CLI args).
+ */
+export function resolveThinkingEffort(ctx: PhaseContext): ThinkingEffort {
+  return ctx.projectConfig.agent.thinking_effort ?? ctx.config.thinking_effort;
 }
 
 /**

@@ -157,6 +157,30 @@ test('issueBrief renders an Attachments section without disturbing the role anch
   assert.ok(!buildImplementPrompt(ctx, []).includes('## Attachments'));
 });
 
+test('thinking effort appends a block only when set, without disturbing role anchors (SYM-41)', () => {
+  // none (and the absent default) append nothing — a true no-op.
+  assert.ok(!buildPlanPrompt(ctx).includes('## Thinking effort'), 'absent ctx ⇒ no block');
+  assert.ok(
+    !buildImplementPrompt({ ...ctx, thinkingEffort: 'none' }, []).includes('## Thinking effort'),
+    "'none' ⇒ no block",
+  );
+
+  // think-hard maps to the native keyword "think hard" inside the brief.
+  const impl = buildImplementPrompt({ ...ctx, thinkingEffort: 'think-hard' }, []);
+  assert.match(impl, /## Thinking effort\nthink hard/);
+  // ultrathink uses its own keyword.
+  assert.match(buildQaPrompt({ ...ctx, thinkingEffort: 'ultrathink' }, null), /## Thinking effort\nultrathink/);
+
+  // The block lives inside issueBrief's tail (before the role body), so every phase's load-bearing
+  // role substring still resolves with the block present.
+  const ultra = { ...ctx, thinkingEffort: 'ultrathink' as const };
+  assert.match(buildPlanPrompt(ultra), /\*\*tech lead\*\*/);
+  assert.match(buildImplementPrompt(ultra, []), /\*\*implementing engineer\*\*/);
+  assert.match(buildQaPrompt(ultra, null), /independent \*\*QA engineer\*\*/);
+  assert.match(buildDeliveryPrompt(ultra, null), /\*\*delivery lead\*\*/);
+  assert.match(buildMergePrompt(ultra, { remote: 'origin', branch: 'b', baseBranch: 'main' }), /\*\*release engineer\*\*/);
+});
+
 test('a delivery role round-trips through parsePlan without coercion to impl', () => {
   const text =
     '```symphony-plan\n' +

@@ -11,9 +11,23 @@ export type PermissionMode =
   | 'bypassPermissions'
   | 'plan';
 
+/**
+ * How hard the pipeline agent is asked to think (SYM-41). Maps to a native extended-thinking keyword
+ * appended to the prompt; `none` appends nothing (a true no-op). See `THINKING_EFFORT_KEYWORD`.
+ */
+export type ThinkingEffort = 'none' | 'think' | 'think-hard' | 'ultrathink';
+
+export const THINKING_EFFORTS: ThinkingEffort[] = ['none', 'think', 'think-hard', 'ultrathink'];
+
 export interface EngineConfig {
   /** Master switch — when false the orchestrator dispatches nothing. */
   enabled: boolean;
+  /**
+   * Opt-in to Claude Code's built-in "Workflow" multi-agent tool for pipeline agents (SYM-41).
+   * Default `false`: when off the runner injects `CLAUDE_CODE_DISABLE_WORKFLOWS=1` so an agent
+   * cannot self-spawn background runs — the orchestrator stays the sole scheduler.
+   */
+  enable_workflow_tool: boolean;
   /** Default agent CLI driving the pipeline; per-project rows / WORKFLOW.md can override. */
   agent: AgentType;
   /** Path to the Claude Code CLI binary (resolved on PATH by default). */
@@ -38,6 +52,8 @@ export interface EngineConfig {
   stall_timeout_ms: number;
   /** CLI `--max-turns` cap per phase; bounds a single session's cost. */
   max_turns: number;
+  /** Extended-thinking keyword appended to pipeline prompts (SYM-41). `none` appends nothing. */
+  thinking_effort: ThinkingEffort;
   /** Give up + park the issue to manual after this many failed attempts. */
   max_attempts: number;
   /** Cap on exponential retry backoff. */
@@ -50,6 +66,8 @@ export interface EngineConfig {
 
 export const DEFAULT_SETTINGS: EngineConfig = {
   enabled: true,
+  // Default OFF: keeps the orchestrator the sole scheduler (no agent-spawned background runs).
+  enable_workflow_tool: false,
   agent: 'claude',
   cli_path: process.platform === 'win32' ? 'claude.cmd' : 'claude',
   model: 'claude-sonnet-4-6',
@@ -64,6 +82,7 @@ export const DEFAULT_SETTINGS: EngineConfig = {
   // 60 proved too low in practice: real implement phases died at the 61st turn with their
   // work unfinished. phase_timeout_ms remains the cost backstop; this cap is a safety net.
   max_turns: 120,
+  thinking_effort: 'none', // no-op default — append no extended-thinking keyword
   max_attempts: 3,
   max_retry_backoff_ms: 5 * 60_000,
   max_attachment_bytes: 10 * 1024 * 1024, // 10 MB — comfortably fits screenshots and small docs
@@ -95,8 +114,15 @@ export function resolveConfig(raw: Record<string, unknown>): EngineConfig {
     if (NUMERIC_KEYS.includes(key)) {
       const n = Number(value);
       if (Number.isFinite(n)) (cfg[key] as number) = n;
-    } else if (key === 'enabled') {
-      cfg.enabled = Boolean(value);
+    } else if (key === 'enabled' || key === 'enable_workflow_tool') {
+      // Booleans have no generic path here (NUMERIC would coerce them, the string fallback would
+      // not), so each boolean key is matched explicitly — parallel to `enabled`.
+      (cfg[key] as boolean) = Boolean(value);
+    } else if (key === 'thinking_effort') {
+      // Enum whitelist BEFORE the loose string fallback, which would otherwise accept any non-empty
+      // string and let an invalid value reach the prompt.
+      const v = String(value).toLowerCase() as ThinkingEffort;
+      if (THINKING_EFFORTS.includes(v)) cfg.thinking_effort = v;
     } else if (typeof value === 'string' && value.length > 0) {
       (cfg[key] as string) = value;
     }

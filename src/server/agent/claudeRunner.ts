@@ -32,6 +32,17 @@ interface ClaudeLine {
 }
 
 /**
+ * Spawn env for an agent run (SYM-41). When workflows are disabled, inject
+ * `CLAUDE_CODE_DISABLE_WORKFLOWS=1` so the Claude CLI removes the built-in Workflow multi-agent tool
+ * — an agent that could self-spawn background runs would be a hidden second scheduler, bypassing the
+ * orchestrator (the sole scheduling authority). Pure + exported so it can be unit-tested without a
+ * real spawn. Shared with codexRunner for symmetry (the var is claude-only; harmless to Codex).
+ */
+export function runnerEnv(base: NodeJS.ProcessEnv, disableWorkflows: boolean): NodeJS.ProcessEnv {
+  return disableWorkflows ? { ...base, CLAUDE_CODE_DISABLE_WORKFLOWS: '1' } : base;
+}
+
+/**
  * Real agent runner: spawns the Claude Code CLI headlessly and feeds the prompt over stdin as
  * stream-json (so prompt contents never pass through shell quoting). Parses the streamed events
  * into normalized AgentEvents and resolves with the final result. Conforms to `AgentRunner`.
@@ -67,7 +78,7 @@ export const runClaudeCode: AgentRunner = (input: AgentRunInput, onEvent) =>
       proc = spawn(input.cliPath, args, {
         cwd: input.cwd,
         shell: process.platform === 'win32', // resolve claude.cmd shim
-        env: process.env,
+        env: runnerEnv(process.env, input.disableWorkflows),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (e) {

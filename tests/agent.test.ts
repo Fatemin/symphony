@@ -7,9 +7,10 @@ import { setupEnv } from './helpers/env';
 // Env must be set before importing any server module (they read paths from env at import).
 const env = setupEnv();
 
-const { resultErrorMessage } = await import('../src/server/agent/claudeRunner');
+const { resultErrorMessage, runnerEnv } = await import('../src/server/agent/claudeRunner');
 const { loadWorkflow } = await import('../src/server/core/workflow');
 const { parseProjectConfig } = await import('../src/server/core/projectConfig');
+const { resolveConfig, DEFAULT_SETTINGS } = await import('../src/server/core/config');
 const { parseQa } = await import('../src/server/core/prompt');
 
 test.after(() => env.cleanup());
@@ -109,4 +110,53 @@ test('project config parses optional agent and phase prompt overrides', () => {
   assert.equal(invalid.agent.permission_mode, undefined);
   assert.equal(invalid.agent.max_turns, undefined);
   assert.equal(invalid.agent.max_turns_by_phase, undefined);
+});
+
+test('project config parses the SYM-41 execution controls and drops invalid values', () => {
+  const cfg = parseProjectConfig({
+    agent: { enable_workflow_tool: true, thinking_effort: 'think-hard' },
+  });
+  assert.equal(cfg.agent.enable_workflow_tool, true);
+  assert.equal(cfg.agent.thinking_effort, 'think-hard');
+
+  // Unset ⇒ undefined (so agentInput/resolveThinkingEffort fall back to the engine default).
+  const empty = parseProjectConfig({ agent: {} });
+  assert.equal(empty.agent.enable_workflow_tool, undefined);
+  assert.equal(empty.agent.thinking_effort, undefined);
+
+  // Wrong types are rejected: a non-boolean toggle and an off-whitelist keyword are dropped.
+  const bad = parseProjectConfig({
+    agent: { enable_workflow_tool: 'yes', thinking_effort: 'megathink' },
+  });
+  assert.equal(bad.agent.enable_workflow_tool, undefined);
+  assert.equal(bad.agent.thinking_effort, undefined);
+});
+
+test('resolveConfig coerces enable_workflow_tool as a boolean and whitelists thinking_effort', () => {
+  // Defaults are the safe side: workflow off, thinking_effort a no-op.
+  assert.equal(DEFAULT_SETTINGS.enable_workflow_tool, false);
+  assert.equal(DEFAULT_SETTINGS.thinking_effort, 'none');
+
+  const cfg = resolveConfig({ enable_workflow_tool: true, thinking_effort: 'ultrathink' });
+  assert.equal(cfg.enable_workflow_tool, true);
+  assert.equal(cfg.thinking_effort, 'ultrathink');
+
+  // An off-whitelist thinking_effort must NOT slip through the loose string fallback.
+  assert.equal(resolveConfig({ thinking_effort: 'bogus' }).thinking_effort, 'none');
+  // The boolean key never goes through NUMERIC coercion (Number(false) === 0 would mislead).
+  assert.equal(resolveConfig({ enable_workflow_tool: false }).enable_workflow_tool, false);
+});
+
+test('runnerEnv injects CLAUDE_CODE_DISABLE_WORKFLOWS only when workflows are disabled (SYM-41)', () => {
+  const base = { PATH: '/usr/bin', HOME: '/home/u' };
+
+  const disabled = runnerEnv(base, true);
+  assert.equal(disabled.CLAUDE_CODE_DISABLE_WORKFLOWS, '1');
+  assert.equal(disabled.PATH, '/usr/bin', 'base env is preserved');
+  assert.equal(base.PATH, '/usr/bin');
+  assert.ok(!('CLAUDE_CODE_DISABLE_WORKFLOWS' in base), 'the base object is not mutated');
+
+  const enabled = runnerEnv(base, false);
+  assert.equal(enabled.CLAUDE_CODE_DISABLE_WORKFLOWS, undefined);
+  assert.equal(enabled, base, 'enabled passes the env through unchanged');
 });

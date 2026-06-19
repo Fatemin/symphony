@@ -182,6 +182,7 @@ project's **Agent** tab) → **optional per-repo `WORKFLOW.md`**. Key engine fie
 | Field | Default | Purpose |
 |-------|---------|---------|
 | `enabled` | `true` | Master switch for auto-dispatch |
+| `enable_workflow_tool` | `false` | Allow pipeline agents to use Claude Code's Workflow tool. Off keeps the orchestrator the sole scheduler (no agent-spawned background runs) |
 | `model` | `claude-sonnet-4-6` | Model passed to the CLI |
 | `permission_mode` | `bypassPermissions` | CLI permission mode for headless runs |
 | `wip_limit` | `3` | Max concurrent issue runs |
@@ -189,6 +190,7 @@ project's **Agent** tab) → **optional per-repo `WORKFLOW.md`**. Key engine fie
 | `phase_timeout_ms` | `1200000` | Wall-clock cap per phase |
 | `stall_timeout_ms` | `300000` | Abort a run after this long with no agent events |
 | `max_turns` | `120` | CLI `--max-turns` per phase (`0` disables the cap) |
+| `thinking_effort` | `none` | Extended-thinking keyword appended to pipeline prompts (`none`/`think`/`think-hard`/`ultrathink`) |
 | `max_attempts` | `3` | Give up + park to `manual` after this many failures |
 | `workspace_root` | `<tmp>/symphony_workspaces` | Where worktrees live |
 
@@ -212,6 +214,10 @@ agent:
   permission_mode: bypassPermissions
   max_turns:
     implement: 160
+  # SYM-41 execution controls — project config only (NOT WORKFLOW.md), edited from the Agent tab.
+  # Omit either to inherit the engine default.
+  enable_workflow_tool: false # allow the Workflow tool (self-spawned background runs); default off
+  thinking_effort: none # none | think | think-hard | ultrathink
 
 prompts:
   plan: |

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { log } from '../observability/logger';
 import type { PermissionMode } from '../core/config';
-import { classifyAgentError } from './claudeRunner';
+import { classifyAgentError, runnerEnv } from './claudeRunner';
 import type { AgentErrorKind, AgentEvent, AgentResult, AgentRunInput, AgentRunner, AgentUsage } from './types';
 
 // Raw shape of a Codex CLI `exec --json` (JSONL) line. The CLI emits one JSON object per line;
@@ -79,7 +79,9 @@ export const runCodex: AgentRunner = (input: AgentRunInput, onEvent) =>
       proc = spawn(input.cliPath, args, {
         cwd: input.cwd,
         shell: process.platform === 'win32', // resolve codex.cmd shim
-        env: process.env,
+        // SYM-41: shared with claudeRunner for runner symmetry. CLAUDE_CODE_DISABLE_WORKFLOWS is
+        // claude-only — Codex doesn't recognize it, so injecting it here is a harmless no-op.
+        env: runnerEnv(process.env, input.disableWorkflows),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (e) {
