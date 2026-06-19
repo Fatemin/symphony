@@ -406,17 +406,61 @@ export function parseAsk(text: string): ParsedAsk {
   return { answer, suggestion };
 }
 
+// ── merge-conflict resolution ────────────────────────────────────────────────
+
+/** Input the approve flow hands the conflict resolver (structural copy of MergeConflictResolverInput). */
+export interface ConflictPromptInput {
+  base: string;
+  branch: string;
+  checkoutPath: string;
+  mergeOutput: string;
+  conflictedFiles: string[];
+}
+
+/** Prompt for the automated merge-conflict resolver run during review approval. */
+export function buildConflictPrompt(issue: Issue, project: Project, input: ConflictPromptInput): string {
+  return [
+    `Resolve the merge conflict for ${issue.key}: ${issue.title}.`,
+    '',
+    `Project: ${project.name} (${project.key})`,
+    `Target branch: ${input.base}`,
+    `Agent branch: ${input.branch}`,
+    `Integration worktree: ${input.checkoutPath}`,
+    '',
+    'Issue description:',
+    issue.description?.trim() || '_(none)_',
+    '',
+    'Acceptance criteria:',
+    issue.acceptance_criteria?.trim() || '_(none)_',
+    '',
+    'Merge output:',
+    input.mergeOutput,
+    '',
+    'Conflicted files:',
+    ...input.conflictedFiles.map((file) => `- ${file}`),
+    '',
+    'Instructions:',
+    '- Preserve the current target-branch behavior and the story implementation.',
+    '- Resolve every conflict marker in the conflicted files.',
+    '- Read nearby files when needed, but keep edits tightly scoped to the integration conflict.',
+    '- Do not commit; Symphony will stage and commit the merge after checking your work.',
+    '- Run lightweight checks when useful, and finish with a short summary of what you resolved.',
+  ].join('\n');
+}
+
 // ── fenced-block helpers ────────────────────────────────────────────────────
 
+// `\\s*\\n?` (newline optional) so a same-line fence (```tag {json}```) is matched too — both
+// extract and strip must agree, or a malformed fence would leak its raw JSON into the answer.
 function extractFenced(text: string, tag: string): string | null {
-  const re = new RegExp('```' + tag + '\\s*\\n([\\s\\S]*?)```', 'i');
+  const re = new RegExp('```' + tag + '\\s*\\n?([\\s\\S]*?)```', 'i');
   const m = text.match(re);
   return m ? m[1]!.trim() : null;
 }
 
 /** Remove a fenced block (including its fences) from the text — used to hide the ask suggestion. */
 function stripFenced(text: string, tag: string): string {
-  const re = new RegExp('```' + tag + '\\s*\\n[\\s\\S]*?```', 'i');
+  const re = new RegExp('```' + tag + '\\s*\\n?[\\s\\S]*?```', 'i');
   return text.replace(re, '');
 }
 

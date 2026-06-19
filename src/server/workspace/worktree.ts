@@ -565,6 +565,9 @@ export async function mergeAgentBranch(
     if (!create.ok) return { ok: false, reason: `could not create integration branch: ${create.stderr.trim() || create.stdout.trim()}` };
     const add = await git(['worktree', 'add', tempRoot, tempBranch], repoPath);
     if (!add.ok) return { ok: false, reason: `could not create integration worktree: ${add.stderr.trim() || add.stdout.trim()}` };
+    // A fresh worktree omits ignored dependency trees; seed them so post-merge verification
+    // commands (e.g. `npm test`) can run here exactly as they do in the agent's own worktree.
+    seedDependencyArtifacts(repoPath, tempRoot);
 
     const integrated = await mergeInCheckout(tempRoot, base, branch, message, opts);
     if (!integrated.ok) return integrated;
@@ -652,7 +655,9 @@ async function mergeInCheckout(
     };
   }
 
-  const add = await git(['add', '-A'], checkoutPath);
+  // Stage ONLY the conflicted paths (add/modify/delete) — never `git add -A`, which would sweep
+  // any stray file the resolver agent left in the worktree into the approved merge commit.
+  const add = await git(['add', '-A', '--', ...conflictedFiles], checkoutPath);
   if (!add.ok) {
     await git(['merge', '--abort'], checkoutPath);
     return { ok: false, reason: `could not stage resolved conflicts: ${add.stderr.trim() || add.stdout.trim()}`, conflicted_files: conflictedFiles, report: resolved.report };

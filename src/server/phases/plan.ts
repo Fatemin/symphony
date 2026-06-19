@@ -1,7 +1,7 @@
 import { buildPlanPrompt, parsePlan } from '../core/prompt';
 import { savePlanContext } from '../repo/planContext';
 import { replaceTasks } from '../repo/tasks';
-import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
+import { phasePrompt, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Plan phase: the agent reads the repo + issue and produces a task checklist (no code).
@@ -56,6 +56,3 @@ export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
     report: result.text,
   };
 }
-
-const phasePrompt = (...parts: (string | undefined)[]) =>
-  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;

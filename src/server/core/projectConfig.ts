@@ -118,8 +118,10 @@ function mergeAgent(out: ProjectConfig, raw: unknown): void {
   const flatTurns = numberOrUndefined(obj.max_turns);
   if (flatTurns !== undefined) out.agent.max_turns = flatTurns;
 
+  // Merge per-phase so a later layer (e.g. WORKFLOW.md) that sets one phase doesn't wipe the
+  // phases an earlier layer set — matching mergePromotion/mergeCommitGuard's field-wise merge.
   const phaseTurns = parsePhaseTurns(obj.max_turns_by_phase ?? obj.max_turns);
-  if (phaseTurns) out.agent.max_turns_by_phase = phaseTurns;
+  if (phaseTurns) out.agent.max_turns_by_phase = { ...out.agent.max_turns_by_phase, ...phaseTurns };
 }
 
 function mergePrompts(out: ProjectConfig, raw: unknown): void {

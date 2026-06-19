@@ -2,7 +2,7 @@ import { buildImplementPrompt } from '../core/prompt';
 import { getPlanContext } from '../repo/planContext';
 import { listTasks, setAllTaskStatus } from '../repo/tasks';
 import { commitWorktree } from '../workspace/worktree';
-import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
+import { phasePrompt, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Implement phase: ONE agent session implements the whole issue against its planned checklist
@@ -69,6 +69,3 @@ export async function runImplement(ctx: PhaseContext): Promise<PhaseOutcome> {
     report: result.text,
   };
 }
-
-const phasePrompt = (...parts: (string | undefined)[]) =>
-  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;
