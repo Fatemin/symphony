@@ -17,6 +17,7 @@ export function bootstrap(db: DatabaseSync): void {
   addColumn(db, 'runs', 'cache_creation_tokens', 'INTEGER NOT NULL DEFAULT 0');
   addColumn(db, 'issues', 'round', 'INTEGER NOT NULL DEFAULT 1');
   addColumn(db, 'runs', 'round', 'INTEGER NOT NULL DEFAULT 1');
+  addColumn(db, 'ask_messages', 'suggestion', 'TEXT');
   seedSettings(db);
   backfillMaxTurns(db);
   backfillCancelledAbortedRuns(db);
