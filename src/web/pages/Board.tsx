@@ -34,6 +34,11 @@ export function Board() {
   // SYM-23: which status columns are collapsed (seeded from localStorage). Mirrors Layout.tsx's
   // expanded-projects pattern: write-back effect + toggle mutator, all localStorage wrapped in try/catch.
   const [collapsedColumns, setCollapsedColumns] = useState<Set<IssueStatus>>(() => readCollapsed());
+  // SYM-26 (issue 1): the collapsed set captured when focus mode is first entered, so restoring
+  // returns to exactly the pre-focus state instead of expanding every column. null = not in focus
+  // mode. Transient/in-memory only (not persisted) — a reload while focused falls back to
+  // all-expanded on restore, which is an acceptable edge case.
+  const [focusSnapshot, setFocusSnapshot] = useState<Set<IssueStatus> | null>(null);
   // SYM-13: track which cards just changed status so we can play the lift-drop animation. The board
   // polls every 3s and each poll yields a fresh issues array, so the diff effect below runs often —
   // it stays a no-op unless a status actually changed. `prevStatus` seeds on the first load without
@@ -107,15 +112,24 @@ export function Board() {
   };
 
   // SYM-25: one-click expand — focus a single column by collapsing every other one. Clicking the
-  // button again (when this column is already the only expanded one) restores all columns. Focus is
-  // just a particular collapsedColumns value, so it rides the same persistence effect and key — no
-  // new state. The existing per-column chevron (SYM-23) still works for granular collapse/expand.
+  // button again (when this column is already the only expanded one) restores the columns. The
+  // existing per-column chevron (SYM-23) still works for granular collapse/expand.
+  // SYM-26 (issue 1): on entry we snapshot the current collapsed set and on restore we return to it,
+  // so columns the user had collapsed *before* focusing stay collapsed. We read collapsedColumns /
+  // focusSnapshot straight from the render closure (handlers always see current values) rather than
+  // nesting two functional updaters.
   const toggleFocus = (status: IssueStatus) => {
-    setCollapsedColumns((prev) => {
-      const expanded = COLUMNS.filter((s) => !prev.has(s));
-      const isFocused = expanded.length === 1 && expanded[0] === status;
-      return isFocused ? new Set() : new Set(COLUMNS.filter((s) => s !== status));
-    });
+    const expanded = COLUMNS.filter((s) => !collapsedColumns.has(s));
+    const isFocused = expanded.length === 1 && expanded[0] === status;
+    if (isFocused) {
+      setCollapsedColumns(focusSnapshot ?? new Set());
+      setFocusSnapshot(null);
+    } else {
+      // Capture the pre-focus state only on first entry, so switching focus A→B keeps the original
+      // snapshot rather than recording B's all-but-A collapsed set.
+      if (focusSnapshot === null) setFocusSnapshot(collapsedColumns);
+      setCollapsedColumns(new Set(COLUMNS.filter((s) => s !== status)));
+    }
   };
 
   if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
@@ -237,7 +251,11 @@ export function Board() {
                   <ChevronDown className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex flex-col gap-2">
+              {/* SYM-26 (issue 2): a focused column spans the full board width, so flow its cards into
+                  a responsive auto-fill grid instead of one stretched single column. Non-focused
+                  (narrow) columns keep the single vertical stack. IssueCard has no fixed width, so it
+                  fills its grid cell. */}
+              <div className={isFocused ? 'grid gap-2 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]' : 'flex flex-col gap-2'}>
                 {items.map((issue) => (
                   <IssueCard
                     key={issue.id}
