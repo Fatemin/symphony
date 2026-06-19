@@ -28,6 +28,7 @@ import { log } from '../observability/logger';
 import { runPlan } from './plan';
 import { runImplement } from './implement';
 import { runQa } from './qa';
+import { runMerge } from './merge';
 import { PHASE_ORDER, type PhaseContext, type PhaseOutcome } from './types';
 
 export interface RunPipelineOptions {
@@ -256,6 +257,68 @@ export async function runIssuePipeline(
 
   // All phases passed → park at the review gate (or finish if the gate is disabled).
   const finalStatus: IssueStatus = fresh.require_review || projectConfig.promotion.mode === 'pull-request' ? 'review' : 'done';
+
+  // §SYM-16: the autonomous `done` path historically marked the issue done WITHOUT pushing — the
+  // branch never reached the remote. Land the work with a merge agent first. The review /
+  // pull-request paths skip this entirely: the human approve gate (POST /:id/approve) owns
+  // promotion there, so running merge here would double-merge. Unlike plan→implement→qa this is
+  // intentionally NOT memoized via skipCompletedPhase, so each retry re-pushes from a fresh
+  // session. Worktree/branch cleanup stays with the approve route; leaving the branch in place is
+  // fine because the work has already landed on the remote.
+  if (finalStatus === 'done') {
+    const run = createRun(issueId, 'merge', attempt, round);
+    emit(opts, { issue_id: issueId, run_id: run.id, kind: 'phase.start', message: 'merge started', data: { phase: 'merge' } });
+    const ctx: PhaseContext = {
+      project,
+      issue: fresh,
+      phase: 'merge',
+      worktreePath,
+      attempt,
+      config: opts.config,
+      projectConfig,
+      workflow,
+      runner: opts.runner,
+      signal: opts.signal,
+      onAgentEvent: (event) => persistAgentEvent(opts, issueId, run.id, 'merge', event),
+      lastFailure: failure,
+      notes,
+      storyContext,
+      skills: skills.filter((s) => s.enabled),
+      resumeSessionId: null, // fresh session every attempt — a retry must re-push, not resume a dead one
+      round,
+      revisionFeedback,
+    };
+
+    let outcome: PhaseOutcome;
+    try {
+      outcome = await runMerge(ctx);
+    } catch (e) {
+      outcome = { ok: false, usage: zeroUsage(), sessionId: null, summary: 'merge threw', error: asMsg(e) };
+    }
+    updateRunUsage(run.id, { session_id: outcome.sessionId, ...outcome.usage });
+    const runStatus = runStatusForOutcome(issueId, outcome);
+    finishRun(run.id, runStatus, outcome.error ?? null, outcome.report ?? null);
+    emit(opts, {
+      issue_id: issueId,
+      run_id: run.id,
+      kind: 'phase.end',
+      level: outcome.ok || runStatus === 'cancelled' ? 'info' : 'warn',
+      message: runStatus === 'cancelled' ? 'merge cancelled' : outcome.summary,
+      data: { phase: 'merge', ok: outcome.ok, status: runStatus },
+    });
+    if (!outcome.ok) {
+      log.warn('merge failed', { issue: issue.key, error: outcome.error });
+      return {
+        ok: false,
+        finalStatus: getIssue(issueId)?.status ?? 'in_progress',
+        failedPhase: 'merge',
+        error: outcome.error,
+        errorKind: outcome.errorKind,
+        retryAfterMs: outcome.retryAfterMs,
+      };
+    }
+  }
+
   updateIssue(issueId, { status: finalStatus });
   emit(opts, {
     issue_id: issueId,

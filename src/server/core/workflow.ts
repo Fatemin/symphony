@@ -18,7 +18,7 @@ export interface WorkflowPolicy {
   max_turns?: number;
   /** Per-phase caps (YAML: `max_turns: {implement: 150}`) — implement typically needs far more turns than qa. */
   max_turns_by_phase?: Partial<Record<RunPhase, number>>;
-  prompts: { plan?: string; implement?: string; qa?: string };
+  prompts: { plan?: string; implement?: string; qa?: string; merge?: string };
   config?: ProjectConfigInput;
 }
 
@@ -61,6 +61,7 @@ export function loadWorkflow(repoPath: string): WorkflowPolicy | null {
       plan: typeof prompts.plan === 'string' ? prompts.plan : undefined,
       implement: typeof prompts.implement === 'string' ? prompts.implement : undefined,
       qa: typeof prompts.qa === 'string' ? prompts.qa : undefined,
+      merge: typeof prompts.merge === 'string' ? prompts.merge : undefined,
     },
     config: workflowConfig(obj),
   };
@@ -76,7 +77,7 @@ function parseMaxTurns(value: unknown): Pick<WorkflowPolicy, 'max_turns' | 'max_
   if (value == null) return {};
   if (typeof value === 'object' && !Array.isArray(value)) {
     const byPhase: Partial<Record<RunPhase, number>> = {};
-    for (const phase of ['plan', 'implement', 'qa'] as const) {
+    for (const phase of ['plan', 'implement', 'qa', 'merge'] as const) {
       const raw = (value as Record<string, unknown>)[phase];
       if (raw == null) continue;
       const n = coerceTurns(raw);

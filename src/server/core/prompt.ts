@@ -321,6 +321,68 @@ export function parseQa(text: string): QaVerdict {
   return { pass: match[1]!.toUpperCase() === 'PASS', reason: (match[2] ?? '').trim() };
 }
 
+// ── merge phase ───────────────────────────────────────────────────────────────
+
+/** Where the merge agent must publish the branch (§SYM-16: the autonomous push that was missing). */
+export interface MergeTarget {
+  remote: string;
+  branch: string;
+  baseBranch: string;
+}
+
+export function buildMergePrompt(
+  ctx: PromptContext,
+  target: MergeTarget,
+  extra?: string,
+): string {
+  return withPolicy(
+    `${issueBrief(ctx)}
+
+---
+
+You are the **release engineer**. This issue has passed implementation, QA, and verification on the
+current worktree, and every change is already committed locally. Your ONE job is to publish that
+work to the remote and integrate it into the base branch — do not write features or rewrite the code.
+
+- Remote: \`${target.remote}\`
+- Feature branch: \`${target.branch}\`
+- Base branch: \`${target.baseBranch}\`
+
+Steps:
+1. Push \`${target.branch}\` to \`${target.remote}\` (e.g. \`git push -u ${target.remote} ${target.branch}\`).
+2. Integrate it into \`${target.baseBranch}\` on the remote — either fast-forward/merge \`${target.branch}\`
+   into \`${target.baseBranch}\` and push \`${target.baseBranch}\`, or open and merge a pull request with
+   \`gh\`. Resolve only trivial conflicts against \`${target.remote}/${target.baseBranch}\`.
+3. Confirm the remote \`${target.baseBranch}\` now contains this branch's commits.
+
+If the push or merge cannot complete (no usable remote, auth failure, non-trivial conflict, a
+protected branch that blocks the merge), stop and report FAIL with the reason — the orchestrator
+will retry.
+
+End your response with EXACTLY ONE line in this format:
+
+MERGE_RESULT: PASS — <what you pushed/merged>
+   …or…
+MERGE_RESULT: FAIL — <what blocked the push/merge>`,
+    extra,
+  );
+}
+
+export interface MergeVerdict {
+  pass: boolean;
+  reason: string;
+}
+
+/** Parse the merge verdict from the agent's final text. Absent/ambiguous verdict ⇒ FAIL. */
+export function parseMerge(text: string): MergeVerdict {
+  // Last-match-wins, mirroring parseQa: quoted policy or reasoning that mentions MERGE_RESULT
+  // earlier must not shadow the real verdict on the final line.
+  const matches = [...text.matchAll(/MERGE_RESULT:\s*(PASS|FAIL)\s*[—\-:：]*\s*(.*)/gi)];
+  const match = matches[matches.length - 1];
+  if (!match) return { pass: false, reason: 'no MERGE_RESULT verdict found in agent output' };
+  return { pass: match[1]!.toUpperCase() === 'PASS', reason: (match[2] ?? '').trim() };
+}
+
 // ── ask: conversational project Q&A ──────────────────────────────────────────
 
 const ASK_FENCE = 'symphony-ask';

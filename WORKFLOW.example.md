@@ -10,11 +10,12 @@ agent:
   # CLI permission mode for headless runs in the isolated worktree.
   permission_mode: bypassPermissions
   # Cap turns per phase (bounds a single session's cost). Accepts a single number for all
-  # phases, or a per-phase map — implement typically needs far more turns than plan/qa:
+  # phases, or a per-phase map — implement typically needs far more turns than plan/qa/merge:
   #   max_turns:
   #     plan: 80
   #     implement: 160
   #     qa: 80
+  #     merge: 40
   max_turns: 120
 
 # Phase-specific prompt additions appended to the built-in phase prompts. Use this to encode
@@ -29,6 +30,11 @@ prompts:
     If this repo needs a specific venv or tool path, record it here so every issue reuses it.
   qa: |
     Treat a failing build or test as an automatic FAIL.
+  merge: |
+    Runs only on the autonomous done path (require_review: false and promotion.mode: direct-merge).
+    A release agent pushes the issue branch to `promotion.remote` and integrates it into the base
+    branch on the remote. Add repo-specific push/merge rules here, e.g. require a fast-forward only
+    or open a PR with `gh` instead of pushing the base branch directly.
 
 # Objective verification gate. Commands run in order inside the issue worktree; every command must
 # exit 0 and leave the worktree clean before the issue can reach review/done.

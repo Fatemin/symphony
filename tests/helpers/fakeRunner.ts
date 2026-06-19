@@ -2,22 +2,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentResult, AgentRunInput, AgentRunner } from '../../src/server/agent/types';
 
+type Phase = 'plan' | 'implement' | 'qa' | 'merge';
+
 export interface FakeRunnerOptions {
   /** Make QA return PASS (default) or FAIL. */
   qa?: 'pass' | 'fail';
+  /** Make the merge phase return PASS (default) or FAIL — no real git is touched. */
+  merge?: 'pass' | 'fail';
   /** Force a specific phase to fail (simulates agent error). */
-  failPhase?: 'plan' | 'implement' | 'qa';
+  failPhase?: Phase;
   /** Fail the selected phase once (simulates a transient agent error), then behave normally. */
-  failOncePhase?: 'plan' | 'implement' | 'qa';
+  failOncePhase?: Phase;
   /** Return a quota error once for the selected phase, then behave normally. */
-  quotaOncePhase?: 'plan' | 'implement' | 'qa';
+  quotaOncePhase?: Phase;
   quotaRetryAfterMs?: number;
   /** File the "implement" phase writes into the worktree. */
   fileName?: string;
   fileContent?: string;
   implementReport?: string;
-  /** Count of calls per phase, for assertions. */
-  calls?: { plan: number; implement: number; qa: number };
+  /** Count of calls per phase, for assertions (merge only present once that phase runs). */
+  calls?: { plan: number; implement: number; qa: number; merge?: number };
   /** Captured runner inputs in call order, for assertions. */
   inputs?: AgentRunInput[];
 }
@@ -32,8 +36,9 @@ const usage = (n: number) => ({
 });
 
 /** Detect which phase a prompt belongs to (the prompts are distinctive). */
-function phaseOf(prompt: string): 'plan' | 'implement' | 'qa' {
+function phaseOf(prompt: string): Phase {
   if (prompt.includes('independent **QA engineer**')) return 'qa';
+  if (prompt.includes('**release engineer**')) return 'merge';
   if (prompt.includes('**implementing engineer**')) return 'implement';
   return 'plan';
 }
@@ -43,14 +48,16 @@ function phaseOf(prompt: string): 'plan' | 'implement' | 'qa' {
  * canned, well-formed response (plan JSON / a real file write / a QA verdict). No tokens, no CLI.
  */
 export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
-  const counters = opts.calls ?? { plan: 0, implement: 0, qa: 0 };
+  const counters = opts.calls ?? { plan: 0, implement: 0, qa: 0, merge: 0 };
   let quotaReturned = false;
   let failedOnce = false;
 
   return async (input: AgentRunInput, onEvent): Promise<AgentResult> => {
     opts.inputs?.push(input);
     const phase = phaseOf(input.prompt);
-    counters[phase]++;
+    // `?? 0` keeps callers that pass a 3-phase `calls` literal valid: the `merge` key is only
+    // added once that phase actually runs, so their deepEqual assertions stay unaffected.
+    counters[phase] = (counters[phase] ?? 0) + 1;
     onEvent?.({ type: 'init', sessionId: `fake-${phase}-${counters[phase]}`, model: input.model });
 
     const result = (text: string, ok = true): AgentResult => {
@@ -106,8 +113,13 @@ export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
       return result(opts.implementReport ?? 'Implemented and wrote the file.');
     }
 
-    // qa
-    const pass = (opts.qa ?? 'pass') === 'pass';
-    return result(`QA_RESULT: ${pass ? 'PASS — meets the acceptance criteria' : 'FAIL — missing behavior'}`, true);
+    if (phase === 'qa') {
+      const pass = (opts.qa ?? 'pass') === 'pass';
+      return result(`QA_RESULT: ${pass ? 'PASS — meets the acceptance criteria' : 'FAIL — missing behavior'}`, true);
+    }
+
+    // merge — no real git; just emit the verdict the pipeline parses.
+    const merged = (opts.merge ?? 'pass') === 'pass';
+    return result(`MERGE_RESULT: ${merged ? 'PASS — pushed the branch and merged it into base' : 'FAIL — could not push to the remote'}`, true);
   };
 }
