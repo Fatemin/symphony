@@ -57,16 +57,22 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   worktree, and the worktree must resolve inside `workspace_root`. `docs.ts` is a separate read-only
   reader (no worktree) that lists/reads the project repo's documentation for the Docs tab — every read
   is fenced inside the repo AND inside a configured doc directory (lexical + realpath checks).
-- `src/server/usage/localUsage.ts` + `http/routes/usage.ts` (SYM-38) — read-only reader for the
-  sidebar footer's local CLI token usage. It streams the Claude (`<root>/projects/**/*.jsonl`, deduped
-  by `message.id:requestId`) and Codex (`<root>/{sessions,archived_sessions}/**/rollout-*.jsonl`,
-  summing per-turn `last_token_usage`, NOT cumulative `total_token_usage`) session logs, filters to the
-  server's LOCAL-machine day, and returns a per-agent `LocalUsageReport`. Each agent is read in its own
-  try/catch so one missing/locked dir never blanks the other; `GET /api/usage/local` therefore always
-  returns `200` with per-agent statuses (`ok`/`empty`/`not_found`/`error`). Data roots honor
-  `CLAUDE_CONFIG_DIR` (may be comma-separated) and `CODEX_HOME`, read at call time (tests + the
-  hermetic `setupEnv()` override them). It only READS the CLIs' own dirs and writes nothing, so no new
-  runtime path and no `.gitignore` rule are needed.
+- `src/server/usage/localUsage.ts` + `http/routes/usage.ts` (SYM-38, SYM-39) — read-only reader for the
+  sidebar footer. SYM-39 repurposed it from spent token usage to **remaining** rate-limit quota. It
+  streams the Claude (`<root>/projects/**/*.jsonl`, deduped by `message.id:requestId`) and Codex
+  (`<root>/{sessions,archived_sessions}/**/rollout-*.jsonl`) session logs and returns a per-agent
+  `LocalUsageReport`. For Codex it captures the LATEST `token_count.payload.rate_limits` snapshot (by
+  timestamp, scanning files within an ~8-day mtime lookback so the weekly window stays visible) and
+  builds `windows` with `remaining_percent = 100 − used_percent` (a window whose `resets_at`, epoch
+  SECONDS in source, already passed rolls over to 100% remaining). Claude exposes NO local quota state,
+  so it returns status `unsupported`. Today's token totals (Codex per-turn `last_token_usage`, NOT
+  cumulative `total_token_usage`; filtered per-line to the server's LOCAL-machine day) are still computed
+  for the tooltip on both agents. Each agent is read in its own try/catch so one missing/locked dir never
+  blanks the other; `GET /api/usage/local` therefore always returns `200` with per-agent statuses
+  (`ok`/`empty`/`unsupported`/`not_found`/`error`). Data roots honor `CLAUDE_CONFIG_DIR` (may be
+  comma-separated) and `CODEX_HOME`, read at call time (tests + the hermetic `setupEnv()` override them).
+  It only READS the CLIs' own dirs and writes nothing, so no new runtime path and no `.gitignore` rule
+  are needed.
 - `src/web/` — React 19 + Vite + Tailwind v4 + TanStack Query. `src/shared/types.ts` holds domain
   types shared by both sides. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
   Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
@@ -75,9 +81,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
   `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The sidebar
-  footer widget (`components/SidebarUsage.tsx`, SYM-38) shows today's local Claude/Codex token usage
-  from `GET /api/usage/local`, refreshing every 60s and whenever the shared `['issues']` poll's
-  status/`updated_at` signature changes.
+  footer widget (`components/SidebarUsage.tsx`, SYM-38/SYM-39) shows local Claude/Codex **remaining**
+  quota from `GET /api/usage/local` — Codex's lowest remaining window ("NN% left", threshold-colored
+  dot) and Claude's honest `unsupported` row — refreshing every 60s and whenever the shared `['issues']`
+  poll's status/`updated_at` signature changes.
 
 ## Conventions
 
