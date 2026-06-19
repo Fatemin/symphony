@@ -9,6 +9,7 @@ const { createIssue, getIssue } = await import('../src/server/repo/issues');
 const { savePlanContext } = await import('../src/server/repo/planContext');
 const { listStoryReferenceContexts } = await import('../src/server/repo/issueRelations');
 const { issueRoutes } = await import('../src/server/http/routes/issues');
+const { projectRoutes } = await import('../src/server/http/routes/projects');
 
 test.after(() => env.cleanup());
 
@@ -64,6 +65,39 @@ test('creates a follow-up story from a completed story with referenced context',
   assert.equal(contexts.length, 1);
   assert.equal(contexts[0]?.source_key, source.key);
   assert.match(contexts[0]?.context_summary ?? '', /Report naming is centralized/);
+});
+
+test('GET /api/projects/:id/relations returns the project story-tree edges, 404 when missing', async () => {
+  const project = createProject({ name: 'Story Tree', key: 'STR' });
+  const root = createIssue({ project_id: project.id, title: 'Build the importer', status: 'done' });
+  const followUp = await issueRoutes.request(`/${root.id}/follow-ups`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Harden importer error handling', include_context: false }),
+  });
+  assert.equal(followUp.status, 201);
+  const { issue: child } = (await followUp.json()) as { issue: { id: string } };
+
+  const res = await projectRoutes.request(`/${project.id}/relations`);
+  assert.equal(res.status, 200);
+  const relations = (await res.json()) as {
+    type: string;
+    source: { id: string };
+    target: { id: string };
+  }[];
+  assert.equal(relations.length, 1);
+  assert.equal(relations[0]?.type, 'follow_up');
+  assert.equal(relations[0]?.source.id, root.id);
+  assert.equal(relations[0]?.target.id, child.id);
+
+  // Relations are scoped to the project — a second project sees none of the first project's edges.
+  const other = createProject({ name: 'Empty Tree', key: 'EMT' });
+  const otherRes = await projectRoutes.request(`/${other.id}/relations`);
+  assert.equal(otherRes.status, 200);
+  assert.deepEqual(await otherRes.json(), []);
+
+  const missing = await projectRoutes.request('/does-not-exist/relations');
+  assert.equal(missing.status, 404);
 });
 
 test('rejects follow-up creation from an unfinished story', async () => {

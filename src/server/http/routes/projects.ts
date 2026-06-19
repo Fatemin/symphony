@@ -16,6 +16,7 @@ import {
 import { fetchGithubSkill } from '../../core/githubSkill';
 import { fetchMarketplaceSkills, parseMarketplaceImport } from '../../core/marketplaceSkill';
 import { listIssues } from '../../repo/issues';
+import { listProjectRelations } from '../../repo/issueRelations';
 import { listBranches } from '../../workspace/worktree';
 import type { MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
 
@@ -48,6 +49,13 @@ projectRoutes.get('/:id', (c) => {
   const project = getProject(c.req.param('id'));
   if (!project) return c.json({ error: 'not found' }, 404);
   return c.json({ ...project, issues: listIssues(project.id) });
+});
+
+// Flat list of the project's issue relations — the client folds these into the Story Tree (SYM-30).
+projectRoutes.get('/:id/relations', (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  return c.json(listProjectRelations(project.id));
 });
 
 projectRoutes.patch('/:id', async (c) => {

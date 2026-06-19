@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { Bot, Columns3, Sparkles } from 'lucide-react';
+import { Bot, Columns3, Network, Sparkles } from 'lucide-react';
 
 export function ProjectTabs({ projectId }: { projectId: string }) {
   const tabs = [
     { to: `/projects/${projectId}`, label: 'Board', icon: Columns3, end: true },
     { to: `/projects/${projectId}/agent`, label: 'Agent', icon: Bot, end: false },
+    { to: `/projects/${projectId}/story-tree`, label: 'Story Tree', icon: Network, end: false },
     { to: `/projects/${projectId}/skills`, label: 'Skills', icon: Sparkles, end: false },
   ];
 
