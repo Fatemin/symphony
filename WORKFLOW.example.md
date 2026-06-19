@@ -15,6 +15,7 @@ agent:
   #     plan: 80
   #     implement: 160
   #     qa: 80
+  #     delivery: 40
   #     merge: 40
   max_turns: 120
 
@@ -30,6 +31,11 @@ prompts:
     If this repo needs a specific venv or tool path, record it here so every issue reuses it.
   qa: |
     Treat a failing build or test as an automatic FAIL.
+  delivery: |
+    Runs after QA on every issue. A delivery lead writes a friendly, user-facing summary of the
+    round (what shipped, how to use it, which files/docs changed) shown above the QA box on the
+    review screen. Add repo-specific guidance here, e.g. link to the changelog or call out how to
+    smoke-test the new behaviour locally. This phase is read-only and never blocks the review gate.
   merge: |
     Runs only on the autonomous done path (require_review: false and promotion.mode: direct-merge).
     A release agent pushes the issue branch to `promotion.remote` and integrates it into the base

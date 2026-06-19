@@ -103,7 +103,7 @@ test('request-changes starts round 2, re-runs every phase, and injects the feedb
   const round2Runs = listRuns(issue.id).filter((r) => r.round === 2);
   assert.deepEqual(
     new Set(round2Runs.map((r) => r.phase)),
-    new Set(['plan', 'implement', 'qa']),
+    new Set(['plan', 'implement', 'qa', 'delivery']),
   );
 
   // The feedback reached the plan prompt via the "Revision requested" block.

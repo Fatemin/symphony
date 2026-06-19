@@ -48,6 +48,7 @@ export interface ProjectPromptConfig {
   plan?: string;
   implement?: string;
   qa?: string;
+  delivery?: string;
   merge?: string;
 }
 
@@ -134,7 +135,7 @@ function mergeAgent(out: ProjectConfig, raw: unknown): void {
 function mergePrompts(out: ProjectConfig, raw: unknown): void {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
   const obj = raw as Record<string, unknown>;
-  for (const phase of ['plan', 'implement', 'qa', 'merge'] as const) {
+  for (const phase of ['plan', 'implement', 'qa', 'delivery', 'merge'] as const) {
     const value = obj[phase];
     if (typeof value === 'string') {
       const trimmed = value.trim();
@@ -227,7 +228,7 @@ function numberOrUndefined(value: unknown): number | undefined {
 function parsePhaseTurns(value: unknown): Partial<Record<RunPhase, number>> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const out: Partial<Record<RunPhase, number>> = {};
-  for (const phase of ['plan', 'implement', 'qa', 'merge'] as const) {
+  for (const phase of ['plan', 'implement', 'qa', 'delivery', 'merge'] as const) {
     const turns = numberOrUndefined((value as Record<string, unknown>)[phase]);
     if (turns !== undefined) out[phase] = turns;
   }

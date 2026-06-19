@@ -23,7 +23,7 @@ export type Priority = 0 | 1 | 2 | 3 | 4; // 0 = none, 1 = urgent … 4 = low
 export type TaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
 export type TaskRole = 'impl' | 'qa' | 'frontend' | 'backend' | 'docs' | 'other';
 
-export type RunPhase = 'plan' | 'implement' | 'qa' | 'merge';
+export type RunPhase = 'plan' | 'implement' | 'qa' | 'delivery' | 'merge';
 export type RunStatus =
   | 'running'
   | 'succeeded'

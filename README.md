@@ -26,9 +26,9 @@ backoff, stall detection, and restart recovery are all handled by one authoritat
                                      │
                                      ▼
                   ┌──────────── per-issue git worktree ───────────┐
-                  │  plan  →  implement  →  qa   (one Claude       │
-                  │  (tech    (one agent   (fresh   session each)  │
-                  │   lead)    implements)  agent verdict)         │
+                  │  plan → implement → qa → delivery             │
+                  │  one Claude session each: tech lead,          │
+                  │  engineer, QA verdict, user-facing wrap-up    │
                   └───────────────────────┬───────────────────────┘
                                           ▼
                         QA PASS → status = review  ──▶  human approves ──▶ done
@@ -50,8 +50,10 @@ backoff, stall detection, and restart recovery are all handled by one authoritat
   A good `CLAUDE.md` in the target repo is the cheapest way to cut agent exploration turns (and
   tokens) — keep one there.
 - **The pipeline** ([src/server/phases/](src/server/phases/)) is the whole execution layer for one
-  issue: `plan → implement → qa`, one small module per phase plus a sequencer that persists a run row
-  and activity events per phase.
+  issue: `plan → implement → qa → delivery`, one small module per phase plus a sequencer that persists
+  a run row and activity events per phase. The final `delivery` phase writes a user-facing summary of
+  the round (what shipped, how to use it, which files/docs changed); it is best-effort, so a failed
+  summary never blocks the review gate.
 - **Planning context is carried forward.** The plan phase saves a compact file map and implementation
   context for the issue, so the implement phase can start from the planner's exploration instead of
   rediscovering the same files.
@@ -128,7 +130,7 @@ src/server/
   core/        config, prompt assembly, WORKFLOW.md loader, key/id helpers
   agent/       Claude CLI runner + normalized AgentEvent types (the DI seam)
   workspace/   per-issue git worktrees + git helpers
-  phases/      plan / implement / qa + the per-issue sequencer (Execution layer)
+  phases/      plan / implement / qa / delivery + the per-issue sequencer (Execution layer)
   orchestrator/ state · reconcile · retry · worker · orchestrator (Coordination layer)
   tracker/     Tracker interface backed by the local DB (swap in Linear later, untouched orch)
   http/        Hono routes + SSE stream
@@ -169,8 +171,9 @@ project's **Agent** tab) → **optional per-repo `WORKFLOW.md`**. Key engine fie
 | `workspace_root` | `<tmp>/symphony_workspaces` | Where worktrees live |
 
 **`WORKFLOW.md`** (optional, in a target repo): YAML front matter can override `agent.model`,
-`agent.permission_mode`, `agent.max_turns` (a single number or a per-phase `{plan, implement, qa}`
-map), and append phase-specific guidance under `prompts.{plan,implement,qa}`. See
+`agent.permission_mode`, `agent.max_turns` (a single number or a per-phase `{plan, implement, qa,
+delivery, merge}` map), and append phase-specific guidance under
+`prompts.{plan,implement,qa,delivery,merge}`. See
 [WORKFLOW.example.md](WORKFLOW.example.md). It is read fresh per run, so edits apply to future runs.
 
 Use `WORKFLOW.md` for stable environment knowledge: test commands, package manager preferences,
@@ -254,11 +257,12 @@ rejected, and optional `max_files` / `max_bytes` limits can require `override_li
 `npm test` runs Node's built-in test runner over an **offline** end-to-end pipeline. The only
 non-deterministic, token-spending dependency — the Claude CLI — is replaced by an injected fake
 runner ([tests/helpers/fakeRunner.ts](tests/helpers/fakeRunner.ts)) that returns well-formed plan
-JSON, writes a real file, and emits a QA verdict. Everything else runs for real against a throwaway
-git repo + isolated SQLite DB:
+JSON, writes a real file, emits a QA verdict, and returns a delivery summary. Everything else runs
+for real against a throwaway git repo + isolated SQLite DB:
 
-- **pipeline.test.ts** — drives one issue `todo → plan → implement → qa → review`, asserting the
-  worktree, the committed file, the task checklist, the run rows, and the status transitions.
+- **pipeline.test.ts** — drives one issue `todo → plan → implement → qa → delivery → review`,
+  asserting the worktree, the committed file, the task checklist, the run rows (including the
+  delivery summary), and the status transitions.
 - **orchestrator.test.ts** — boots the real orchestrator, lets its poll loop pick up an `auto` issue,
   drives it to `review`, human-acks to `done`, and asserts a terminal issue is never re-dispatched;
   plus the give-up-after-max-attempts path.
