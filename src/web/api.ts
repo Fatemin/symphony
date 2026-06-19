@@ -13,6 +13,7 @@ import type {
   IssueRelationMap,
   IssueRevision,
   IssueTask,
+  LocalUsageReport,
   MarketplaceInstallResult,
   OpsHistoryRow,
   Project,
@@ -287,6 +288,10 @@ export const api = {
     getSettings: () => req<EngineConfig>('/api/ops/settings'),
     updateSettings: (data: Partial<EngineConfig>) =>
       req<EngineConfig>('/api/ops/settings', { method: 'PATCH', ...body(data) }),
+  },
+  usage: {
+    // SYM-38: today's local Claude Code / Codex token usage for the sidebar footer.
+    local: () => req<LocalUsageReport>('/api/usage/local'),
   },
 };
 

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { STATUS_META } from '../lib/format';
+import { SidebarUsage } from './SidebarUsage';
 import { useTheme } from '../theme';
 
 const links = [
@@ -171,8 +172,8 @@ export function Layout() {
           </div>
         </div>
 
-        <div className="mt-3 border-t border-border px-2 pt-3 text-[11px] leading-relaxed text-subtle">
-          Claude Code agents · isolated worktrees
+        <div className="mt-3 border-t border-border px-2 pt-3">
+          <SidebarUsage />
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">

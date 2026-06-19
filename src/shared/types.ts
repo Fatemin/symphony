@@ -343,6 +343,49 @@ export interface AskHistory {
   messages: AskMessage[];
 }
 
+// ── Local CLI usage (SYM-38) ───────────────────────────────────────────────
+
+/**
+ * Per-agent detection result for the sidebar usage widget (SYM-38).
+ * - `ok`        — the CLI's local data dir was found and it logged tokens today.
+ * - `empty`     — the data dir was found but there is no usage for today (tokens === 0).
+ * - `not_found` — the data dir does not exist (the CLI isn't installed, or has never run).
+ * - `error`     — an unexpected failure reading the dir (e.g. EACCES); `error` carries the reason.
+ */
+export type UsageStatus = 'ok' | 'empty' | 'not_found' | 'error';
+
+/** Token totals summed across one agent's local sessions for the current local-machine day. */
+export interface AgentUsage {
+  input_tokens: number;
+  output_tokens: number;
+  /** Prompt-cache reads (the bulk of Claude throughput); 0 for agents that don't report it. */
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  /** input + output + cache_read + cache_creation — the headline figure shown in the footer. */
+  total_tokens: number;
+}
+
+/** One agent row in the local usage report: which agent, its detection status, and today's totals. */
+export interface AgentUsageReport {
+  /** Stable agent key matching AgentType; used to key rows and pick the label. */
+  agent: AgentType;
+  status: UsageStatus;
+  usage: AgentUsage;
+  /** Present only when `status === 'error'` — a short human-readable reason. */
+  error?: string;
+}
+
+/**
+ * The local CLI usage report served by `GET /api/usage/local` and rendered in the sidebar footer.
+ * Each agent is read + aggregated independently so one failing CLI never blanks the other.
+ * `generated_at` is when the server computed the snapshot; "today" is the server's local-machine day
+ * (Symphony runs locally beside the CLIs).
+ */
+export interface LocalUsageReport {
+  generated_at: string; // ISO
+  agents: AgentUsageReport[];
+}
+
 // ── Orchestrator observability view models ────────────────────────────────
 
 export interface RunningRow {

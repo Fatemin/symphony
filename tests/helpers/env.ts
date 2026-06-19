@@ -23,6 +23,11 @@ export function setupEnv(): TestEnv {
   // the throwaway dir instead of the repo's ./data. DB_PATH is set explicitly above, so this only
   // redirects the attachments root.
   process.env.SYMPHONY_DATA_DIR = path.join(root, 'data');
+  // Isolate the local CLI usage reader (SYM-38) from the developer's real ~/.claude & ~/.codex: point
+  // CLAUDE_CONFIG_DIR / CODEX_HOME at throwaway dirs so tests are hermetic and offline. Tests that
+  // exercise the reader override these to fixture dirs of their own.
+  process.env.CLAUDE_CONFIG_DIR = path.join(root, 'claude');
+  process.env.CODEX_HOME = path.join(root, 'codex');
 
   const repoPath = path.join(root, 'repo');
   fs.mkdirSync(repoPath, { recursive: true });

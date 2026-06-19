@@ -11,7 +11,7 @@ versioning. Request bodies are JSON; responses are JSON unless noted (SSE for th
 ## Conventions
 
 - **Mount points** (`index.ts`): `/api/projects` (project CRUD **and** the `ask` sub-routes),
-  `/api/issues`, `/api/ops`, `/api/stream`, `/api/fs`, plus `GET /api/health`.
+  `/api/issues`, `/api/ops`, `/api/usage`, `/api/stream`, `/api/fs`, plus `GET /api/health`.
 - **Errors** are `{ "error": "<message>" }` with a 4xx/5xx status; review-gate actions return
   `{ "ok": false, "reason": "<message>" }`.
 - **Status codes** used deliberately: `201` create, `202` accepted/dispatched, `204` no content,
@@ -114,6 +114,33 @@ feature/bug suggestion.
 | `POST` | `/api/ops/snapshot/kick` | Force an immediate orchestrator poll tick. → `{ ok: true }` |
 | `GET` | `/api/ops/settings` | Effective engine config (defaults merged with the `settings` table → `EngineConfig`). |
 | `PATCH` | `/api/ops/settings` | Update engine settings; returns the new effective config. |
+
+---
+
+## Usage — `/api/usage` (`http/routes/usage.ts`)
+
+Read-only, computed (no DB). Reads the **local** Claude Code / Codex CLI session logs on the same
+machine and aggregates today's token usage for the sidebar footer (SYM-38).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/usage/local` | Today's local token usage per agent (`LocalUsageReport`). |
+
+`GET /api/usage/local` → `200 { generated_at, agents }`:
+
+- `generated_at` — ISO timestamp of the snapshot.
+- `agents` — one `AgentUsageReport` per agent (`claude`, `codex`), each `{ agent, status, usage, error? }`:
+  - `status`: `ok` (detected, tokens logged today), `empty` (detected, 0 today), `not_found` (the
+    CLI's data dir doesn't exist — not installed / never run), `error` (read failure; `error` carries
+    the reason).
+  - `usage`: `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens }`,
+    summed across today's sessions. `total_tokens` is the sum of the other four.
+
+**Always `200`** — each agent is read inside its own try/catch, so a missing/locked CLI dir yields a
+per-agent `not_found`/`error` row rather than failing the whole request. **"Today" is the server's
+local-machine day** (Symphony runs locally beside the CLIs). The numbers are token *usage*, not a
+billing/cost figure. Data roots honor `CLAUDE_CONFIG_DIR` (Claude, may be comma-separated; else
+`~/.claude` + `~/.config/claude`) and `CODEX_HOME` (Codex; else `~/.codex`), read at request time.
 
 ---
 
