@@ -167,6 +167,34 @@ export interface Run {
   ended_at: string | null;
 }
 
+export type ProjectSkillSource = 'manual' | 'github';
+
+/** An optional extra file shipped alongside a multi-file skill (relative to the skill directory). */
+export interface ProjectSkillFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * A reusable Claude Code skill attached to a project (SYM-14). Enabled skills are materialized into
+ * every issue worktree's `.claude/skills/<slug>/SKILL.md` before the agent pipeline runs, so agents
+ * can reference them. `content` holds the SKILL.md body only — the YAML front matter (name +
+ * description) is synthesized from this row at materialize time.
+ */
+export interface ProjectSkill {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  content: string;
+  files: ProjectSkillFile[];
+  source: ProjectSkillSource;
+  source_url: string | null; // origin for github-imported skills
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A distilled learning from a completed issue, injected into later agent prompts. */
 export interface ProjectNote {
   id: string;
