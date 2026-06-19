@@ -16,11 +16,13 @@ import {
   updateRunUsage,
 } from '../repo/runs';
 import { listRecentNotes, noteFromReport, recordIssueNote } from '../repo/notes';
+import { listProjectSkills } from '../repo/projectSkills';
 import { getRevision } from '../repo/revisions';
 import { listStoryReferenceContexts } from '../repo/issueRelations';
 import { listTasks } from '../repo/tasks';
 import { appendEvent, type EventWithCursor } from '../repo/events';
 import { ensureWorktree, installCommitGuardHook, worktreePathFor } from '../workspace/worktree';
+import { materializeSkills } from '../workspace/skills';
 import { runVerificationCommands } from '../workspace/verification';
 import { log } from '../observability/logger';
 import { runPlan } from './plan';
@@ -97,6 +99,16 @@ export async function runIssuePipeline(
     worktree_path: worktreePath,
   });
 
+  // Materialize the project's enabled skills into the worktree so agents can reference them
+  // (Claude Code auto-loads <cwd>/.claude/skills/<slug>/SKILL.md). Re-run every dispatch so a reused
+  // worktree reflects the current DB. Best-effort: a failure must not block the pipeline.
+  const skills = listProjectSkills(project.id);
+  try {
+    await materializeSkills(worktreePath, skills);
+  } catch (e) {
+    log.warn('skill materialization failed', { issue: issue.key, error: asMsg(e) });
+  }
+
   const fresh = getIssue(issueId)!; // re-read with branch fields + in_progress status
   const objectiveVerification = projectConfig.verification.commands.length > 0;
 
@@ -148,6 +160,7 @@ export async function runIssuePipeline(
       lastFailure: failure,
       notes,
       storyContext,
+      skills: skills.filter((s) => s.enabled),
       resumeSessionId,
       implementReport: phase === 'qa' ? implementReport : null,
       round,

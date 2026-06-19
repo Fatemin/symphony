@@ -16,6 +16,7 @@ export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
       lastFailure: ctx.lastFailure,
       notes: ctx.notes,
       storyContext: ctx.storyContext,
+      skills: ctx.skills,
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
     },

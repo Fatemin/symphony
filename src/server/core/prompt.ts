@@ -7,6 +7,7 @@ import type {
   PlanKeyFile,
   Project,
   ProjectNote,
+  ProjectSkill,
   RunPhase,
   StoryReferenceContext,
 } from '../../shared/types';
@@ -22,6 +23,8 @@ export interface PromptContext {
   notes?: ProjectNote[];
   /** Explicit context snapshots from predecessor stories in this issue chain. */
   storyContext?: StoryReferenceContext[];
+  /** Enabled project skills available in the worktree (.claude/skills) — surfaced as a nudge. */
+  skills?: ProjectSkill[];
   /** Current revision round (1 = first build, 2+ = re-run after the human requested changes). */
   round?: number;
   /** The human's "request changes" feedback driving this round (round >= 2). */
@@ -82,6 +85,17 @@ function issueBrief(ctx: PromptContext): string {
   if (notes.length) {
     lines.push(``, `## Learnings from recently completed issues in this project`);
     for (const n of notes) lines.push(`- ${n.content.slice(0, 500)}`);
+  }
+  const skills = (ctx.skills ?? []).filter((s) => s.enabled);
+  if (skills.length) {
+    lines.push(
+      ``,
+      `## Project skills available`,
+      `These reusable skills are installed in this worktree's \`.claude/skills/\` — invoke them when relevant:`,
+    );
+    for (const s of skills) {
+      lines.push(`- **${s.name}**${s.description?.trim() ? ` — ${s.description.trim().slice(0, 200)}` : ''}`);
+    }
   }
   lines.push(
     ``,

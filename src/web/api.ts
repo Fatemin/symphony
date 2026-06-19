@@ -10,6 +10,7 @@ import type {
   IssueTask,
   OpsHistoryRow,
   Project,
+  ProjectSkill,
   Run,
   Snapshot,
 } from '../shared/types';
@@ -165,6 +166,17 @@ export const api = {
     remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
     ask: (id: string, data: { question: string; history?: AskMessage[]; agent?: AgentType }) =>
       req<AskResponse>(`/api/projects/${id}/ask`, { method: 'POST', ...body(data) }),
+    skills: {
+      list: (projectId: string) => req<ProjectSkill[]>(`/api/projects/${projectId}/skills`),
+      create: (projectId: string, data: Partial<ProjectSkill>) =>
+        req<ProjectSkill>(`/api/projects/${projectId}/skills`, { method: 'POST', ...body(data) }),
+      import: (projectId: string, url: string) =>
+        req<ProjectSkill>(`/api/projects/${projectId}/skills/import`, { method: 'POST', ...body({ url }) }),
+      update: (projectId: string, skillId: string, data: Partial<ProjectSkill>) =>
+        req<ProjectSkill>(`/api/projects/${projectId}/skills/${skillId}`, { method: 'PATCH', ...body(data) }),
+      remove: (projectId: string, skillId: string) =>
+        req<void>(`/api/projects/${projectId}/skills/${skillId}`, { method: 'DELETE' }),
+    },
   },
   issues: {
     list: (projectId?: string) => req<Issue[]>(`/api/issues${projectId ? `?project_id=${projectId}` : ''}`),

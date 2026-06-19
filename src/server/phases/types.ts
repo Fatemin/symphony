@@ -1,4 +1,4 @@
-import type { AgentType, Issue, Project, ProjectNote, RunPhase, StoryReferenceContext } from '../../shared/types';
+import type { AgentType, Issue, Project, ProjectNote, ProjectSkill, RunPhase, StoryReferenceContext } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
 import type { ProjectConfig } from '../core/projectConfig';
 import type { WorkflowPolicy } from '../core/workflow';
@@ -34,6 +34,8 @@ export interface PhaseContext {
   notes?: ProjectNote[];
   /** Explicit predecessor-story context snapshots injected into every phase prompt. */
   storyContext?: StoryReferenceContext[];
+  /** Enabled project skills (materialized into the worktree); surfaced in the prompt as a nudge. */
+  skills?: ProjectSkill[];
   /** Previous CLI session for this issue+phase — resumed on retries to skip re-exploration. */
   resumeSessionId?: string | null;
   /** The implement phase's final report (threaded into the QA prompt). */

@@ -140,6 +140,24 @@ CREATE TABLE IF NOT EXISTS project_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_notes_project ON project_notes(project_id, created_at);
 
+-- Reusable Claude Code skills attached to a project (SYM-14). Enabled rows are materialized into
+-- each issue worktree's .claude/skills/<slug>/SKILL.md before the agent pipeline runs, so agents
+-- can reference them; the YAML front matter (name + description) is synthesized at materialize time.
+CREATE TABLE IF NOT EXISTS project_skills (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  description TEXT,
+  content     TEXT NOT NULL DEFAULT '',             -- the SKILL.md body (front matter excluded)
+  files       TEXT,                                  -- optional JSON array of {path, content} extras
+  source      TEXT NOT NULL DEFAULT 'manual',        -- 'manual' | 'github'
+  source_url  TEXT,
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_project_skills_name ON project_skills(project_id, name);
+
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL,

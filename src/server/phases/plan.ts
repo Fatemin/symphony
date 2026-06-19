@@ -17,6 +17,7 @@ export async function runPlan(ctx: PhaseContext): Promise<PhaseOutcome> {
       lastFailure: ctx.lastFailure,
       notes: ctx.notes,
       storyContext: ctx.storyContext,
+      skills: ctx.skills,
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
     },
