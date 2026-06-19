@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUp, Bug, RotateCcw, Sparkles, X } from 'lucide-react';
-import type { AgentType, AskMessage, AskSuggestion, IssueStatus } from '../../shared/types';
+import { ArrowUp, Bug, FileText, RotateCcw, Sparkles, X } from 'lucide-react';
+import type { AgentType, AskMessage, AskSuggestion, Attachment, IssueStatus } from '../../shared/types';
 import { AGENT_OPTIONS } from '../../shared/models';
-import { api } from '../api';
+import { api, attachmentUrl } from '../api';
+import { AttachmentInput } from './AttachmentInput';
 import { Markdown } from './Markdown';
 import { Button, Select, Spinner, Textarea } from './ui';
 
@@ -60,6 +61,7 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   const qc = useQueryClient();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [agent, setAgent] = useState<AgentType | ''>(defaultAgent ?? '');
   const scrollRef = useRef<HTMLDivElement>(null);
   // The panel remounts on every open (Board renders it only while askOpen), so this seeds today's
@@ -126,9 +128,16 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
     if (seeded.current || !history) return;
     seeded.current = true;
     if (history.messages.length) {
-      // Restore the persisted suggestion (SYM-28) so the draft-issue card survives a conversation
-      // switch (panel reopen / project switch), matching what a live turn shows.
-      setTurns(history.messages.map((m) => ({ role: m.role, content: m.content, suggestion: m.suggestion })));
+      // Restore the persisted suggestion (SYM-28) and attachments (SYM-35) so the draft-issue card
+      // and uploaded files survive a conversation switch (panel reopen / project switch).
+      setTurns(
+        history.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          suggestion: m.suggestion,
+          attachments: m.attachments,
+        })),
+      );
     }
   }, [history]);
 
@@ -142,11 +151,12 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   });
 
   const ask = useMutation({
-    mutationFn: (question: string) =>
+    mutationFn: (vars: { question: string; attachmentIds: string[] }) =>
       api.projects.ask(projectId, {
-        question,
+        question: vars.question,
         history: turns.map(({ role, content }) => ({ role, content })), // turns before this question
         agent: agent || undefined,
+        attachment_ids: vars.attachmentIds,
       }),
     onSuccess: (res) => {
       setTurns((prev) => [...prev, { role: 'assistant', content: res.answer, suggestion: res.suggestion }]);
@@ -189,9 +199,11 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   const submit = () => {
     const question = input.trim();
     if (!question || ask.isPending) return;
-    setTurns((prev) => [...prev, { role: 'user', content: question }]);
+    const sent = attachments; // snapshot so the optimistic turn keeps them after we clear the input
+    setTurns((prev) => [...prev, { role: 'user', content: question, attachments: sent }]);
     setInput('');
-    ask.mutate(question);
+    setAttachments([]);
+    ask.mutate({ question, attachmentIds: sent.map((a) => a.id) });
   };
 
   return (
@@ -285,7 +297,13 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
           )}
         </div>
 
-        <div className="border-t border-border p-3">
+        <div className="space-y-2 border-t border-border p-3">
+          <AttachmentInput
+            projectId={projectId}
+            value={attachments}
+            onChange={setAttachments}
+            disabled={ask.isPending}
+          />
           <div className="flex items-end gap-2">
             <Textarea
               rows={2}
@@ -321,10 +339,15 @@ function TurnBubble({
 }) {
   if (turn.role === 'user') {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">
-          {turn.content}
-        </div>
+      <div className="flex flex-col items-end gap-1.5">
+        {turn.content && (
+          <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">
+            {turn.content}
+          </div>
+        )}
+        {turn.attachments && turn.attachments.length > 0 && (
+          <TurnAttachments attachments={turn.attachments} />
+        )}
       </div>
     );
   }
@@ -334,6 +357,37 @@ function TurnBubble({
         <Markdown source={turn.content} />
       </div>
       {turn.suggestion && <SuggestionCard suggestion={turn.suggestion} converted={turn.converted} busy={busy} onConvert={onConvert} />}
+    </div>
+  );
+}
+
+function TurnAttachments({ attachments }: { attachments: Attachment[] }) {
+  return (
+    <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
+      {attachments.map((att) => (
+        <a
+          key={att.id}
+          href={attachmentUrl(att.id, true)}
+          target="_blank"
+          rel="noreferrer"
+          title={att.filename}
+          className="block"
+        >
+          {att.mime.startsWith('image/') ? (
+            <img
+              src={attachmentUrl(att.id)}
+              alt={att.filename}
+              loading="lazy"
+              className="h-16 w-16 rounded-md border border-border object-cover"
+            />
+          ) : (
+            <span className="flex items-center gap-1.5 rounded-md border border-border bg-panel-2 px-2 py-1.5 text-xs text-fg hover:border-indigo-500/50">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="max-w-[8rem] truncate">{att.filename}</span>
+            </span>
+          )}
+        </a>
+      ))}
     </div>
   );
 }

@@ -137,6 +137,26 @@ test('delivery prompt keeps the lead anchor and matches the requester language (
   assert.match(p, /## Docs updated/);
 });
 
+test('issueBrief renders an Attachments section without disturbing the role anchors (SYM-35)', () => {
+  const withAtt = {
+    ...ctx,
+    attachments: [{ filename: 'mock.png', mime: 'image/png', path: '/data/attachments/x/mock.png' }],
+  };
+  const plan = buildPlanPrompt(withAtt);
+  const impl = buildImplementPrompt(withAtt, []);
+  const qa = buildQaPrompt(withAtt, null);
+  for (const p of [plan, impl, qa]) {
+    assert.match(p, /## Attachments/);
+    assert.ok(p.includes('mock.png (image/png): /data/attachments/x/mock.png'), 'lists file + absolute path');
+  }
+  // The phase-detection role substrings fakeRunner keys on must still be present after the section.
+  assert.match(plan, /\*\*tech lead\*\*/);
+  assert.match(impl, /\*\*implementing engineer\*\*/);
+  assert.match(qa, /independent \*\*QA engineer\*\*/);
+  // No attachments ⇒ no section (backward compatible).
+  assert.ok(!buildImplementPrompt(ctx, []).includes('## Attachments'));
+});
+
 test('a delivery role round-trips through parsePlan without coercion to impl', () => {
   const text =
     '```symphony-plan\n' +

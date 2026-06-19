@@ -20,6 +20,7 @@ export async function runMerge(ctx: PhaseContext): Promise<PhaseOutcome> {
       skills: ctx.skills,
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
+      attachments: ctx.attachments,
     },
     {
       remote: ctx.projectConfig.promotion.remote,

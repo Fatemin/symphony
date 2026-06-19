@@ -7,6 +7,7 @@ import { loadWorkflow } from '../../core/workflow';
 import { runAgent } from '../../agent/runAgent';
 import type { AgentRunner } from '../../agent/types';
 import { appendAskTurn, listTodaysAskMessages, resetTodaysAsk, todaysAskDate } from '../../repo/ask';
+import { listAttachmentRefsByIds } from '../../repo/attachments';
 import { getProject } from '../../repo/projects';
 import { getConfig } from '../../repo/settings';
 
@@ -25,6 +26,8 @@ export interface AskRequest {
   history?: AskMessage[];
   /** Optionally run a specific agent CLI; defaults to the project's configured agent. */
   agent?: AgentType;
+  /** Ids of previously-uploaded attachments to make Read-able for this turn (SYM-35). */
+  attachment_ids?: string[];
 }
 
 export interface RunAskOptions {
@@ -59,10 +62,13 @@ export async function runProjectAsk(
     project.model?.trim() ||
     (agent === 'codex' ? config.codex_model : config.model);
 
+  // SYM-35: resolve any attached files to absolute Read-able paths for the prompt.
+  const attachments = listAttachmentRefsByIds(req.attachment_ids ?? []);
+
   const result = await runner({
     agent,
     cwd: project.repo_path,
-    prompt: buildAskPrompt(project, req.history ?? [], question),
+    prompt: buildAskPrompt(project, req.history ?? [], question, attachments),
     systemPrompt:
       'You are Symphony Ask — answer questions about this project READ-ONLY. Never modify, create, ' +
       'or delete files, never commit, and never use interactive prompts.',
@@ -90,20 +96,29 @@ askRoutes.post('/:id/ask', async (c) => {
     question?: unknown;
     history?: unknown;
     agent?: unknown;
+    attachment_ids?: unknown;
   };
   const question = typeof body.question === 'string' ? body.question.trim() : '';
   if (!question) return c.json({ error: 'question is required' }, 400);
+
+  const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
+  const maxPerItem = getConfig().max_attachments_per_item;
+  if (attachmentIds.length > maxPerItem) {
+    return c.json({ error: `too many attachments (max ${maxPerItem})` }, 400);
+  }
 
   try {
     const result = await runProjectAsk(project, {
       question,
       history: normalizeHistory(body.history),
       agent: body.agent === 'codex' || body.agent === 'claude' ? body.agent : undefined,
+      attachment_ids: attachmentIds,
     });
     // Persist the exchange under today's conversation so the panel can reload it (SYM-12). The
     // assistant turn carries its draft-issue suggestion so the card survives a conversation switch
-    // (panel reopen / project switch) rather than being dropped on reseed (SYM-28).
-    appendAskTurn(project.id, 'user', question);
+    // (panel reopen / project switch) rather than being dropped on reseed (SYM-28). The user turn
+    // carries its attachment links so re-displayed history shows the files (SYM-35).
+    appendAskTurn(project.id, 'user', question, null, attachmentIds);
     appendAskTurn(project.id, 'assistant', result.answer, result.suggestion);
     return c.json(result);
   } catch (e) {
@@ -129,6 +144,12 @@ askRoutes.delete('/:id/ask/history', (c) => {
   resetTodaysAsk(project.id);
   return c.json({ ok: true });
 });
+
+/** Keep only non-empty string ids from an untrusted attachment_ids payload (SYM-35). */
+export function normalizeAttachmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+}
 
 /** Keep only well-formed {role, content} turns from an untrusted client payload. */
 function normalizeHistory(value: unknown): AskMessage[] {

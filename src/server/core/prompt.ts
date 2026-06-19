@@ -13,6 +13,18 @@ import type {
 } from '../../shared/types';
 import type { NewTask } from '../repo/tasks';
 
+/**
+ * A resolved attachment reference handed to prompt assembly (SYM-35): just what an agent needs to
+ * open the file — its display name, mime, and an absolute on-disk path it can `Read`. The blobs are
+ * read in place from ATTACHMENTS_DIR (pipeline runs bypassPermissions, ask runs 'plan' mode — both
+ * permit reads of absolute paths), so nothing is copied into the worktree.
+ */
+export interface PromptAttachment {
+  filename: string;
+  mime: string;
+  path: string;
+}
+
 export interface PromptContext {
   project: Project;
   issue: Issue;
@@ -29,6 +41,8 @@ export interface PromptContext {
   round?: number;
   /** The human's "request changes" feedback driving this round (round >= 2). */
   revisionFeedback?: string | null;
+  /** Files the requester attached to the issue (SYM-35) — rendered as an Attachments section. */
+  attachments?: PromptAttachment[];
 }
 
 /** Append optional per-repo policy guidance (from WORKFLOW.md) to a phase prompt. */
@@ -95,6 +109,21 @@ function issueBrief(ctx: PromptContext): string {
     );
     for (const s of skills) {
       lines.push(`- **${s.name}**${s.description?.trim() ? ` — ${s.description.trim().slice(0, 200)}` : ''}`);
+    }
+  }
+  // SYM-35: files the requester attached. Appended AFTER the other sections (and before the trailing
+  // meta blockquotes) so the per-phase role-title substrings — which live in the phase prompts after
+  // this brief — are never shifted; fakeRunner's phase detection keys on those substrings.
+  const attachments = ctx.attachments ?? [];
+  if (attachments.length) {
+    lines.push(
+      ``,
+      `## Attachments`,
+      `The requester attached the following file(s). Use the Read tool to open each one before` +
+        ` implementing — treat them as first-class context (screenshots, mockups, specs, examples):`,
+    );
+    for (const a of attachments) {
+      lines.push(`- ${a.filename} (${a.mime}): ${a.path}`);
     }
   }
   lines.push(
@@ -497,7 +526,12 @@ const ASK_FENCE = 'symphony-ask';
  * feature/bug the user can one-click create. The prior turns are embedded so the conversation is
  * coherent without depending on CLI session resume (which differs per agent).
  */
-export function buildAskPrompt(project: Project, history: AskMessage[], question: string): string {
+export function buildAskPrompt(
+  project: Project,
+  history: AskMessage[],
+  question: string,
+  attachments: PromptAttachment[] = [],
+): string {
   const lines: string[] = [
     `# Ask — ${project.name} (${project.key})`,
     ``,
@@ -519,6 +553,19 @@ export function buildAskPrompt(project: Project, history: AskMessage[], question
     ``,
     `## User's question`,
     question.trim(),
+  );
+  // SYM-35: files the user attached to this turn — read them in place before answering.
+  if (attachments.length) {
+    lines.push(
+      ``,
+      `## Attached files`,
+      `The user attached the following file(s). Read each one with the Read tool before answering:`,
+    );
+    for (const a of attachments) {
+      lines.push(`- ${a.filename} (${a.mime}): ${a.path}`);
+    }
+  }
+  lines.push(
     ``,
     `---`,
     ``,

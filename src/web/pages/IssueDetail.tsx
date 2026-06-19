@@ -3,9 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Sparkles, Square, X, XCircle } from 'lucide-react';
-import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
+import type { Attachment, Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
+import { AttachmentInput } from '../components/AttachmentInput';
 import { Markdown } from '../components/Markdown';
 import { Badge, Button, Field, Input, Panel, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
@@ -557,6 +558,9 @@ function RelationRow({ relation, side }: { relation: IssueRelation; side: 'sourc
 function Body({ issue, onSaved }: { issue: Detail; onSaved: () => void }) {
   const [desc, setDesc] = useState(issue.description ?? '');
   const [ac, setAc] = useState(issue.acceptance_criteria ?? '');
+  // SYM-35: uploads here pre-link to the issue (issueId set) and removals delete immediately, so
+  // attachments persist without the Save button. Seed once from the detail; this panel owns them after.
+  const [attachments, setAttachments] = useState<Attachment[]>(issue.attachments ?? []);
   const dirty = desc !== (issue.description ?? '') || ac !== (issue.acceptance_criteria ?? '');
   const save = useMutation({
     mutationFn: () => api.issues.update(issue.id, { description: desc, acceptance_criteria: ac }),
@@ -572,6 +576,18 @@ function Body({ issue, onSaved }: { issue: Detail; onSaved: () => void }) {
       <div>
         <p className="mb-1.5 text-xs font-medium text-muted">Acceptance criteria</p>
         <Textarea rows={4} value={ac} onChange={(e) => setAc(e.target.value)} />
+      </div>
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-muted">Attachments</p>
+        <AttachmentInput
+          projectId={issue.project_id}
+          issueId={issue.id}
+          value={attachments}
+          onChange={(next) => {
+            setAttachments(next);
+            onSaved(); // refresh the detail so the agent prompt / other consumers see the change
+          }}
+        />
       </div>
       {dirty && (
         <div className="flex justify-end">

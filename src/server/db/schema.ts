@@ -179,4 +179,24 @@ CREATE TABLE IF NOT EXISTS ask_messages (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ask_messages_project_date ON ask_messages(project_id, convo_date, id);
+
+-- User-supplied file attachments for an issue or an ask turn (SYM-35). Blobs live on disk under
+-- ATTACHMENTS_DIR (DATA_DIR/attachments); this table is the metadata + the relative storage_path.
+-- A row may be linked to an issue (issue_id) or an ask message (ask_message_id), or neither yet
+-- (uploaded but not yet attached — the form was abandoned). project_id is required so the
+-- ON DELETE CASCADE reclaims orphans when a project is deleted. New additive table — no migrate.ts.
+CREATE TABLE IF NOT EXISTS attachments (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  issue_id        TEXT REFERENCES issues(id) ON DELETE CASCADE,
+  ask_message_id  TEXT REFERENCES ask_messages(id) ON DELETE CASCADE,
+  filename        TEXT NOT NULL,                       -- original display name (sanitized on disk)
+  mime            TEXT NOT NULL DEFAULT 'application/octet-stream',
+  size_bytes      INTEGER NOT NULL DEFAULT 0,
+  storage_path    TEXT NOT NULL,                       -- relative to ATTACHMENTS_DIR: '<id>/<safe-name>'
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_issue ON attachments(issue_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_ask ON attachments(ask_message_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_project ON attachments(project_id);
 `;

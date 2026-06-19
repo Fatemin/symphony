@@ -1,5 +1,6 @@
 import { getDb } from '../db/client';
 import { newId, issueKey } from '../core/keys';
+import { deleteAttachmentsByIssue, linkAttachmentsToIssue } from './attachments';
 import {
   ACTIVE_STATUSES,
   TERMINAL_STATUSES,
@@ -87,6 +88,8 @@ export interface CreateIssueInput {
   status?: IssueStatus;
   mode?: IssueMode;
   require_review?: boolean;
+  /** Ids of previously-uploaded attachments to link to the new issue (SYM-35). */
+  attachment_ids?: string[];
 }
 
 export function createIssue(input: CreateIssueInput): Issue {
@@ -123,6 +126,7 @@ export function createIssue(input: CreateIssueInput): Issue {
     input.mode ?? 'manual',
     input.require_review === false ? 0 : 1,
   );
+  if (input.attachment_ids?.length) linkAttachmentsToIssue(input.attachment_ids, id);
   return getIssue(id)!;
 }
 
@@ -207,6 +211,8 @@ export interface UpdateIssueInput {
   base_branch?: string | null;
   branch_name?: string | null;
   worktree_path?: string | null;
+  /** Ids of previously-uploaded attachments to link to this issue (SYM-35); additive, never unlinks. */
+  attachment_ids?: string[];
 }
 
 export function updateIssue(id: string, patch: UpdateIssueInput): Issue | null {
@@ -231,6 +237,8 @@ export function updateIssue(id: string, patch: UpdateIssueInput): Issue | null {
   getDb()
     .prepare(`UPDATE issues SET ${sets.join(', ')} WHERE id = ?`)
     .run(...(params as never[]));
+  // SYM-35: attachment_ids is not a column — link the listed uploads to this issue separately.
+  if (patch.attachment_ids?.length) linkAttachmentsToIssue(patch.attachment_ids, id);
   return getIssue(id);
 }
 
@@ -279,5 +287,8 @@ export function isTerminal(status: IssueStatus): boolean {
 }
 
 export function deleteIssue(id: string): void {
+  // SYM-35: the FK cascade removes the attachment rows but never their on-disk blobs — reclaim
+  // those explicitly first, then delete the issue (which cascades the now-orphaned rows away).
+  deleteAttachmentsByIssue(id);
   getDb().prepare(`DELETE FROM issues WHERE id = ?`).run(id);
 }

@@ -20,6 +20,7 @@ export async function runDelivery(ctx: PhaseContext): Promise<PhaseOutcome> {
       skills: ctx.skills,
       round: ctx.round,
       revisionFeedback: ctx.revisionFeedback,
+      attachments: ctx.attachments,
     },
     ctx.implementReport ?? null,
     phasePrompt(ctx.projectConfig.prompts.delivery, ctx.workflow?.prompts.delivery),

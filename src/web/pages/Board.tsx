@@ -3,10 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
-import type { Issue, IssueStatus } from '../../shared/types';
+import type { Attachment, Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
+import { AttachmentInput } from '../components/AttachmentInput';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Badge, Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
 import { PRIORITY_META, STATUS_META } from '../lib/format';
@@ -400,6 +401,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
     description: '',
     acceptance_criteria: '',
   });
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -412,6 +414,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
         status: form.status as IssueStatus,
         description: form.description || null,
         acceptance_criteria: form.acceptance_criteria || null,
+        attachment_ids: attachments.map((a) => a.id),
       }),
     onSuccess: () => {
       toast.success('Issue created');
@@ -465,6 +468,16 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
         <div className="col-span-2">
           <Field label="Acceptance criteria">
             <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- …" />
+          </Field>
+        </div>
+        <div className="col-span-4">
+          <Field label="Attachments" hint="Paste a screenshot, drop a file, or choose one — agents read them while building.">
+            <AttachmentInput
+              projectId={projectId}
+              value={attachments}
+              onChange={setAttachments}
+              disabled={create.isPending}
+            />
           </Field>
         </div>
       </div>

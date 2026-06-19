@@ -19,6 +19,10 @@ export function setupEnv(): TestEnv {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'symphony-test-'));
   process.env.SYMPHONY_DB_PATH = path.join(root, 'test.db');
   process.env.SYMPHONY_WORKSPACE_ROOT = path.join(root, 'workspaces');
+  // Isolate DATA_DIR too so attachment blobs (ATTACHMENTS_DIR = DATA_DIR/attachments, SYM-35) land in
+  // the throwaway dir instead of the repo's ./data. DB_PATH is set explicitly above, so this only
+  // redirects the attachments root.
+  process.env.SYMPHONY_DATA_DIR = path.join(root, 'data');
 
   const repoPath = path.join(root, 'repo');
   fs.mkdirSync(repoPath, { recursive: true });

@@ -1,5 +1,6 @@
 import type { AgentType, Issue, Project, ProjectNote, ProjectSkill, RunPhase, StoryReferenceContext } from '../../shared/types';
 import type { EngineConfig } from '../core/config';
+import type { PromptAttachment } from '../core/prompt';
 import type { ProjectConfig } from '../core/projectConfig';
 import type { WorkflowPolicy } from '../core/workflow';
 import type {
@@ -44,6 +45,8 @@ export interface PhaseContext {
   round?: number;
   /** The human's "request changes" feedback for the current round (round >= 2), threaded into prompts. */
   revisionFeedback?: string | null;
+  /** Resolved issue attachments (SYM-35), loaded once and reused across every phase + round. */
+  attachments?: PromptAttachment[];
 }
 
 export interface PhaseOutcome {

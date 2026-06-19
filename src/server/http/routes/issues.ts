@@ -16,6 +16,7 @@ import {
   updateIssue,
 } from '../../repo/issues';
 import { addRevision, listRevisions } from '../../repo/revisions';
+import { countAttachmentsForIssue, listAttachmentsByIssue } from '../../repo/attachments';
 import { mergeProjectConfigs } from '../../core/projectConfig';
 import { buildConflictPrompt } from '../../core/prompt';
 import { loadWorkflow } from '../../core/workflow';
@@ -58,7 +59,13 @@ issueRoutes.post('/', async (c) => {
   if (!body.project_id || !body.title) {
     return c.json({ error: 'project_id and title are required' }, 400);
   }
-  return c.json(createIssue(body), 201);
+  // SYM-35: cap the attachments linked at creation time (the new issue has none yet).
+  const attachment_ids = normalizeAttachmentIds(body.attachment_ids);
+  const max = readEngineConfig().max_attachments_per_item;
+  if (attachment_ids.length > max) {
+    return c.json({ error: `too many attachments (max ${max})` }, 400);
+  }
+  return c.json(createIssue({ ...body, attachment_ids }), 201);
 });
 
 issueRoutes.post('/:id/follow-ups', async (c) => {
@@ -99,6 +106,7 @@ issueRoutes.get('/:id', (c) => {
     events: listEvents({ issue_id: issue.id, limit: 200 }),
     relations: listIssueRelations(issue.id),
     revisions: listRevisions(issue.id),
+    attachments: listAttachmentsByIssue(issue.id), // SYM-35
   });
 });
 
@@ -106,7 +114,15 @@ issueRoutes.patch('/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const before = getIssue(c.req.param('id'));
   if (!before) return c.json({ error: 'not found' }, 404);
-  const issue = updateIssue(before.id, body);
+  // SYM-35: additive attachment linking — cap the issue's total at the per-item limit.
+  const attachment_ids = normalizeAttachmentIds(body.attachment_ids);
+  if (attachment_ids.length) {
+    const max = readEngineConfig().max_attachments_per_item;
+    if (countAttachmentsForIssue(before.id) + attachment_ids.length > max) {
+      return c.json({ error: `too many attachments (max ${max})` }, 400);
+    }
+  }
+  const issue = updateIssue(before.id, { ...body, attachment_ids });
   // If the issue was just cancelled/finished while a run is active, kick a tick so reconciliation
   // aborts it promptly instead of waiting for the next poll.
   if (issue && body.status && isTerminal(issue.status)) {
@@ -549,6 +565,12 @@ issueRoutes.post('/:id/request-changes', async (c) => {
   const dispatch = getOrchestrator().runNow(issue.id);
   return c.json({ ok: true, round: nextRound, dispatched: dispatch.ok, reason: dispatch.reason }, 202);
 });
+
+/** Keep only non-empty string ids from an untrusted attachment_ids payload (SYM-35). */
+function normalizeAttachmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+}
 
 async function cleanupIssueResources(
   issue: Issue,

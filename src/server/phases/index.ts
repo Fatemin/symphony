@@ -16,6 +16,7 @@ import {
   updateRunUsage,
 } from '../repo/runs';
 import { listRecentNotes, noteFromReport, recordIssueNote } from '../repo/notes';
+import { listAttachmentRefsByIssue } from '../repo/attachments';
 import { listProjectSkills } from '../repo/projectSkills';
 import { getRevision } from '../repo/revisions';
 import { listStoryReferenceContexts } from '../repo/issueRelations';
@@ -124,6 +125,9 @@ export async function runIssuePipeline(
   const failure = attempt > 1 ? lastFailure(issueId, round) : null;
   const notes = listRecentNotes(project.id);
   const storyContext = listStoryReferenceContexts(issueId);
+  // SYM-35: resolve the issue's attachments once (absolute Read-able paths) and reuse across every
+  // phase + round — round N rebuilds the same brief, so this is round-independent.
+  const attachments = listAttachmentRefsByIssue(issueId);
   let implementReport: string | null = latestSuccessfulRun(issueId, 'implement', round)?.report ?? null;
 
   for (const phase of PHASE_ORDER) {
@@ -167,6 +171,7 @@ export async function runIssuePipeline(
       implementReport: phase === 'qa' || phase === 'delivery' ? implementReport : null,
       round,
       revisionFeedback,
+      attachments,
     };
 
     let outcome: PhaseOutcome;
@@ -302,6 +307,7 @@ export async function runIssuePipeline(
       resumeSessionId: null, // fresh session every attempt — a retry must re-push, not resume a dead one
       round,
       revisionFeedback,
+      attachments,
     };
 
     let outcome: PhaseOutcome;

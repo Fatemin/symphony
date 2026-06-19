@@ -3,6 +3,7 @@ import type {
   AskHistory,
   AskMessage,
   AskResponse,
+  Attachment,
   Event,
   Issue,
   IssueRelation,
@@ -41,6 +42,7 @@ export type IssueDetail = Issue & {
   events: (Event & { cursor: number })[];
   relations: IssueRelationMap;
   revisions: IssueRevision[];
+  attachments: Attachment[];
 };
 
 export type ProjectRunPhase = 'plan' | 'implement' | 'qa';
@@ -144,9 +146,13 @@ export type CreateFollowUpIssueInput = Partial<Issue> & {
 };
 
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
+  // FormData bodies (file uploads) must keep the browser-set multipart content-type + boundary —
+  // only JSON bodies get the application/json header.
+  const isForm = typeof FormData !== 'undefined' && opts?.body instanceof FormData;
   const res = await fetch(url, {
     ...opts,
-    headers: opts?.body ? { 'content-type': 'application/json', ...opts?.headers } : opts?.headers,
+    headers:
+      opts?.body && !isForm ? { 'content-type': 'application/json', ...opts?.headers } : opts?.headers,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -178,8 +184,10 @@ export const api = {
     update: (id: string, data: Partial<Project>) =>
       req<Project>(`/api/projects/${id}`, { method: 'PATCH', ...body(data) }),
     remove: (id: string) => req<void>(`/api/projects/${id}`, { method: 'DELETE' }),
-    ask: (id: string, data: { question: string; history?: AskMessage[]; agent?: AgentType }) =>
-      req<AskResponse>(`/api/projects/${id}/ask`, { method: 'POST', ...body(data) }),
+    ask: (
+      id: string,
+      data: { question: string; history?: AskMessage[]; agent?: AgentType; attachment_ids?: string[] },
+    ) => req<AskResponse>(`/api/projects/${id}/ask`, { method: 'POST', ...body(data) }),
     askHistory: (id: string) => req<AskHistory>(`/api/projects/${id}/ask/history`),
     askReset: (id: string) =>
       req<{ ok: boolean }>(`/api/projects/${id}/ask/history`, { method: 'DELETE' }),
@@ -203,14 +211,14 @@ export const api = {
   issues: {
     list: (projectId?: string) => req<Issue[]>(`/api/issues${projectId ? `?project_id=${projectId}` : ''}`),
     get: (id: string) => req<IssueDetail>(`/api/issues/${id}`),
-    create: (data: Partial<Issue> & { project_id: string; title: string }) =>
+    create: (data: Partial<Issue> & { project_id: string; title: string; attachment_ids?: string[] }) =>
       req<Issue>('/api/issues', { method: 'POST', ...body(data) }),
     createFollowUp: (sourceId: string, data: CreateFollowUpIssueInput) =>
       req<{ issue: Issue; relation: IssueRelation }>(`/api/issues/${sourceId}/follow-ups`, {
         method: 'POST',
         ...body(data),
       }),
-    update: (id: string, data: Partial<Issue>) =>
+    update: (id: string, data: Partial<Issue> & { attachment_ids?: string[] }) =>
       req<Issue>(`/api/issues/${id}`, { method: 'PATCH', ...body(data) }),
     remove: (id: string) => req<void>(`/api/issues/${id}`, { method: 'DELETE' }),
     run: (id: string) => req<{ ok: boolean; reason?: string }>(`/api/issues/${id}/run`, { method: 'POST' }),
@@ -243,6 +251,18 @@ export const api = {
       stop: (id: string) => req<{ running: false; stopped: boolean }>(`/api/issues/${id}/preview`, { method: 'DELETE' }),
     },
   },
+  attachments: {
+    // Multipart upload — one file per call. project_id is required; issue_id pre-links + caps an
+    // existing issue (the edit flow). Returns the persisted Attachment whose id the caller holds.
+    upload: (data: { file: File; projectId: string; issueId?: string }) => {
+      const form = new FormData();
+      form.append('file', data.file);
+      form.append('project_id', data.projectId);
+      if (data.issueId) form.append('issue_id', data.issueId);
+      return req<Attachment>('/api/attachments', { method: 'POST', body: form });
+    },
+    remove: (id: string) => req<void>(`/api/attachments/${id}`, { method: 'DELETE' }),
+  },
   fs: {
     browse: (path?: string) =>
       req<FsBrowse>(`/api/fs/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
@@ -258,6 +278,11 @@ export const api = {
       req<EngineConfig>('/api/ops/settings', { method: 'PATCH', ...body(data) }),
   },
 };
+
+/** URL that serves an attachment's bytes (image previews, downloads). */
+export function attachmentUrl(id: string, download = false): string {
+  return `/api/attachments/${id}${download ? '?download=1' : ''}`;
+}
 
 /** Subscribe to an issue's live activity stream. Returns an unsubscribe function. */
 export function streamIssue(
