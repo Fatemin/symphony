@@ -4,6 +4,12 @@ Symphony — orchestrates Claude Code CLI agents against a built-in issue tracke
 picks up issues, runs a `plan → implement → qa` agent pipeline per issue in an isolated git
 worktree, and parks the result at a human review gate.
 
+Deep reference lives in [`docs/`](docs/): [PRD](docs/PRD.md),
+[ARCHITECTURE](docs/ARCHITECTURE.md) (module map, lifecycle, orchestrator loop, glossary),
+[DATA_MODEL](docs/DATA_MODEL.md) (tables + state machine), [API](docs/API.md), and
+[AGENT_GUIDE](docs/AGENT_GUIDE.md) (phases, load-bearing role titles, prompt assembly, how to
+extend). Update the matching doc when you change behavior.
+
 ## Commands
 
 ```bash
