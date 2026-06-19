@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Square, X, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Square, X, XCircle } from 'lucide-react';
 import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
@@ -43,6 +43,7 @@ export function IssueDetail() {
       <div className="col-span-2 space-y-5">
         <Header issue={issue} runningNow={runningNow} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
         {(retry || (suspended && parked)) && <QueueStatusBanner retry={retry} suspended={suspended} />}
+        {issue.merge_conflict && <ConflictBanner issue={issue} />}
         {(issue.status === 'review' || issue.status === 'done') && <ReviewPanel issue={issue} />}
         <Revisions issue={issue} />
         <Body issue={issue} onSaved={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
@@ -95,6 +96,62 @@ function QueueStatusBanner({
   );
 }
 
+/**
+ * SYM-29: shown when an approved review-gate story couldn't be integrated — a local merge conflict
+ * (agent branch vs. base) or a diverged-remote push. Explains what failed and offers an agent-backed
+ * Resolve-conflict action that re-runs the merge + reconciles the remote. The endpoint is guarded to
+ * status==='review' with a marker set; on success the issue is marked done and this banner clears.
+ */
+function ConflictBanner({ issue }: { issue: Detail }) {
+  const qc = useQueryClient();
+  const conflict = issue.merge_conflict!;
+  const resolve = useMutation({
+    mutationFn: () => api.issues.resolveConflict(issue.id),
+    onSuccess: (r) => {
+      if (r.ok) toast.success(`Conflict resolved — merged into ${r.target_branch ?? 'target branch'} and done`);
+      else toast.error(r.reason ?? 'Could not resolve conflict');
+    },
+    onError: (e) => toast.error(String(e)),
+    // Refresh on both success and the 409-into-onError path so the banner/badge reflect the latest
+    // marker state (cleared on success, refreshed on a still-failing reconcile).
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['issue', issue.id] });
+      qc.invalidateQueries({ queryKey: ['project', issue.project_id] });
+    },
+  });
+
+  return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-red-300">
+            <GitMerge className="h-4 w-4 shrink-0" />
+            <span className="font-medium">
+              Git conflict — {conflict.kind === 'push' ? 'remote base diverged' : 'merge conflict'} on{' '}
+              <span className="font-mono">{conflict.target_branch}</span>
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted">{conflict.reason}</p>
+          {conflict.files && conflict.files.length > 0 && (
+            <p className="mt-1 truncate font-mono text-[11px] text-red-400/80" title={conflict.files.join(', ')}>
+              {conflict.files.join(', ')}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="danger"
+          className="shrink-0"
+          disabled={resolve.isPending}
+          onClick={() => resolve.mutate()}
+          title="Re-run the merge and reconcile the remote with an agent, then mark done"
+        >
+          {resolve.isPending ? <Spinner /> : <GitMerge className="h-4 w-4" />} Resolve conflict
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: boolean; onChange: () => void }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -127,6 +184,12 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
       onChange();
     },
     onError: (e) => toast.error(String(e)),
+    // SYM-29: a 409 throws into onError (not onSuccess), so refresh here too — otherwise the
+    // server-persisted git-conflict marker (badge + banner) wouldn't show until the next poll.
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['issue', issue.id] });
+      qc.invalidateQueries({ queryKey: ['project', issue.project_id] });
+    },
   });
   const requestChanges = useMutation({
     mutationFn: (feedback: string) => api.issues.requestChanges(issue.id, { feedback }),

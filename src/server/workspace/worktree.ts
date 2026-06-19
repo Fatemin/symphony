@@ -219,6 +219,12 @@ export interface PushBaseResult {
   ok: boolean;
   /** Whether a push actually happened (false when skipped because no remote is configured). */
   pushed: boolean;
+  /**
+   * SYM-29: set when the push failed specifically because the remote base has commits we don't have
+   * (a non-ff rejection), as opposed to an auth/network error. Lets the approve route mark the issue
+   * with a 'push' git-conflict decoration and offer an agent-backed reconcile (reconcileAndPushBase).
+   */
+  diverged?: boolean;
   reason?: string;
 }
 
@@ -252,6 +258,7 @@ export async function pushBaseBranch(repoPath: string, remote: string, branch: s
       return {
         ok: false,
         pushed: false,
+        diverged: true,
         reason: `remote ${remote}/${branch} has commits not in local ${branch} — pull/rebase the base and re-approve before pushing`,
       };
     }
@@ -260,6 +267,63 @@ export async function pushBaseBranch(repoPath: string, remote: string, branch: s
   const push = await pushBranch(repoPath, remote, branch);
   if (!push.ok) return { ok: false, pushed: false, reason: push.reason };
   return { ok: true, pushed: true };
+}
+
+/**
+ * SYM-29: reconcile a diverged remote base and push it — the agent-backed alternative to
+ * pushBaseBranch's "fail loudly". When a direct-merge approval moved the LOCAL base but the remote
+ * base carries commits we don't have, a plain push is non-ff. Rather than force-push (which clobbers
+ * remote history), fetch the remote base and merge it INTO the local base inside a throwaway
+ * integration worktree — invoking the supplied MergeConflictResolver when the reconcile actually
+ * conflicts — then fast-forward the local base and push. Reuses mergeAgentBranch so conflict
+ * resolution, post-merge verification and the safe ref-apply behave identically to approval merges.
+ *
+ * Idempotent: if the remote base is already an ancestor of local (e.g. a prior reconcile landed it)
+ * it skips straight to the push.
+ */
+export async function reconcileAndPushBase(
+  repoPath: string,
+  remote: string,
+  base: string,
+  message: string,
+  opts: MergeAgentBranchOptions = {},
+): Promise<PushBaseResult> {
+  if (!remote.trim()) return { ok: true, pushed: false, reason: 'no remote configured' };
+  if (!(await isGitRepo(repoPath))) return { ok: false, pushed: false, reason: 'project repo is not a git repository' };
+  if (!(await branchExists(repoPath, base))) return { ok: false, pushed: false, reason: `base branch ${base} not found` };
+
+  const remotes = await git(['remote'], repoPath);
+  const known = remotes.ok ? remotes.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+  if (!known.includes(remote)) return { ok: true, pushed: false, reason: `remote ${remote} not configured` };
+
+  // Fetch the diverged remote base into a private local branch so the integration worktree can merge
+  // it by name (FETCH_HEAD is shared across worktrees and fragile under concurrent fetches).
+  const remoteRef = `symphony/reconcile/${sanitizeWorkspaceKey(base).replaceAll('/', '-')}-${newId()}`;
+  const fetch = await git(['fetch', remote, `${base}:${remoteRef}`], repoPath, 120_000);
+  if (!fetch.ok) {
+    return { ok: false, pushed: false, reason: `fetch ${remote}/${base} failed: ${fetch.stderr.trim() || fetch.stdout.trim()}` };
+  }
+
+  try {
+    // Nothing to reconcile if the remote base is already contained in local — just push.
+    const ancestor = await git(['merge-base', '--is-ancestor', remoteRef, base], repoPath);
+    if (!ancestor.ok) {
+      const merged = await mergeAgentBranch(repoPath, base, remoteRef, message, opts);
+      if (!merged.ok) {
+        return {
+          ok: false,
+          pushed: false,
+          diverged: true,
+          reason: merged.reason ?? `could not reconcile ${remote}/${base} into ${base}`,
+        };
+      }
+    }
+    const push = await pushBranch(repoPath, remote, base);
+    if (!push.ok) return { ok: false, pushed: false, reason: push.reason };
+    return { ok: true, pushed: true };
+  } finally {
+    await git(['branch', '-D', remoteRef], repoPath);
+  }
 }
 
 /**

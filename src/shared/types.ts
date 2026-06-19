@@ -23,6 +23,23 @@ export type Priority = 0 | 1 | 2 | 3 | 4; // 0 = none, 1 = urgent … 4 = low
 export type TaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
 export type TaskRole = 'impl' | 'qa' | 'frontend' | 'backend' | 'docs' | 'other';
 
+/**
+ * Decoration on an issue parked at the review gate whose approval could not be integrated (SYM-29).
+ * `kind` distinguishes a local merge conflict (agent branch vs. its base) from a push divergence
+ * (the remote base moved). Surfaced as a red "git conflict" badge on the board and a banner +
+ * Resolve-conflict action on the detail page; the resolve-conflict endpoint re-runs the merge and an
+ * agent-backed remote reconcile, clearing this once the work lands. It is also cleared when a new
+ * revision round starts (the marker is stale once the branch is rebuilt).
+ */
+export interface MergeConflictInfo {
+  kind: 'merge' | 'push';
+  target_branch: string;
+  remote?: string;
+  reason: string;
+  files?: string[];
+  detected_at: string; // ISO
+}
+
 export type RunPhase = 'plan' | 'implement' | 'qa' | 'merge';
 export type RunStatus =
   | 'running'
@@ -67,6 +84,8 @@ export interface Issue {
   worktree_path: string | null;
   /** Current revision round: 1 = first build, 2+ = re-run after a human requested changes at review. */
   round: number;
+  /** Set when a review-gate approval failed to merge/push; null otherwise (SYM-29). */
+  merge_conflict: MergeConflictInfo | null;
   created_at: string;
   updated_at: string;
 }

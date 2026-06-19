@@ -7,6 +7,7 @@ import {
   type IssueMode,
   type IssueStatus,
   type IssueType,
+  type MergeConflictInfo,
   type Priority,
 } from '../../shared/types';
 
@@ -29,6 +30,7 @@ interface IssueRow {
   branch_name: string | null;
   worktree_path: string | null;
   round: number;
+  merge_conflict: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +42,14 @@ function mapRow(r: IssueRow): Issue {
     if (Array.isArray(parsed)) labels = parsed.map(String);
   } catch {
     /* keep [] */
+  }
+  let merge_conflict: MergeConflictInfo | null = null;
+  if (r.merge_conflict) {
+    try {
+      merge_conflict = JSON.parse(r.merge_conflict) as MergeConflictInfo;
+    } catch {
+      /* malformed JSON ⇒ no decoration, mirror the labels fallback */
+    }
   }
   return {
     id: r.id,
@@ -59,6 +69,7 @@ function mapRow(r: IssueRow): Issue {
     branch_name: r.branch_name,
     worktree_path: r.worktree_path,
     round: r.round,
+    merge_conflict,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -239,6 +250,24 @@ export function setRound(id: string, round: number): Issue | null {
     )
     .run(round, id);
   return getIssue(id);
+}
+
+/**
+ * Set (null to clear) the review-gate git-conflict decoration (SYM-29). Like setRound, kept OUT of
+ * the UPDATABLE PATCH whitelist — only the approve / resolve-conflict gate actions may touch it, so
+ * a client can't spoof a conflict (or silently clear a real one) via PATCH /:id.
+ */
+export function setMergeConflict(id: string, info: MergeConflictInfo | null): Issue | null {
+  getDb()
+    .prepare(
+      `UPDATE issues SET merge_conflict = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+    )
+    .run(info ? JSON.stringify(info) : null, id);
+  return getIssue(id);
+}
+
+export function clearMergeConflict(id: string): Issue | null {
+  return setMergeConflict(id, null);
 }
 
 export function isActive(status: IssueStatus): boolean {

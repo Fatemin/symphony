@@ -216,9 +216,21 @@ export const api = {
     run: (id: string) => req<{ ok: boolean; reason?: string }>(`/api/issues/${id}/run`, { method: 'POST' }),
     diff: (id: string) => req<BranchDiff>(`/api/issues/${id}/diff`),
     approve: (id: string, options?: ApproveOptions) =>
-      req<{ ok: boolean; reason?: string; commit?: string; pr_url?: string; merged?: boolean; target_branch?: string }>(
-        `/api/issues/${id}/approve`,
-        { method: 'POST', ...(options ? body(options) : {}) },
+      req<{
+        ok: boolean;
+        reason?: string;
+        commit?: string;
+        pr_url?: string;
+        merged?: boolean;
+        target_branch?: string;
+        // SYM-29: present on a 409 when the approval failed to integrate (surfaced via onError).
+        conflict?: { kind: 'merge' | 'push'; files?: string[] };
+      }>(`/api/issues/${id}/approve`, { method: 'POST', ...(options ? body(options) : {}) }),
+    // SYM-29: agent-backed resolution for an approval parked with a git conflict.
+    resolveConflict: (id: string) =>
+      req<{ ok: boolean; reason?: string; commit?: string; target_branch?: string }>(
+        `/api/issues/${id}/resolve-conflict`,
+        { method: 'POST' },
       ),
     requestChanges: (id: string, data: { feedback: string }) =>
       req<{ ok: boolean; reason?: string; round?: number; dispatched?: boolean }>(

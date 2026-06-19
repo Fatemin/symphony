@@ -1,14 +1,16 @@
 import fs from 'node:fs';
 import { Hono } from 'hono';
-import type { Issue } from '../../../shared/types';
+import type { Issue, MergeConflictInfo } from '../../../shared/types';
 import { runClaudeCode } from '../../agent/claudeRunner';
 import type { AgentEvent } from '../../agent/types';
 import {
+  clearMergeConflict,
   createIssue,
   deleteIssue,
   getIssue,
   isTerminal,
   listIssues,
+  setMergeConflict,
   setRound,
   setStatus,
   updateIssue,
@@ -32,9 +34,11 @@ import {
   mergeAgentBranch,
   pushBaseBranch,
   pushBranch,
+  reconcileAndPushBase,
   removeWorktree,
   type MergeAgentBranchOptions,
   type MergeConflictResolverInput,
+  type PushBaseResult,
 } from '../../workspace/worktree';
 import { DEFAULT_PREVIEW_COMMAND, getPreview, startPreview, stopPreview } from '../../preview/manager';
 import { getOrchestrator } from '../../orchestrator/orchestrator';
@@ -231,62 +235,135 @@ issueRoutes.post('/:id/approve', async (c) => {
     return c.json({ ok: true, pr_url: promotion.pr_url, merged: promotion.merged ?? false, done: handoffDone, target_branch: baseBranch });
   }
 
-  const merge = await mergeAgentBranch(
-    project.repo_path,
+  // §SYM-18 / SYM-29: the local merge + remote push, plus the git-conflict decoration on failure.
+  // Approve pushes via pushBaseBranch (fails loudly on a diverged remote); the marker it leaves powers
+  // the board badge + the agent-backed resolve-conflict endpoint.
+  const outcome = await finalizeDirectMerge(issue, project, projectConfig, workflow, {
     targetBranch,
-    issue.branch_name,
+    setDefaultBranch,
+    createdBranch: ensured.created,
+    pushBase: (remote, branch) => pushBaseBranch(project.repo_path!, remote, branch),
+  });
+  return c.json(outcome.body, outcome.status);
+});
+
+interface DirectMergeOutcome {
+  status: 200 | 409;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Shared direct-merge finalize for the approve + resolve-conflict review-gate actions (SYM-29):
+ * merge the agent branch into the target base (agent resolver on conflicts), push the moved base via
+ * the supplied strategy, then mark the issue done and clean up. The two callers differ ONLY in how
+ * they push — approve uses pushBaseBranch (fail-loudly), resolve-conflict uses reconcileAndPushBase
+ * (agent-backed remote reconcile). On a merge conflict (conflicted files) or a diverged-remote push
+ * it persists Issue.merge_conflict and leaves the issue in 'review' for a re-approve / resolve; on
+ * success it clears that decoration. Non-conflict failures (auth/network, dirty checkout) fail the
+ * approve loudly as before WITHOUT a spurious git-conflict badge.
+ */
+async function finalizeDirectMerge(
+  issue: Issue,
+  project: NonNullable<ReturnType<typeof getProject>>,
+  projectConfig: ReturnType<typeof mergeProjectConfigs>,
+  workflow: ReturnType<typeof loadWorkflow>,
+  opts: {
+    targetBranch: string;
+    setDefaultBranch: boolean;
+    createdBranch: boolean;
+    pushBase: (remote: string, branch: string) => Promise<PushBaseResult>;
+  },
+): Promise<DirectMergeOutcome> {
+  const { targetBranch } = opts;
+  const remote = projectConfig.promotion.remote;
+
+  const merge = await mergeAgentBranch(
+    project.repo_path!,
+    targetBranch,
+    issue.branch_name!,
     `Merge ${issue.key}: ${issue.title}`,
     mergeOptionsForApproval(issue, project, projectConfig, workflow),
   );
   if (!merge.ok) {
+    const files = merge.conflicted_files ?? [];
+    if (files.length > 0) {
+      setMergeConflict(issue.id, {
+        kind: 'merge',
+        target_branch: targetBranch,
+        remote,
+        reason: merge.reason ?? 'merge conflict',
+        files,
+        detected_at: new Date().toISOString(),
+      });
+      appendEvent({
+        issue_id: issue.id,
+        kind: 'conflict.detected',
+        level: 'warn',
+        message: `git conflict — merging ${issue.branch_name} into ${targetBranch} needs resolution`,
+        data: { kind: 'merge', files, reason: merge.reason },
+      });
+    }
     appendEvent({ issue_id: issue.id, kind: 'approve.failed', level: 'error', message: merge.reason ?? 'merge failed', data: merge });
-    return c.json(merge, 409);
+    return { status: 409, body: { ...merge, conflict: files.length > 0 ? { kind: 'merge', files } : undefined } };
   }
 
-  // §SYM-18: the local merge above only moved the LOCAL base ref. Push it to the remote (default on)
-  // so the merge reaches GitHub and Actions fire. A failed push (e.g. non-ff) fails the approve
-  // loudly WITHOUT marking done — the issue stays in 'review' so a re-approve (idempotent: the merge
-  // becomes "already up to date") can retry the push once the remote is reconciled.
   let pushed = false;
   if (projectConfig.promotion.push) {
-    const remote = projectConfig.promotion.remote;
-    const push = await pushBaseBranch(project.repo_path, remote, targetBranch);
+    const push = await opts.pushBase(remote, targetBranch);
     if (!push.ok) {
       const reason = push.reason ?? `push ${remote} ${targetBranch} failed`;
+      if (push.diverged) {
+        setMergeConflict(issue.id, {
+          kind: 'push',
+          target_branch: targetBranch,
+          remote,
+          reason,
+          detected_at: new Date().toISOString(),
+        });
+        appendEvent({
+          issue_id: issue.id,
+          kind: 'conflict.detected',
+          level: 'warn',
+          message: `git conflict — ${remote}/${targetBranch} has diverged; reconcile needed before pushing`,
+          data: { kind: 'push', remote, reason },
+        });
+      }
       appendEvent({
         issue_id: issue.id,
         kind: 'approve.failed',
         level: 'error',
         message: `approved merge landed locally but push to ${remote}/${targetBranch} failed: ${reason}`,
-        data: { base: targetBranch, remote, commit: merge.commit, pushed: false, reason },
+        data: { base: targetBranch, remote, commit: merge.commit, pushed: false, reason, diverged: push.diverged === true },
       });
-      return c.json({ ok: false, reason, target_branch: targetBranch }, 409);
+      return { status: 409, body: { ok: false, reason, target_branch: targetBranch, conflict: push.diverged ? { kind: 'push' } : undefined } };
     }
     pushed = push.pushed;
   }
 
+  // Success: clear any stale git-conflict decoration, clean up, mark done.
+  clearMergeConflict(issue.id);
   await cleanupIssueResources(issue, { forceBranch: false, reason: 'approved' });
-  if (setDefaultBranch) updateProject(project.id, { default_branch: targetBranch });
+  if (opts.setDefaultBranch) updateProject(project.id, { default_branch: targetBranch });
   updateIssue(issue.id, { status: 'done', branch_name: null, worktree_path: null, base_branch: targetBranch });
   appendEvent({
     issue_id: issue.id,
     kind: 'approve.merged',
     message: merge.resolved_conflicts
       ? `approved — resolved conflicts and merged into ${targetBranch} (${merge.commit ?? '?'})`
-      : `approved — merged into ${targetBranch} (${merge.commit ?? '?'})${pushed ? ` and pushed to ${projectConfig.promotion.remote}` : ''} and marked done`,
+      : `approved — merged into ${targetBranch} (${merge.commit ?? '?'})${pushed ? ` and pushed to ${remote}` : ''} and marked done`,
     data: {
       base: targetBranch,
       commit: merge.commit,
-      created_branch: ensured.created,
-      set_default_branch: setDefaultBranch,
+      created_branch: opts.createdBranch,
+      set_default_branch: opts.setDefaultBranch,
       resolved_conflicts: merge.resolved_conflicts === true,
       conflicted_files: merge.conflicted_files ?? [],
       pushed,
-      remote: pushed ? projectConfig.promotion.remote : undefined,
+      remote: pushed ? remote : undefined,
     },
   });
-  return c.json({ ok: true, commit: merge.commit, target_branch: targetBranch, pushed, remote: pushed ? projectConfig.promotion.remote : undefined });
-});
+  return { status: 200, body: { ok: true, commit: merge.commit, target_branch: targetBranch, pushed, remote: pushed ? remote : undefined } };
+}
 
 function mergeOptionsForApproval(
   issue: Issue,
@@ -399,6 +476,51 @@ async function verifyIntegratedMerge(
   return { ok: true };
 }
 
+// SYM-29: agent-backed resolution for an approval that couldn't be integrated. Guarded on a parked
+// (review) issue that carries a merge_conflict decoration. Re-runs the SAME merge (idempotent —
+// "already up to date" when the branch already merged) and then reconciles the diverged remote via
+// the agent-backed reconcileAndPushBase, finalizing (done + clears the marker) exactly like approve.
+// On failure it keeps/refreshes the marker and returns 409 so the badge + button stay put.
+issueRoutes.post('/:id/resolve-conflict', async (c) => {
+  const issue = getIssue(c.req.param('id'));
+  if (!issue) return c.json({ ok: false, reason: 'not found' }, 404);
+  if (issue.status !== 'review') {
+    return c.json({ ok: false, reason: `issue is ${issue.status}, not awaiting review` }, 409);
+  }
+  if (!issue.merge_conflict) {
+    return c.json({ ok: false, reason: 'no recorded git conflict to resolve' }, 409);
+  }
+  const project = getProject(issue.project_id);
+  if (!project?.repo_path || !issue.branch_name || !issue.base_branch) {
+    return c.json({ ok: false, reason: 'missing repo path or branch info — resolve manually' }, 400);
+  }
+
+  const workflow = loadWorkflow(project.repo_path);
+  const projectConfig = mergeProjectConfigs(project.config, workflow?.config);
+  const targetBranch = issue.merge_conflict.target_branch || issue.base_branch;
+
+  appendEvent({ issue_id: issue.id, kind: 'conflict.resolve_started', message: `resolving git conflict (${issue.merge_conflict.kind}) on ${targetBranch}`, data: issue.merge_conflict });
+  const outcome = await finalizeDirectMerge(issue, project, projectConfig, workflow, {
+    targetBranch,
+    setDefaultBranch: false,
+    createdBranch: false,
+    // Reuse the approval resolver/verify wiring; reconcileAndPushBase only invokes the agent when the
+    // remote reconcile actually conflicts (a clean divergence merges silently and pushes).
+    pushBase: (remote, branch) =>
+      reconcileAndPushBase(
+        project.repo_path!,
+        remote,
+        branch,
+        `Reconcile ${remote}/${branch} into ${branch} for ${issue.key}`,
+        mergeOptionsForApproval(issue, project, projectConfig, workflow),
+      ),
+  });
+  if (outcome.status === 200) {
+    appendEvent({ issue_id: issue.id, kind: 'conflict.resolved', message: `git conflict resolved — merged into ${targetBranch} and marked done`, data: { target_branch: targetBranch } });
+  }
+  return c.json(outcome.body, outcome.status);
+});
+
 // Request changes at the review gate → start a new revision round (loop engineering). Records the
 // human feedback, bumps the issue's round, returns it to 'todo', and re-dispatches plan→implement→qa
 // on the SAME branch/worktree (no cleanup — round N builds on round N-1's commits). The round-scoped
@@ -416,6 +538,7 @@ issueRoutes.post('/:id/request-changes', async (c) => {
   const nextRound = issue.round + 1;
   addRevision(issue.id, nextRound, feedback);
   setRound(issue.id, nextRound);
+  clearMergeConflict(issue.id); // SYM-29: any prior approval conflict is stale once the branch is rebuilt
   setStatus(issue.id, 'todo'); // active status so the re-dispatch (or auto poll) picks it up
   appendEvent({
     issue_id: issue.id,
