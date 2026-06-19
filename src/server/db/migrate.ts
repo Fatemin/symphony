@@ -16,6 +16,7 @@ export function bootstrap(db: DatabaseSync): void {
   addColumn(db, 'runs', 'cache_read_tokens', 'INTEGER NOT NULL DEFAULT 0');
   addColumn(db, 'runs', 'cache_creation_tokens', 'INTEGER NOT NULL DEFAULT 0');
   addColumn(db, 'issues', 'round', 'INTEGER NOT NULL DEFAULT 1');
+  addColumn(db, 'issues', 'merge_conflict', 'TEXT'); // SYM-29: git-conflict decoration at the review gate
   addColumn(db, 'runs', 'round', 'INTEGER NOT NULL DEFAULT 1');
   addColumn(db, 'ask_messages', 'suggestion', 'TEXT');
   seedSettings(db);

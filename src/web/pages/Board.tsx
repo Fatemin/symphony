@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
+import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
+import { Badge, Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
 import { PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
@@ -378,6 +378,12 @@ function IssueCard({
             {issue.mode}
           </span>
           <span className="text-subtle">{issue.type}</span>
+          {/* SYM-29: an approved story whose merge/push failed — flag it so reviewers can resolve it. */}
+          {issue.merge_conflict && (
+            <Badge className="ml-auto bg-red-500/15 text-red-300" >
+              <GitMerge className="h-3 w-3" /> git conflict
+            </Badge>
+          )}
         </div>
       </Panel>
     </Link>

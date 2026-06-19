@@ -257,6 +257,15 @@ the approve fails with a clear reason (and an `approve.failed` event) and the is
 `review` — the local merge already landed, so a re-approve retries the push once the remote is
 reconciled.
 
+When an approval can't be integrated — a local merge conflict (agent branch vs. its base) or a
+diverged-remote push — Symphony decorates the parked issue with a **git conflict** marker: a red
+badge on the board card and a banner on the issue page (SYM-29). The banner's **Resolve conflict**
+button re-runs the merge and, for a diverged remote, reconciles it agent-side: it fetches the remote
+base, merges it into the local base in a throwaway integration worktree (running the same
+conflict-resolution agent on any real conflicts), then pushes and marks the issue done. The marker
+clears on a successful resolve, and also when **Request changes** starts a new revision round (it is
+stale once the branch is rebuilt).
+
 With `commit_guard.enabled`, Symphony installs a pre-commit hook in each issue worktree. Manual
 commits are blocked, Symphony stages only explicit diff-derived paths, configured scratch globs are
 rejected, and optional `max_files` / `max_bytes` limits can require `override_limits: true`.
