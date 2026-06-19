@@ -217,6 +217,13 @@ export interface AskResponse {
   suggestion: AskSuggestion | null;
 }
 
+/** Today's persisted conversation for a project, used to reseed the Ask panel on open (SYM-12). */
+export interface AskHistory {
+  /** The server-local day these turns belong to, e.g. '2026-06-19'. */
+  date: string;
+  messages: AskMessage[];
+}
+
 // ── Orchestrator observability view models ────────────────────────────────
 
 export interface RunningRow {
