@@ -10,6 +10,43 @@ import { Button, Select, Spinner, Textarea } from './ui';
 
 type Turn = AskMessage & { suggestion?: AskSuggestion | null; converted?: boolean };
 
+// SYM-21: the Ask drawer is user-resizable. Width is a controlled pixel value (not a Tailwind class)
+// persisted to localStorage so it survives the per-open remount (Board renders AskPanel only while
+// askOpen). DEFAULT_WIDTH matches the previous static `max-w-lg` (32rem) so existing users see no
+// jump on first load.
+const WIDTH_KEY = 'ask-panel-width';
+const DEFAULT_WIDTH = 512;
+const MIN_WIDTH = 360;
+// Keep a backdrop strip reachable on the left so click-to-close still works at max width.
+const VIEWPORT_GUTTER = 48;
+const KEYBOARD_STEP = 24;
+
+function maxWidth(): number {
+  return Math.max(MIN_WIDTH, window.innerWidth - VIEWPORT_GUTTER);
+}
+
+function clampWidth(px: number): number {
+  return Math.min(Math.max(px, MIN_WIDTH), maxWidth());
+}
+
+function readStoredWidth(): number {
+  try {
+    const parsed = Number(localStorage.getItem(WIDTH_KEY));
+    if (Number.isFinite(parsed) && parsed > 0) return clampWidth(parsed);
+  } catch {
+    /* localStorage may be unavailable in hardened browser contexts — fall through */
+  }
+  return clampWidth(DEFAULT_WIDTH);
+}
+
+function persistWidth(px: number): void {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(Math.round(px)));
+  } catch {
+    /* localStorage may be unavailable in hardened browser contexts */
+  }
+}
+
 interface AskPanelProps {
   projectId: string;
   projectKey: string;
@@ -28,6 +65,57 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   // The panel remounts on every open (Board renders it only while askOpen), so this seeds today's
   // persisted conversation exactly once per open without stomping turns the user adds afterward.
   const seeded = useRef(false);
+  // SYM-21: drag-to-resize width. Seeded from localStorage (re-clamped to the current viewport),
+  // persisted on commit (drag end / keyboard step), not on every move.
+  const [width, setWidth] = useState(readStoredWidth);
+  // Tracks the in-flight drag origin; null when idle. setPointerCapture keeps move/up firing even
+  // when the cursor leaves the thin handle, so no window-level listeners are needed.
+  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    // A width stored on a larger screen must never exceed a now-smaller viewport (the backdrop has
+    // to stay clickable). Re-clamp on mount and on every window resize.
+    const reclamp = () => setWidth((w) => clampWidth(w));
+    reclamp();
+    window.addEventListener('resize', reclamp);
+    return () => window.removeEventListener('resize', reclamp);
+  }, []);
+
+  const onHandlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    drag.current = { startX: e.clientX, startWidth: width };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    // Suppress text selection and force the resize cursor for the whole drag, even over the backdrop.
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  };
+
+  const onHandlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    // The panel is anchored right, so dragging the left edge LEFT (clientX shrinks) widens it.
+    setWidth(clampWidth(drag.current.startWidth + (drag.current.startX - e.clientX)));
+  };
+
+  const endDrag = () => {
+    if (!drag.current) return;
+    drag.current = null;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    // Read the latest committed width via the functional updater (no stale closure / extra ref) and
+    // persist it. setPointerCapture is released automatically on pointerup/cancel.
+    setWidth((w) => {
+      persistWidth(w);
+      return w;
+    });
+  };
+
+  const onHandleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    // Mirror the drag convention: ArrowLeft = wider, ArrowRight = narrower.
+    const next = clampWidth(width + (e.key === 'ArrowLeft' ? KEYBOARD_STEP : -KEYBOARD_STEP));
+    setWidth(next);
+    persistWidth(next);
+  };
 
   const { data: history } = useQuery({
     queryKey: ['ask-history', projectId],
@@ -107,7 +195,27 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-lg flex-col border-l border-border bg-panel shadow-xl">
+      <aside
+        className="relative flex h-full flex-col border-l border-border bg-panel shadow-xl"
+        style={{ width }}
+      >
+        {/* SYM-21: left-edge resizer. Lives inside the <aside> (not the backdrop) so a drag never
+            reaches the backdrop's click-to-close. role="separator" + Arrow-key handling gives
+            keyboard parity with the pointer drag. */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panel"
+          aria-valuenow={Math.round(width)}
+          aria-valuemin={MIN_WIDTH}
+          tabIndex={0}
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onKeyDown={onHandleKeyDown}
+          className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none transition-colors hover:bg-indigo-500/40 focus-visible:bg-indigo-500/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400"
+        />
         <header className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-300" />
