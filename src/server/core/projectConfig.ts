@@ -52,12 +52,23 @@ export interface ProjectPromptConfig {
   merge?: string;
 }
 
+/**
+ * SYM-36: which repo-relative directories the Documentation tab reads docs from. Defaults to
+ * ['docs']; the user can add/remove directories from the Docs tab. Stored in the project config
+ * JSON blob (no DB migration) — like every other section, it MUST be merged/cloned explicitly here
+ * or it is silently stripped on every save.
+ */
+export interface DocsConfig {
+  directories: string[];
+}
+
 export interface ProjectConfig {
   agent: ProjectAgentConfig;
   prompts: ProjectPromptConfig;
   verification: VerificationConfig;
   promotion: PromotionConfig;
   commit_guard: CommitGuardConfig;
+  docs: DocsConfig;
 }
 
 export type ProjectConfigInput = Partial<{
@@ -66,7 +77,10 @@ export type ProjectConfigInput = Partial<{
   verification: Partial<VerificationConfig>;
   promotion: Partial<PromotionConfig>;
   commit_guard: Partial<CommitGuardConfig>;
+  docs: Partial<DocsConfig>;
 }>;
+
+export const DEFAULT_DOC_DIRECTORIES = ['docs'];
 
 export const DEFAULT_BLOCKED_UNTRACKED_GLOBS = [
   '*_TEMP.*',
@@ -93,6 +107,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
     blocked_untracked_globs: DEFAULT_BLOCKED_UNTRACKED_GLOBS,
     override_limits: false,
   },
+  docs: { directories: [...DEFAULT_DOC_DIRECTORIES] },
 };
 
 export function parseProjectConfig(value: unknown): ProjectConfig {
@@ -110,6 +125,7 @@ export function mergeProjectConfigs(...configs: unknown[]): ProjectConfig {
     mergeVerification(out, input.verification);
     mergePromotion(out, input.promotion);
     mergeCommitGuard(out, input.commit_guard);
+    mergeDocs(out, input.docs);
   }
   return out;
 }
@@ -204,6 +220,25 @@ function mergeCommitGuard(out: ProjectConfig, raw: unknown): void {
   if (typeof obj.override_limits === 'boolean') out.commit_guard.override_limits = obj.override_limits;
 }
 
+function mergeDocs(out: ProjectConfig, raw: unknown): void {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  const dirs = (raw as Record<string, unknown>).directories;
+  if (!Array.isArray(dirs)) return;
+  // Normalize: trim, drop blanks, dedupe, and keep paths repo-relative (strip leading slashes and
+  // any '..' segment so a configured directory can't point outside the repo). An explicit empty
+  // array is honoured (no docs) rather than re-seeded with the default.
+  const seen = new Set<string>();
+  const parsed: string[] = [];
+  for (const entry of dirs) {
+    if (typeof entry !== 'string') continue;
+    const cleaned = entry.trim().replace(/^[/\\]+/, '');
+    if (!cleaned || cleaned.split(/[/\\]+/).some((seg) => seg === '..') || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    parsed.push(cleaned);
+  }
+  out.docs.directories = parsed;
+}
+
 function coerceConfigInput(value: unknown): ProjectConfigInput | null {
   if (value == null) return null;
   if (typeof value === 'string') {
@@ -252,5 +287,6 @@ function cloneProjectConfig(config: ProjectConfig): ProjectConfig {
       ...config.commit_guard,
       blocked_untracked_globs: [...config.commit_guard.blocked_untracked_globs],
     },
+    docs: { directories: [...config.docs.directories] },
   };
 }

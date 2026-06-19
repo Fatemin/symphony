@@ -441,6 +441,11 @@ function normalizeConfig(value: unknown): ProjectWorkflowConfig {
   const verification = isRecord(raw.verification) ? raw.verification : {};
   const promotion = isRecord(raw.promotion) ? raw.promotion : {};
   const guard = isRecord(raw.commit_guard) ? raw.commit_guard : {};
+  // Preserve the Docs tab's directories (SYM-36) through an Agent-settings save: the config blob is
+  // replaced wholesale, so dropping `docs` here would silently reset it to the default ['docs'].
+  const docs = isRecord(raw.docs) && Array.isArray(raw.docs.directories)
+    ? { directories: raw.docs.directories.filter((d): d is string => typeof d === 'string') }
+    : undefined;
 
   return {
     agent: {
@@ -476,6 +481,7 @@ function normalizeConfig(value: unknown): ProjectWorkflowConfig {
       max_bytes: numberOrUndefined(guard.max_bytes),
       override_limits: typeof guard.override_limits === 'boolean' ? guard.override_limits : DEFAULT_CONFIG.commit_guard.override_limits,
     },
+    ...(docs ? { docs } : {}),
   };
 }
 

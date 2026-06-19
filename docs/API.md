@@ -37,6 +37,9 @@ Liveness probe. → `200 { "status": "ok" }`.
 | `PATCH` | `/api/projects/:id` | Update project fields (incl. `model`, `context`, `agent`, `default_branch`, `preview_command`, `config`). `404` if missing. |
 | `DELETE` | `/api/projects/:id` | Delete a project (cascades issues etc.). → `204` |
 | `GET` | `/api/projects/:id/branches` | Git branches of the project's repo (`{ default_branch, branches }`); empty list if no `repo_path`. |
+| `GET` | `/api/projects/:id/relations` | Flat list of the project's `issue_relations` edges; the client folds these into the Story Tree (SYM-30). |
+| `GET` | `/api/projects/:id/docs` | Documentation listing (SYM-36): `{ directories, files }` where each `DocEntry` is `{ path, name, dir }`. Reads the allow-listed text/markdown files under `config.docs.directories` (default `['docs']`). Empty `files` when no `repo_path`. |
+| `GET` | `/api/projects/:id/docs/content?path=` | One doc's contents (`{ path, name, content }`) for the reading pane. `path` is repo-relative and validated against the configured directories + repo root: `400` on traversal/absolute/disallowed extension/out-of-dir, `404` on missing file or no `repo_path`. |
 
 ### Project skills (SYM-14)
 

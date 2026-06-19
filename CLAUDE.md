@@ -42,12 +42,17 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   (`CREATE TABLE IF NOT EXISTS`, runs every boot); additive `ALTER TABLE` backfills go in
   `db/migrate.ts`. There is no migration tool.
 - `src/server/workspace/` — per-issue git worktrees. Safety invariants: agent `cwd` must be the
-  worktree, and the worktree must resolve inside `workspace_root`.
+  worktree, and the worktree must resolve inside `workspace_root`. `docs.ts` is a separate read-only
+  reader (no worktree) that lists/reads the project repo's documentation for the Docs tab — every read
+  is fenced inside the repo AND inside a configured doc directory (lexical + realpath checks).
 - `src/web/` — React 19 + Vite + Tailwind v4 + TanStack Query. `src/shared/types.ts` holds domain
   types shared by both sides. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
-  Story Tree / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
+  Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
   `issue_relations` into a forest via the pure `lib/storyTree.ts#buildStoryTrees` (follow_up edges
   nest, relates_to surface as cross-links), backed by read-only `GET /api/projects/:id/relations`.
+  The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
+  backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
+  `config.docs.directories` (default `['docs']`) and are edited inline from the tab.
 
 ## Conventions
 
