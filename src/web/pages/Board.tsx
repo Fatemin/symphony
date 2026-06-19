@@ -223,9 +223,13 @@ function IssueCard({
   justMoved?: boolean;
   onToggle?: () => void;
 }) {
-  // A status change unmounts/remounts the card in its new column; `justMoved` flips the entrance
-  // animation to the lift-drop and adds a transient ring so the move reads as a deliberate placement.
-  const anim = justMoved ? 'anim-lift-drop' : 'anim-card-in';
+  // A status change unmounts/remounts the card in its new column; `justMoved` picks the entrance
+  // animation (lift-drop vs. plain fade-in). Freeze it at mount so that when `moved` clears 700ms
+  // later the class doesn't flip lift-drop→card-in on the still-mounted element — swapping the
+  // CSS animation-name would restart it and flash the card. A real move remounts the card, so the
+  // lift-drop still replays on every genuine transition. The ring stays prop-driven so it fades out
+  // smoothly via the Panel's `transition` once the move settles.
+  const [anim] = useState(() => (justMoved ? 'anim-lift-drop' : 'anim-card-in'));
   const movedRing = justMoved ? 'border-indigo-400/70 ring-2 ring-indigo-400/60' : '';
   return (
     <Link to={`/issues/${issue.id}`} className="block">
