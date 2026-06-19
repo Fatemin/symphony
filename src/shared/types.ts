@@ -232,6 +232,12 @@ export interface Event {
 export interface AskMessage {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * The draft issue distilled from this turn, persisted so the suggestion card survives a
+   * conversation switch (panel reopen / project switch), not just the live session (SYM-28).
+   * Only ever set on assistant turns; null/absent when the answer was purely informational.
+   */
+  suggestion?: AskSuggestion | null;
 }
 
 /**

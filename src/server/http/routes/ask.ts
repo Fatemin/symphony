@@ -100,10 +100,11 @@ askRoutes.post('/:id/ask', async (c) => {
       history: normalizeHistory(body.history),
       agent: body.agent === 'codex' || body.agent === 'claude' ? body.agent : undefined,
     });
-    // Persist the exchange under today's conversation so the panel can reload it (SYM-12). Only the
-    // text is kept; suggestion cards are intentionally not restored across reloads.
+    // Persist the exchange under today's conversation so the panel can reload it (SYM-12). The
+    // assistant turn carries its draft-issue suggestion so the card survives a conversation switch
+    // (panel reopen / project switch) rather than being dropped on reseed (SYM-28).
     appendAskTurn(project.id, 'user', question);
-    appendAskTurn(project.id, 'assistant', result.answer);
+    appendAskTurn(project.id, 'assistant', result.answer, result.suggestion);
     return c.json(result);
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);

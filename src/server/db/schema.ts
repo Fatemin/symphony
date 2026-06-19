@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS ask_messages (
   convo_date TEXT NOT NULL,                         -- local calendar day, e.g. '2026-06-19'
   role       TEXT NOT NULL,                         -- 'user' | 'assistant'
   content    TEXT NOT NULL,
+  suggestion TEXT,                                  -- JSON AskSuggestion on actionable assistant turns (SYM-28); NULL otherwise
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ask_messages_project_date ON ask_messages(project_id, convo_date, id);

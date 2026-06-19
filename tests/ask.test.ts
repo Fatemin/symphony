@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupEnv } from './helpers/env';
+import type { AskMessage } from '../src/shared/types';
 import type { AgentResult, AgentRunInput, AgentRunner } from '../src/server/agent/types';
 
 const env = setupEnv();
@@ -137,8 +138,8 @@ test("GET /:id/ask/history returns today's persisted turns in order", async () =
   const body = (await res.json()) as { date: string; messages: { role: string; content: string }[] };
   assert.match(body.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.deepEqual(body.messages, [
-    { role: 'user', content: 'What is the data flow?' },
-    { role: 'assistant', content: 'AskPanel → POST /ask → runProjectAsk.' },
+    { role: 'user', content: 'What is the data flow?', suggestion: null },
+    { role: 'assistant', content: 'AskPanel → POST /ask → runProjectAsk.', suggestion: null },
   ]);
 
   // Unknown project → 404.
@@ -166,6 +167,32 @@ test("DELETE /:id/ask/history resets today's conversation", async () => {
   assert.equal((await askRoutes.request('/nope/ask/history', { method: 'DELETE' })).status, 404);
 });
 
+test("a turn's suggestion round-trips through persistence so the card survives a reload (SYM-28)", async () => {
+  const project = createProject({ name: 'Ask Suggest', key: 'ASKS', repo_path: env.repoPath });
+  const suggestion = {
+    type: 'feature' as const,
+    title: 'Respect the OS color-scheme preference',
+    description: 'Default the theme to the system setting on first load.',
+    acceptance_criteria: '- Reads prefers-color-scheme',
+  };
+  // Mirror the POST handler: a user turn with no card, then the assistant turn carrying the draft.
+  appendAskTurn(project.id, 'user', 'How does dark mode work?');
+  appendAskTurn(project.id, 'assistant', 'It only switches a CSS class today.', suggestion);
+
+  // The repo restores the suggestion on the assistant turn, and leaves the user turn's null.
+  const messages = listTodaysAskMessages(project.id);
+  assert.deepEqual(messages, [
+    { role: 'user', content: 'How does dark mode work?', suggestion: null },
+    { role: 'assistant', content: 'It only switches a CSS class today.', suggestion },
+  ]);
+
+  // It survives the HTTP reseed path the panel uses on open / project switch.
+  const body = (await (await askRoutes.request(`/${project.id}/ask/history`)).json()) as {
+    messages: AskMessage[];
+  };
+  assert.deepEqual(body.messages[1]!.suggestion, suggestion);
+});
+
 test("today's history excludes turns from an earlier conversation day", async () => {
   const project = createProject({ name: 'Ask Days', key: 'ASKD', repo_path: env.repoPath });
   // A turn stamped with a past convo_date must not bleed into today's conversation memory.
@@ -178,7 +205,7 @@ test("today's history excludes turns from an earlier conversation day", async ()
   appendAskTurn(project.id, 'assistant', "today's answer");
 
   const messages = listTodaysAskMessages(project.id);
-  assert.deepEqual(messages, [{ role: 'assistant', content: "today's answer" }]);
+  assert.deepEqual(messages, [{ role: 'assistant', content: "today's answer", suggestion: null }]);
 
   const body = (await (await askRoutes.request(`/${project.id}/ask/history`)).json()) as {
     messages: { content: string }[];

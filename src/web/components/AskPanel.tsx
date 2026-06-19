@@ -126,7 +126,9 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
     if (seeded.current || !history) return;
     seeded.current = true;
     if (history.messages.length) {
-      setTurns(history.messages.map((m) => ({ role: m.role, content: m.content })));
+      // Restore the persisted suggestion (SYM-28) so the draft-issue card survives a conversation
+      // switch (panel reopen / project switch), matching what a live turn shows.
+      setTurns(history.messages.map((m) => ({ role: m.role, content: m.content, suggestion: m.suggestion })));
     }
   }, [history]);
 
