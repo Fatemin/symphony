@@ -57,24 +57,34 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   worktree, and the worktree must resolve inside `workspace_root`. `docs.ts` is a separate read-only
   reader (no worktree) that lists/reads the project repo's documentation for the Docs tab — every read
   is fenced inside the repo AND inside a configured doc directory (lexical + realpath checks).
-- `src/server/usage/localUsage.ts` + `http/routes/usage.ts` (SYM-38, SYM-39) — read-only reader for the
+- `src/server/usage/localUsage.ts` + `http/routes/usage.ts` (SYM-38, SYM-39, SYM-40) — reader for the
   sidebar footer. SYM-39 repurposed it from spent token usage to **remaining** rate-limit quota. It
   streams the Claude (`<root>/projects/**/*.jsonl`, deduped by `message.id:requestId`) and Codex
   (`<root>/{sessions,archived_sessions}/**/rollout-*.jsonl`) session logs and returns a per-agent
   `LocalUsageReport`. For Codex it captures the LATEST `token_count.payload.rate_limits` snapshot (by
   timestamp, scanning files within an ~8-day mtime lookback so the weekly window stays visible) and
   builds `windows` with `remaining_percent = 100 − used_percent` (a window whose `resets_at`, epoch
-  SECONDS in source, already passed rolls over to 100% remaining). Claude persists NO local quota state
-  (`/usage` fetches remaining LIVE from an authenticated Anthropic endpoint, so it can't be read here
-  without breaking the read-only-local/no-network contract), so it returns status `unsupported`.
-  Today's token totals (Codex per-turn `last_token_usage`, NOT
-  cumulative `total_token_usage`; filtered per-line to the server's LOCAL-machine day) are still computed
-  for the tooltip on both agents. Each agent is read in its own try/catch so one missing/locked dir never
-  blanks the other; `GET /api/usage/local` therefore always returns `200` with per-agent statuses
-  (`ok`/`empty`/`unsupported`/`not_found`/`error`). Data roots honor `CLAUDE_CONFIG_DIR` (may be
-  comma-separated) and `CODEX_HOME`, read at call time (tests + the hermetic `setupEnv()` override them).
-  It only READS the CLIs' own dirs and writes nothing, so no new runtime path and no `.gitignore` rule
-  are needed.
+  SECONDS in source, already passed rolls over to 100% remaining). Claude persists no quota locally, so
+  SYM-40 (round 3: "show Claude's remaining like Codex") makes ONE best-effort outbound
+  `GET <ANTHROPIC_BASE_URL>/api/oauth/usage` with the user's own local OAuth token (resolution order
+  `CLAUDE_CODE_OAUTH_TOKEN` → `<root>/.credentials.json` → macOS keychain; skipped when no token /
+  expired) and maps `five_hour`/`seven_day` → the SAME `RateWindow[]` (`five_hour`→primary 300min,
+  `seven_day`→secondary 10080min; `utilization` = used %, ISO `resets_at` → epoch ms) so Claude renders
+  like Codex. Both agents share `normalizeWindow` (clamp + roll-over). This is the ONE place the reader
+  is no longer strictly no-network: the token goes only to the fixed Anthropic host over HTTPS (same
+  trust boundary as Claude Code), is never logged nor returned to the client, and is never refreshed or
+  written. Every fetch failure (no token / expired / offline / non-200 / parse) degrades to status
+  `unsupported` — only genuine local FS errors become `error`. A ~30s module cache (test reset hook
+  `__resetClaudeUsageCache`) coalesces the bursty sidebar polls. Today's token totals (Codex per-turn
+  `last_token_usage`, NOT cumulative `total_token_usage`; filtered per-line to the server's LOCAL-machine
+  day) are still computed for the tooltip on both agents. Each agent is read in its own try/catch so one
+  missing/locked dir never blanks the other; `GET /api/usage/local` therefore always returns `200` with
+  per-agent statuses (`ok`/`empty`/`unsupported`/`not_found`/`error`). Data roots honor `CLAUDE_CONFIG_DIR`
+  (may be comma-separated) and `CODEX_HOME`, read at call time. **Test-offline safety:** `setupEnv()` sets
+  `SYMPHONY_DISABLE_KEYCHAIN=1` and clears `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_BASE_URL`, so `npm test`
+  never reads the dev's real keychain or hits the network — the one live-path test stubs `globalThis.fetch`
+  + writes a fixture `.credentials.json`. It still WRITES nothing, so no new runtime path / `.gitignore`
+  rule is needed.
 - `src/web/` — React 19 + Vite + Tailwind v4 + TanStack Query. `src/shared/types.ts` holds domain
   types shared by both sides. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
   Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
@@ -84,15 +94,15 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
   `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The sidebar
   footer widget (`components/SidebarUsage.tsx`, SYM-38/SYM-39/SYM-40) shows local Claude/Codex
-  **remaining** quota from `GET /api/usage/local` — Codex's lowest remaining window ("NN% left",
-  threshold-colored dot). Claude has no local quota (`status: 'unsupported'`), so rather than the old
-  flat "本地不可用" that misread as "Claude unavailable" (SYM-40), its row honestly falls back to today's
-  token usage ("N 今日", neutral dot) — or "无今日用量" when idle — plus an always-visible muted sub-line
-  ("剩余量见 /usage") naming the command at a glance (round 2: the prior round buried that answer in a
-  hover-only tooltip the reviewer never saw). The honest reason — Claude persists no quota locally and
-  `/usage` fetches it live from Anthropic — lives in the code comments + the tooltip; a live-fetch
-  alternative is deferred. Refreshes every 60s and whenever the shared `['issues']` poll's
-  status/`updated_at` signature changes.
+  **remaining** quota from `GET /api/usage/local`. BOTH agents render the same `ok` shape — the lowest
+  remaining window ("NN% left", threshold-colored dot, 5h/Week reset tooltip): Codex from its local logs,
+  Claude from the server's best-effort LIVE fetch (SYM-40 round 3), so a logged-in user sees real Claude
+  remaining like Codex. When that live read can't run (not logged in / token expired / offline) the
+  server returns `unsupported` and the Claude row honestly falls back to today's token usage ("N 今日",
+  neutral dot) — or "无今日用量" when idle — plus an always-visible muted sub-line ("剩余量见 /usage")
+  naming the command; the tooltip explains the fallback and points at `/login`. (Earlier rounds showed a
+  flat "本地不可用" that misread as "Claude unavailable".) Refreshes every 60s and whenever the shared
+  `['issues']` poll's status/`updated_at` signature changes.
 
 ## Conventions
 

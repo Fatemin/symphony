@@ -119,13 +119,22 @@ feature/bug suggestion.
 
 ## Usage — `/api/usage` (`http/routes/usage.ts`)
 
-Read-only, computed (no DB). Reads the **local** Claude Code / Codex CLI session logs on the same
+Mostly read-only, computed (no DB). Reads the **local** Claude Code / Codex CLI session logs on the same
 machine for the sidebar footer. SYM-39 repurposed this from spent token *usage* to **remaining**
-rate-limit quota (the user wants to see what's left). Codex logs its live rate limits locally; Claude
-persists no quota state locally — its `/usage` command fetches remaining LIVE from an authenticated
-Anthropic endpoint (keychain OAuth token), which can't be replicated here without breaking the
-read-only-local/no-network contract — so Claude reports `unsupported`. Today's token totals are still
-computed for the tooltip (and, for Claude, headlined in the row alongside a visible `/usage` hint).
+rate-limit quota (the user wants to see what's left). Codex reads its remaining from local rate-limit
+logs. Claude persists no quota locally, so SYM-40 has the server fetch it **LIVE**: a single best-effort
+`GET <ANTHROPIC_BASE_URL>/api/oauth/usage` using the user's own local OAuth token (headers
+`Authorization: Bearer …`, `anthropic-beta: oauth-2025-04-20`) — the same endpoint the CLI's `/usage`
+uses. This is the one place the route is **not** strictly no-network; the token is sent only to the
+fixed Anthropic host over HTTPS (same trust boundary as Claude Code itself) and is **never logged nor
+returned to the client** (only percentages/reset times are). Every fetch failure (no token / expired /
+offline / non-200 / parse) degrades to `unsupported` — never an error. Today's token totals are still
+computed for the tooltip (and, when Claude falls back to `unsupported`, headlined in the row alongside a
+visible `/usage` hint).
+
+**Credential source (read-only, never refreshed/written):** `CLAUDE_CODE_OAUTH_TOKEN` env →
+`<root>/.credentials.json` → macOS keychain (`security find-generic-password -s 'Claude Code-credentials'`).
+The fetch is skipped when no token is found or `expiresAt` has passed.
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -135,17 +144,19 @@ computed for the tooltip (and, for Claude, headlined in the row alongside a visi
 
 - `generated_at` — ISO timestamp of the snapshot.
 - `agents` — one `AgentUsageReport` per agent (`claude`, `codex`), each `{ agent, status, usage, windows?, error? }`:
-  - `status`: `ok` (Codex: a rate-limit snapshot was found → `windows` populated), `empty` (Codex:
-    dir found but no recent snapshot), `unsupported` (Claude: dir found but remaining quota isn't
-    persisted locally — run `/usage` in the Claude CLI, which queries Anthropic live), `not_found`
-    (the CLI's data dir doesn't exist — not installed / never run), `error` (read failure; `error`
-    carries the reason).
-  - `windows` (Codex `ok` only) — array of `RateWindow` `{ key, used_percent, remaining_percent,
-    window_minutes, resets_at }` from the **latest** rate-limit snapshot. `key` is `primary` (short
-    rolling window) or `secondary` (weekly); `remaining_percent = clamp(0, 100, 100 − used_percent)`;
-    `resets_at` is epoch **milliseconds** (0 if unknown). A window whose `resets_at` already passed
-    has rolled over since the snapshot, so it's reported as fully remaining (used 0 / left 100) with
-    `resets_at` projected forward to the next boundary.
+  - `status`: `ok` (a rate-limit reading succeeded → `windows` populated; Codex from its latest local
+    snapshot, Claude from the live fetch), `empty` (Codex: dir found but no recent snapshot),
+    `unsupported` (Claude: the live remaining read couldn't run — no local OAuth token / expired /
+    offline / endpoint error; run `/login` then `/usage` in the Claude CLI), `not_found` (the CLI's
+    data dir doesn't exist — not installed / never run), `error` (LOCAL read failure; `error` carries
+    the reason — a failed Claude live fetch is **not** an error, it degrades to `unsupported`).
+  - `windows` (either agent, `ok` only) — array of `RateWindow` `{ key, used_percent, remaining_percent,
+    window_minutes, resets_at }`. `key` is `primary` (short rolling window — Codex primary / Claude
+    `five_hour`, 300 min) or `secondary` (weekly — Codex secondary / Claude `seven_day`, 10080 min);
+    `remaining_percent = clamp(0, 100, 100 − used_percent)` (Claude's `used_percent` is the endpoint's
+    `utilization`); `resets_at` is epoch **milliseconds** (0 if unknown; Claude's source is an ISO
+    string, Codex's epoch seconds). A window whose `resets_at` already passed has rolled over since the
+    reading, so it's reported as fully remaining (used 0 / left 100) with `resets_at` projected forward.
   - `usage`: `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens }`,
     summed across **today's** sessions (the tooltip figure). `total_tokens` is the sum of the other four.
 
@@ -153,9 +164,10 @@ computed for the tooltip (and, for Claude, headlined in the row alongside a visi
 per-agent `not_found`/`error` row rather than failing the whole request. **"Today" (for the usage
 totals) is the server's local-machine day** (Symphony runs locally beside the CLIs). Codex rate-limit
 snapshots are scanned across rollouts touched within ~8 days (so the weekly window stays visible);
-the today-only usage filter is per-line, so the wider file set doesn't change the usage numbers. Data
-roots honor `CLAUDE_CONFIG_DIR` (Claude, may be comma-separated; else `~/.claude` + `~/.config/claude`)
-and `CODEX_HOME` (Codex; else `~/.codex`), read at request time.
+the today-only usage filter is per-line, so the wider file set doesn't change the usage numbers. The
+Claude live fetch is cached for ~30s to coalesce the bursty sidebar polls. Data roots honor
+`CLAUDE_CONFIG_DIR` (Claude, may be comma-separated; else `~/.claude` + `~/.config/claude`) and
+`CODEX_HOME` (Codex; else `~/.codex`), read at request time.
 
 ---
 

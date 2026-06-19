@@ -5,30 +5,30 @@ import { formatPercent, formatTokens } from '../lib/format';
 import type { AgentType, AgentUsage, AgentUsageReport, Issue, RateWindow } from '../../shared/types';
 
 /**
- * SYM-38 / SYM-39: sidebar footer widget. SYM-39 repurposed it from today's token *usage* to
+ * SYM-38 / SYM-39 / SYM-40: sidebar footer widget. SYM-39 repurposed it from today's token *usage* to
  * **remaining** rate-limit quota — the user wants to see what's left, not what's spent.
  *
- * Codex logs its live rate limits locally, so its row headlines the lowest remaining window
- * ("NN% left") with a threshold-colored dot and a per-window/reset tooltip. Claude exposes NO local
- * quota state, so instead of fabricating a budget — or, as before, showing a flat "本地不可用" that
- * misread as "Claude Code is unavailable" (SYM-40) — its row honestly falls back to today's token
- * usage ("N 今日", self-qualified so it isn't mistaken for a remaining %) with a neutral dot, or a
- * neutral idle label ("无今日用量") when nothing ran today.
+ * Both agents render the SAME `ok` shape: the lowest remaining window ("NN% left") with a
+ * threshold-colored dot and a per-window/reset tooltip (5h / Week). Codex reads its remaining from its
+ * local rate-limit logs; Claude (SYM-40 round 3: "show Claude's remaining like Codex") has the server
+ * fetch it LIVE from Anthropic with the user's own local OAuth token, so a logged-in user sees real
+ * remaining here just like Codex.
  *
- * SYM-40 round 2: the reviewer asked "why unavailable? can't `/usage` check it?" — the answer was
- * hidden in a hover tooltip nobody saw. So the Claude row now carries an ALWAYS-VISIBLE muted sub-line
- * ("剩余量见 /usage") naming the command at a glance: Claude doesn't persist remaining quota locally,
- * `/usage` fetches it live from Anthropic, so the local figure is today's usage, not what's left. The
- * fuller explanation still lives in the `title` tooltip.
+ * When that live read can't run — not logged in locally, token expired, or offline — the server returns
+ * `unsupported` and the Claude row honestly falls back to today's token usage ("N 今日", self-qualified
+ * so it isn't mistaken for a remaining %) with a neutral dot, or "无今日用量" when nothing ran today, plus
+ * an always-visible "剩余量见 /usage" sub-line naming the command that shows remaining. (Earlier SYM-40
+ * rounds showed a flat "本地不可用" that misread as "Claude Code is unavailable"; the visible sub-line +
+ * tooltip now explain the fallback instead.)
  *
  * Refreshes on two triggers (AC#2 from SYM-38): a 60s interval, and whenever any issue takes an
  * action — the latter by reading the SAME `['issues']` query Layout already polls every 3s (TanStack
  * dedupes) and invalidating the usage query when the issues' status/updated_at signature changes.
  *
  * Every state is rendered (AC#1/#3): loading, ok (remaining %), empty (no recent activity),
- * unsupported (Claude → today's usage / idle), not_found (not detected), and error → "检测失败 /
- * detection failed". Each agent is read independently server-side, so one missing CLI never blanks the
- * other; a whole-query failure shows 检测失败 on both.
+ * unsupported (Claude live-read unavailable → today's usage / idle), not_found (not detected), and
+ * error → "检测失败 / detection failed". Each agent is read independently server-side, so one missing CLI
+ * never blanks the other; a whole-query failure shows 检测失败 on both.
  */
 export function SidebarUsage() {
   const qc = useQueryClient();
@@ -165,12 +165,11 @@ function rowDisplay(
         title: 'Detected, but no recent rate-limit data logged',
       };
     case 'unsupported': {
-      // SYM-40: Claude IS in active use; showing "本地不可用" misreads as "Claude Code unavailable".
-      // Remaining quota genuinely isn't derivable from Claude's logs (Claude persists no quota state
-      // locally; `/usage` fetches it live from Anthropic), so we honestly fall back to today's token
-      // usage (self-qualified with 今日 so it isn't mistaken for a remaining %) and a neutral dot —
-      // never a quota signal. An always-visible "剩余量见 /usage" sub-line (round 2) names the command
-      // at a glance; the tooltip carries the fuller explanation.
+      // SYM-40: the server couldn't read Claude's LIVE remaining (not logged in locally / token expired
+      // / offline), so we honestly fall back to today's token usage (self-qualified with 今日 so it isn't
+      // mistaken for a remaining %) and a neutral dot — never a fabricated quota signal. An
+      // always-visible "剩余量见 /usage" sub-line names the command that shows remaining; the tooltip
+      // explains the fallback (and points at /login when it's a sign-in issue).
       const hint = { prefix: '剩余量见', command: '/usage' };
       const today = report.usage.total_tokens;
       return today > 0
@@ -204,11 +203,11 @@ function remainingTitle(report: AgentUsageReport, windows: RateWindow[], generat
   return lines.join('\n');
 }
 
-/** Claude tooltip: the evidence-based "why" — quota isn't local, /usage fetches it live — + today's tokens. */
+/** Claude fallback tooltip: why the live remaining couldn't be read + today's tokens shown instead. */
 function unsupportedTitle(report: AgentUsageReport, generatedAt?: string): string {
   const lines = [
-    'Claude Code 不在本地保存剩余量;/usage 会实时向 Anthropic 查询。',
-    '此处显示今日本地用量,剩余量请在 Claude CLI 运行 /usage。',
+    '无法读取 Claude 实时剩余量(未登录 / 令牌过期 / 离线)。',
+    '此处暂显示今日本地用量;请在 Claude CLI 运行 /login 登录后,/usage 查看剩余量。',
   ];
   if (report.usage.total_tokens > 0) lines.push(todayUsageLine(report.usage));
   if (generatedAt) lines.push(`Updated ${new Date(generatedAt).toLocaleTimeString()}`);
