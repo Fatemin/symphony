@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Ban, Check, CheckSquare, Plus, Sparkles, Square } from 'lucide-react';
+import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, Plus, Sparkles, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
@@ -12,6 +12,11 @@ import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui'
 import { PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
+
+// SYM-23: collapsed board columns persist globally (same 5 statuses on every project board), mirroring
+// the sidebar's global expanded-projects key. We store the *collapsed* statuses so the default empty
+// set means all columns expanded.
+const COLLAPSED_KEY = 'symphony.board.collapsedColumns';
 
 export function Board() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +31,9 @@ export function Board() {
   const [approveOpen, setApproveOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  // SYM-23: which status columns are collapsed (seeded from localStorage). Mirrors Layout.tsx's
+  // expanded-projects pattern: write-back effect + toggle mutator, all localStorage wrapped in try/catch.
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<IssueStatus>>(() => readCollapsed());
   // SYM-13: track which cards just changed status so we can play the lift-drop animation. The board
   // polls every 3s and each poll yields a fresh issues array, so the diff effect below runs often —
   // it stays a no-op unless a status actually changed. `prevStatus` seeds on the first load without
@@ -80,6 +88,23 @@ export function Board() {
     const t = setTimeout(() => setMoved(new Set()), 700); // clear so the animation can replay next time
     return () => clearTimeout(t);
   }, [project?.issues]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedColumns]));
+    } catch {
+      /* localStorage may be unavailable in hardened browser contexts */
+    }
+  }, [collapsedColumns]);
+
+  const toggleColumn = (status: IssueStatus) => {
+    setCollapsedColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  };
 
   if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
@@ -145,15 +170,46 @@ export function Board() {
 
       {open && <NewIssueForm projectId={project.id} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ['project', id] }); }} />}
 
-      <div className="grid flex-1 grid-cols-5 gap-3 overflow-x-auto">
+      <div className="flex flex-1 gap-3 overflow-x-auto">
         {COLUMNS.map((status) => {
           const items = byStatus(status);
-          return (
-            <div key={status} className="flex min-w-[180px] flex-col">
-              <div className="mb-2 flex items-center gap-2 px-1">
-                <span className={`h-2 w-2 rounded-full ${STATUS_META[status].dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
-                <span className="text-xs font-medium text-fg">{STATUS_META[status].label}</span>
+          const meta = STATUS_META[status];
+          const isCollapsed = collapsedColumns.has(status);
+          // Collapsed columns shrink to a narrow strip; expanded columns share the freed width via
+          // flex-1 so e.g. Done grows when its neighbours are collapsed. transition-all animates the
+          // width change (suppressed under prefers-reduced-motion via globals.css).
+          if (isCollapsed) {
+            return (
+              <button
+                key={status}
+                type="button"
+                aria-label={`Expand ${meta.label}`}
+                aria-expanded={false}
+                onClick={() => toggleColumn(status)}
+                className="flex w-10 shrink-0 flex-col items-center gap-2 rounded-md py-2 text-muted transition-all hover:bg-hover hover:text-fg"
+              >
+                <ChevronRight className="h-4 w-4 shrink-0" />
+                <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
                 <span className="text-xs text-subtle">{items.length}</span>
+                <span className="text-xs font-medium [writing-mode:vertical-rl]">{meta.label}</span>
+              </button>
+            );
+          }
+          return (
+            <div key={status} className="flex min-w-[180px] flex-1 flex-col transition-all">
+              <div className="mb-2 flex items-center gap-2 px-1">
+                <span className={`h-2 w-2 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
+                <span className="text-xs font-medium text-fg">{meta.label}</span>
+                <span className="text-xs text-subtle">{items.length}</span>
+                <button
+                  type="button"
+                  aria-label={`Collapse ${meta.label}`}
+                  aria-expanded={true}
+                  onClick={() => toggleColumn(status)}
+                  className="ml-auto grid h-5 w-5 place-items-center rounded text-muted hover:bg-hover hover:text-fg"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
               </div>
               <div className="flex flex-col gap-2">
                 {items.map((issue) => (
@@ -208,6 +264,21 @@ export function Board() {
       )}
     </div>
   );
+}
+
+// SYM-23: seed the collapsed-columns set from localStorage. Only keep values that are real board
+// columns so a stale or hand-edited key can't poison the set; an unreadable key yields all-expanded.
+function readCollapsed(): Set<IssueStatus> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const valid = Array.isArray(parsed)
+      ? parsed.filter((s): s is IssueStatus => COLUMNS.includes(s))
+      : [];
+    return new Set(valid);
+  } catch {
+    return new Set();
+  }
 }
 
 function IssueCard({
