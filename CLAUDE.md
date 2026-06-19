@@ -64,8 +64,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `LocalUsageReport`. For Codex it captures the LATEST `token_count.payload.rate_limits` snapshot (by
   timestamp, scanning files within an ~8-day mtime lookback so the weekly window stays visible) and
   builds `windows` with `remaining_percent = 100 − used_percent` (a window whose `resets_at`, epoch
-  SECONDS in source, already passed rolls over to 100% remaining). Claude exposes NO local quota state,
-  so it returns status `unsupported`. Today's token totals (Codex per-turn `last_token_usage`, NOT
+  SECONDS in source, already passed rolls over to 100% remaining). Claude persists NO local quota state
+  (`/usage` fetches remaining LIVE from an authenticated Anthropic endpoint, so it can't be read here
+  without breaking the read-only-local/no-network contract), so it returns status `unsupported`.
+  Today's token totals (Codex per-turn `last_token_usage`, NOT
   cumulative `total_token_usage`; filtered per-line to the server's LOCAL-machine day) are still computed
   for the tooltip on both agents. Each agent is read in its own try/catch so one missing/locked dir never
   blanks the other; `GET /api/usage/local` therefore always returns `200` with per-agent statuses
@@ -85,9 +87,12 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   **remaining** quota from `GET /api/usage/local` — Codex's lowest remaining window ("NN% left",
   threshold-colored dot). Claude has no local quota (`status: 'unsupported'`), so rather than the old
   flat "本地不可用" that misread as "Claude unavailable" (SYM-40), its row honestly falls back to today's
-  token usage ("N 今日", neutral dot) — or "无今日用量" when idle — with the remaining-not-local caveat in
-  the tooltip. Refreshes every 60s and whenever the shared `['issues']` poll's status/`updated_at`
-  signature changes.
+  token usage ("N 今日", neutral dot) — or "无今日用量" when idle — plus an always-visible muted sub-line
+  ("剩余量见 /usage") naming the command at a glance (round 2: the prior round buried that answer in a
+  hover-only tooltip the reviewer never saw). The honest reason — Claude persists no quota locally and
+  `/usage` fetches it live from Anthropic — lives in the code comments + the tooltip; a live-fetch
+  alternative is deferred. Refreshes every 60s and whenever the shared `['issues']` poll's
+  status/`updated_at` signature changes.
 
 ## Conventions
 

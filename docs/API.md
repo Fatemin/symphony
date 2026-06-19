@@ -122,7 +122,10 @@ feature/bug suggestion.
 Read-only, computed (no DB). Reads the **local** Claude Code / Codex CLI session logs on the same
 machine for the sidebar footer. SYM-39 repurposed this from spent token *usage* to **remaining**
 rate-limit quota (the user wants to see what's left). Codex logs its live rate limits locally; Claude
-does not, so Claude reports `unsupported`. Today's token totals are still computed for the tooltip.
+persists no quota state locally — its `/usage` command fetches remaining LIVE from an authenticated
+Anthropic endpoint (keychain OAuth token), which can't be replicated here without breaking the
+read-only-local/no-network contract — so Claude reports `unsupported`. Today's token totals are still
+computed for the tooltip (and, for Claude, headlined in the row alongside a visible `/usage` hint).
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -134,8 +137,9 @@ does not, so Claude reports `unsupported`. Today's token totals are still comput
 - `agents` — one `AgentUsageReport` per agent (`claude`, `codex`), each `{ agent, status, usage, windows?, error? }`:
   - `status`: `ok` (Codex: a rate-limit snapshot was found → `windows` populated), `empty` (Codex:
     dir found but no recent snapshot), `unsupported` (Claude: dir found but remaining quota isn't
-    available locally — run `/usage` in the Claude CLI), `not_found` (the CLI's data dir doesn't
-    exist — not installed / never run), `error` (read failure; `error` carries the reason).
+    persisted locally — run `/usage` in the Claude CLI, which queries Anthropic live), `not_found`
+    (the CLI's data dir doesn't exist — not installed / never run), `error` (read failure; `error`
+    carries the reason).
   - `windows` (Codex `ok` only) — array of `RateWindow` `{ key, used_percent, remaining_percent,
     window_minutes, resets_at }` from the **latest** rate-limit snapshot. `key` is `primary` (short
     rolling window) or `secondary` (weekly); `remaining_percent = clamp(0, 100, 100 − used_percent)`;

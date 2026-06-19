@@ -20,8 +20,12 @@ import type {
  *  - Codex logs its live rate limits: each `token_count` event carries `payload.rate_limits` with a
  *    `primary` (short rolling) and `secondary` (weekly) window, each `{ used_percent, window_minutes,
  *    resets_at }`. We take the LATEST snapshot (max timestamp, any day) and report remaining = 100 −
- *    used. Claude exposes NO local quota state — its assistant lines carry only usage, and
- *    `~/.claude.json` holds only the plan tier — so Claude's row is `unsupported`.
+ *    used. Claude exposes NO local quota state — its session JSONL assistant lines carry only token
+ *    usage, and the `~/.claude.json` caches hold no remaining figure (only plan tier + cache stamps).
+ *    Claude's own `/usage` reads remaining LIVE from an authenticated Anthropic endpoint (OAuth token
+ *    from the OS keychain), with no non-interactive `claude usage` subcommand to shell out to —
+ *    replicating it would break this reader's read-only-local / no-network / writes-nothing contract
+ *    and add a security surface, so Claude's row is `unsupported` (SYM-40) rather than a fabricated %.
  *  - Today's token totals are still computed for the tooltip on both agents. "today" is the SERVER's
  *    local-machine day boundary — Symphony runs locally beside the CLIs, so timestamps share its clock.
  *  - Each agent root is scanned inside its OWN try/catch (`buildReport`) so a missing/locked Claude
@@ -58,8 +62,10 @@ export async function readLocalUsage(): Promise<AgentUsageReport[]> {
 // ── Per-agent readers ──────────────────────────────────────────────────────
 
 function readClaudeUsage(now: Date): Promise<AgentUsageReport> {
-  // Claude has NO local remaining-quota data, so once its dir is found the row is `unsupported`. Today's
-  // usage is still computed so the tooltip can show today's tokens (see scanClaude).
+  // Claude persists NO remaining-quota state locally (its logs/caches hold only usage + plan tier;
+  // `/usage` fetches what's left LIVE from Anthropic), so once its dir is found the row is
+  // `unsupported` — the UI honestly headlines today's usage and points at `/usage`. Today's usage is
+  // still computed so the row + tooltip can show today's tokens (see scanClaude).
   return buildReport('claude', () => scanClaude(now), () => ({ status: 'unsupported' }));
 }
 

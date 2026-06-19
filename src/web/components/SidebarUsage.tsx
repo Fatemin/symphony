@@ -13,8 +13,13 @@ import type { AgentType, AgentUsage, AgentUsageReport, Issue, RateWindow } from 
  * quota state, so instead of fabricating a budget — or, as before, showing a flat "本地不可用" that
  * misread as "Claude Code is unavailable" (SYM-40) — its row honestly falls back to today's token
  * usage ("N 今日", self-qualified so it isn't mistaken for a remaining %) with a neutral dot, or a
- * neutral idle label ("无今日用量") when nothing ran today. The tooltip explains that remaining quota
- * isn't derivable locally (run `/usage` in the Claude CLI).
+ * neutral idle label ("无今日用量") when nothing ran today.
+ *
+ * SYM-40 round 2: the reviewer asked "why unavailable? can't `/usage` check it?" — the answer was
+ * hidden in a hover tooltip nobody saw. So the Claude row now carries an ALWAYS-VISIBLE muted sub-line
+ * ("剩余量见 /usage") naming the command at a glance: Claude doesn't persist remaining quota locally,
+ * `/usage` fetches it live from Anthropic, so the local figure is today's usage, not what's left. The
+ * fuller explanation still lives in the `title` tooltip.
  *
  * Refreshes on two triggers (AC#2 from SYM-38): a 60s interval, and whenever any issue takes an
  * action — the latter by reading the SAME `['issues']` query Layout already polls every 3s (TanStack
@@ -88,6 +93,11 @@ interface RowDisplay {
   dot: string; // tailwind bg-* class
   strong: boolean; // emphasize the value (ok / error) vs. dim it (idle states)
   title?: string;
+  /**
+   * An always-visible muted sub-line under the value (SYM-40: the Claude "剩余量见 /usage" hint). Split
+   * into a `prefix` + `command` so the slash-command renders a notch brighter than the caption.
+   */
+  hint?: { prefix: string; command: string };
 }
 
 function UsageRow({
@@ -105,12 +115,24 @@ function UsageRow({
 }) {
   const d = rowDisplay(report, loading, queryFailed, generatedAt);
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="truncate text-muted">{label}</span>
-      <span className="flex shrink-0 items-center gap-1.5" title={d.title}>
-        <span className={d.strong ? 'text-fg' : 'text-subtle'}>{d.text}</span>
-        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${d.dot}`} />
-      </span>
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-muted">{label}</span>
+        <span className="flex shrink-0 items-center gap-1.5" title={d.title}>
+          <span className={d.strong ? 'text-fg' : 'text-subtle'}>{d.text}</span>
+          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${d.dot}`} />
+        </span>
+      </div>
+      {d.hint && (
+        // Always-visible secondary affordance (SYM-40): plain text, so it's discoverable + accessible
+        // without focus/hover. The `/usage` command is set a notch brighter to read as a command, and
+        // the row's full explanation rides along in the same `title` tooltip.
+        <div className="mt-px flex justify-end pr-3" title={d.title}>
+          <span className="text-[10px] leading-tight text-subtle">
+            {d.hint.prefix} <span className="text-muted">{d.hint.command}</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -144,13 +166,16 @@ function rowDisplay(
       };
     case 'unsupported': {
       // SYM-40: Claude IS in active use; showing "本地不可用" misreads as "Claude Code unavailable".
-      // Remaining quota genuinely isn't derivable from Claude's logs, so we honestly fall back to
-      // today's token usage (self-qualified with 今日 so it isn't mistaken for a remaining %) and a
-      // neutral dot — never a quota signal. The tooltip carries the "run /usage" explanation.
+      // Remaining quota genuinely isn't derivable from Claude's logs (Claude persists no quota state
+      // locally; `/usage` fetches it live from Anthropic), so we honestly fall back to today's token
+      // usage (self-qualified with 今日 so it isn't mistaken for a remaining %) and a neutral dot —
+      // never a quota signal. An always-visible "剩余量见 /usage" sub-line (round 2) names the command
+      // at a glance; the tooltip carries the fuller explanation.
+      const hint = { prefix: '剩余量见', command: '/usage' };
       const today = report.usage.total_tokens;
       return today > 0
-        ? { text: `${formatTokens(today)} 今日`, dot: 'bg-slate-600', strong: true, title: unsupportedTitle(report, generatedAt) }
-        : { text: '无今日用量', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt) };
+        ? { text: `${formatTokens(today)} 今日`, dot: 'bg-slate-600', strong: true, title: unsupportedTitle(report, generatedAt), hint }
+        : { text: '无今日用量', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt), hint };
     }
     case 'not_found':
       return { text: 'not detected', dot: 'bg-slate-600', strong: false, title: 'CLI data directory not found on this machine' };
@@ -179,9 +204,12 @@ function remainingTitle(report: AgentUsageReport, windows: RateWindow[], generat
   return lines.join('\n');
 }
 
-/** Claude tooltip: an honest explanation that remaining isn't available locally, plus today's tokens. */
+/** Claude tooltip: the evidence-based "why" — quota isn't local, /usage fetches it live — + today's tokens. */
 function unsupportedTitle(report: AgentUsageReport, generatedAt?: string): string {
-  const lines = ['本地无法获取 Claude 剩余量,请在 Claude CLI 运行 /usage'];
+  const lines = [
+    'Claude Code 不在本地保存剩余量;/usage 会实时向 Anthropic 查询。',
+    '此处显示今日本地用量,剩余量请在 Claude CLI 运行 /usage。',
+  ];
   if (report.usage.total_tokens > 0) lines.push(todayUsageLine(report.usage));
   if (generatedAt) lines.push(`Updated ${new Date(generatedAt).toLocaleTimeString()}`);
   return lines.join('\n');

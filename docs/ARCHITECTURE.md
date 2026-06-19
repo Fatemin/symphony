@@ -63,7 +63,8 @@ src/server/
                     docs.ts reads the project repo's documentation for the Docs tab (read-only)
   usage/            localUsage.ts: reads the LOCAL Claude/Codex CLI session logs for the sidebar
                     footer — Codex remaining rate-limit quota (windows) + today's tokens for the
-                    tooltip; Claude has no local quota → 'unsupported' (read-only) — SYM-38/SYM-39
+                    tooltip; Claude persists no local quota (/usage fetches it live) → 'unsupported',
+                    UI shows today's usage + a /usage hint (read-only) — SYM-38/SYM-39/SYM-40
   observability/    structured logger + in-process event bus (SSE source)
   preview/          launch the project from an issue's worktree (preview server)
 
@@ -274,8 +275,14 @@ SYM-39 flipped it from spent tokens to what's left: Codex headlines its lowest r
 tooltip. Claude has no local quota data (`status: 'unsupported'`); SYM-40 replaced the old flat
 "本地不可用" — which misread as "Claude Code is unavailable" even while in active use — with an honest
 fallback to today's token usage ("N 今日", self-qualified so it isn't mistaken for a remaining %; neutral
-dot), or "无今日用量" when nothing ran today, keeping the "remaining isn't derivable locally → run
-`/usage`" note in the tooltip. It refreshes on a 60s interval and whenever any issue takes an action —
+dot), or "无今日用量" when nothing ran today. A round-2 reviewer asked "why unavailable? can't `/usage`
+check it?", so the Claude row now also carries an **always-visible** muted sub-line ("剩余量见 /usage")
+naming the command at a glance — the prior round had buried that answer in a hover-only tooltip. The
+honest reason (now in code comments + the tooltip): Claude persists no remaining-quota state locally;
+`/usage` fetches it LIVE from an authenticated Anthropic endpoint (keychain OAuth token), and there's
+no non-interactive `claude usage` subcommand, so replicating it would break the reader's
+read-only-local / no-network contract — a live-fetch alternative is deliberately deferred. It refreshes
+on a 60s interval and whenever any issue takes an action —
 the latter by observing the shared `['issues']` poll (Layout already runs it every 3s) and invalidating
 the usage query when the issues' status/`updated_at` signature changes. It renders every state: loading,
 `ok` (remaining %), `empty`, `unsupported` (Claude → today's usage / idle), `not_found`, and `error` →
