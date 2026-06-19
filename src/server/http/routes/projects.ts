@@ -16,8 +16,9 @@ import {
 import { fetchGithubSkill } from '../../core/githubSkill';
 import { fetchMarketplaceSkills, parseMarketplaceImport } from '../../core/marketplaceSkill';
 import { listIssues } from '../../repo/issues';
+import { latestPhaseByIssue } from '../../repo/runs';
 import { listBranches } from '../../workspace/worktree';
-import type { MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
+import type { BoardIssue, MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
 
 export const projectRoutes = new Hono();
 
@@ -47,7 +48,16 @@ projectRoutes.get('/:id/branches', async (c) => {
 projectRoutes.get('/:id', (c) => {
   const project = getProject(c.req.param('id'));
   if (!project) return c.json({ error: 'not found' }, 404);
-  return c.json({ ...project, issues: listIssues(project.id) });
+  // SYM-32: attach each in-progress issue's live phase so the board card can show plan/implement/qa.
+  // The phase is only meaningful while work is running, so non-in_progress issues report null.
+  const issues = listIssues(project.id);
+  const inProgressIds = issues.filter((i) => i.status === 'in_progress').map((i) => i.id);
+  const phases = latestPhaseByIssue(inProgressIds);
+  const boardIssues: BoardIssue[] = issues.map((i) => ({
+    ...i,
+    current_phase: i.status === 'in_progress' ? (phases.get(i.id) ?? null) : null,
+  }));
+  return c.json({ ...project, issues: boardIssues });
 });
 
 projectRoutes.patch('/:id', async (c) => {

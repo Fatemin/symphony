@@ -3,13 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
-import type { Issue, IssueStatus } from '../../shared/types';
+import type { BoardIssue, Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
-import { PRIORITY_META, STATUS_META } from '../lib/format';
+import { PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
 
@@ -333,7 +333,7 @@ function IssueCard({
   justMoved = false,
   onToggle,
 }: {
-  issue: Issue;
+  issue: BoardIssue;
   selectable?: boolean;
   selected?: boolean;
   justMoved?: boolean;
@@ -374,9 +374,14 @@ function IssueCard({
         </div>
         <p className="mb-2 text-sm leading-snug text-fg">{issue.title}</p>
         <div className="flex items-center gap-2 text-[10px]">
-          <span className={`rounded px-1.5 py-0.5 ${issue.mode === 'auto' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-600/20 text-muted'}`}>
-            {issue.mode}
-          </span>
+          {/* SYM-32: show the live phase chip for in-progress issues (current_phase is null otherwise,
+              so the footer never collapses to empty — the type label always remains). Replaces the
+              former auto/manual mode chip, per the acceptance criteria. */}
+          {issue.current_phase && (
+            <span className={`rounded px-1.5 py-0.5 ${PHASE_META[issue.current_phase].badge}`}>
+              {PHASE_META[issue.current_phase].label}
+            </span>
+          )}
           <span className="text-subtle">{issue.type}</span>
         </div>
       </Panel>

@@ -73,6 +73,16 @@ export interface Issue {
   updated_at: string;
 }
 
+/**
+ * Board view model (SYM-32): an Issue plus the phase of its most-recent run, surfaced on the
+ * board card so an in-progress issue shows whether it's in plan / implement / qa / etc. The field
+ * is derived (read from `runs` on each request), not a DB column, and is only populated while the
+ * issue is `in_progress` — `null` for every other status.
+ */
+export interface BoardIssue extends Issue {
+  current_phase: RunPhase | null;
+}
+
 /** A human "request changes" note at the review gate that starts a new revision round. */
 export interface IssueRevision {
   id: string;

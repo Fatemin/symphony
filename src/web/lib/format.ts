@@ -1,4 +1,4 @@
-import type { IssueStatus, Priority } from '../../shared/types';
+import type { IssueStatus, Priority, RunPhase } from '../../shared/types';
 
 export const STATUS_ORDER: IssueStatus[] = [
   'backlog',
@@ -16,6 +16,17 @@ export const STATUS_META: Record<IssueStatus, { label: string; color: string; do
   review: { label: 'Review', color: 'text-[var(--color-review)]', dot: 'bg-violet-400' },
   done: { label: 'Done', color: 'text-[var(--color-done)]', dot: 'bg-emerald-500' },
   cancelled: { label: 'Cancelled', color: 'text-muted', dot: 'bg-slate-600' },
+};
+
+// SYM-32: phase chip styling for an in-progress issue's board card. Keyed over every RunPhase so a
+// new phase forces a label here. `badge` matches the footer chip shape (rounded px-1.5 py-0.5) and
+// uses the amber in-progress theme so the chip reads as "active work".
+export const PHASE_META: Record<RunPhase, { label: string; badge: string }> = {
+  plan: { label: 'Plan', badge: 'bg-amber-400/15 text-amber-300' },
+  implement: { label: 'Implement', badge: 'bg-amber-400/15 text-amber-300' },
+  qa: { label: 'QA', badge: 'bg-amber-400/15 text-amber-300' },
+  delivery: { label: 'Delivery', badge: 'bg-amber-400/15 text-amber-300' },
+  merge: { label: 'Merge', badge: 'bg-amber-400/15 text-amber-300' },
 };
 
 export const PRIORITY_META: Record<Priority, { label: string; color: string }> = {
