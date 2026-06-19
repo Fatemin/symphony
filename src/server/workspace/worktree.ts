@@ -215,6 +215,53 @@ export async function pushBranch(repoPath: string, remote: string, branch: strin
   return { ok: false, reason: result.stderr.trim() || result.stdout.trim() || `push ${remote} ${branch} failed` };
 }
 
+export interface PushBaseResult {
+  ok: boolean;
+  /** Whether a push actually happened (false when skipped because no remote is configured). */
+  pushed: boolean;
+  reason?: string;
+}
+
+/**
+ * Push the base branch to its remote after a direct-merge approval moved the LOCAL base ref, so the
+ * merge reaches GitHub and Actions fire (SYM-18). Safe to skip and re-run:
+ *  - no such remote configured  → skip (ok, pushed:false) so local-only repos keep working;
+ *  - remote base absent         → first push;
+ *  - remote base is an ancestor → fast-forward push;
+ *  - remote base diverged       → fail (ok:false) with a clear reason instead of force-pushing.
+ */
+export async function pushBaseBranch(repoPath: string, remote: string, branch: string): Promise<PushBaseResult> {
+  if (!remote.trim()) return { ok: true, pushed: false, reason: 'no remote configured' };
+
+  // A remote name is always set (default 'origin'); only push when that remote actually exists,
+  // so the default-on behaviour never breaks local-only repos that have no origin.
+  const remotes = await git(['remote'], repoPath);
+  const known = remotes.ok ? remotes.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+  if (!known.includes(remote)) return { ok: true, pushed: false, reason: `remote ${remote} not configured` };
+
+  // If the remote base already exists, make sure our local base is a fast-forward of it. A diverged
+  // remote (commits we don't have) means a non-ff push would be rejected; fail loudly rather than
+  // force-push and clobber remote history.
+  if (await remoteBranchExists(repoPath, remote, branch)) {
+    const fetch = await git(['fetch', remote, branch], repoPath, 120_000);
+    if (!fetch.ok) {
+      return { ok: false, pushed: false, reason: `fetch ${remote}/${branch} failed: ${fetch.stderr.trim() || fetch.stdout.trim()}` };
+    }
+    const ancestor = await git(['merge-base', '--is-ancestor', 'FETCH_HEAD', branch], repoPath);
+    if (!ancestor.ok) {
+      return {
+        ok: false,
+        pushed: false,
+        reason: `remote ${remote}/${branch} has commits not in local ${branch} — pull/rebase the base and re-approve before pushing`,
+      };
+    }
+  }
+
+  const push = await pushBranch(repoPath, remote, branch);
+  if (!push.ok) return { ok: false, pushed: false, reason: push.reason };
+  return { ok: true, pushed: true };
+}
+
 /**
  * Compute what an agent branch changed relative to its base, for the review gate. Uses the
  * three-dot range (`base...branch`) so it shows only the branch's own commits even if base moved.

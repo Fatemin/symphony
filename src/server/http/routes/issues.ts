@@ -30,6 +30,7 @@ import {
   ensureBranch,
   getBranchDiff,
   mergeAgentBranch,
+  pushBaseBranch,
   pushBranch,
   removeWorktree,
   type MergeAgentBranchOptions,
@@ -242,6 +243,28 @@ issueRoutes.post('/:id/approve', async (c) => {
     return c.json(merge, 409);
   }
 
+  // §SYM-18: the local merge above only moved the LOCAL base ref. Push it to the remote (default on)
+  // so the merge reaches GitHub and Actions fire. A failed push (e.g. non-ff) fails the approve
+  // loudly WITHOUT marking done — the issue stays in 'review' so a re-approve (idempotent: the merge
+  // becomes "already up to date") can retry the push once the remote is reconciled.
+  let pushed = false;
+  if (projectConfig.promotion.push) {
+    const remote = projectConfig.promotion.remote;
+    const push = await pushBaseBranch(project.repo_path, remote, targetBranch);
+    if (!push.ok) {
+      const reason = push.reason ?? `push ${remote} ${targetBranch} failed`;
+      appendEvent({
+        issue_id: issue.id,
+        kind: 'approve.failed',
+        level: 'error',
+        message: `approved merge landed locally but push to ${remote}/${targetBranch} failed: ${reason}`,
+        data: { base: targetBranch, remote, commit: merge.commit, pushed: false, reason },
+      });
+      return c.json({ ok: false, reason, target_branch: targetBranch }, 409);
+    }
+    pushed = push.pushed;
+  }
+
   await cleanupIssueResources(issue, { forceBranch: false, reason: 'approved' });
   if (setDefaultBranch) updateProject(project.id, { default_branch: targetBranch });
   updateIssue(issue.id, { status: 'done', branch_name: null, worktree_path: null, base_branch: targetBranch });
@@ -250,7 +273,7 @@ issueRoutes.post('/:id/approve', async (c) => {
     kind: 'approve.merged',
     message: merge.resolved_conflicts
       ? `approved — resolved conflicts and merged into ${targetBranch} (${merge.commit ?? '?'})`
-      : `approved — merged into ${targetBranch} (${merge.commit ?? '?'}) and marked done`,
+      : `approved — merged into ${targetBranch} (${merge.commit ?? '?'})${pushed ? ` and pushed to ${projectConfig.promotion.remote}` : ''} and marked done`,
     data: {
       base: targetBranch,
       commit: merge.commit,
@@ -258,9 +281,11 @@ issueRoutes.post('/:id/approve', async (c) => {
       set_default_branch: setDefaultBranch,
       resolved_conflicts: merge.resolved_conflicts === true,
       conflicted_files: merge.conflicted_files ?? [],
+      pushed,
+      remote: pushed ? projectConfig.promotion.remote : undefined,
     },
   });
-  return c.json({ ok: true, commit: merge.commit, target_branch: targetBranch });
+  return c.json({ ok: true, commit: merge.commit, target_branch: targetBranch, pushed, remote: pushed ? projectConfig.promotion.remote : undefined });
 });
 
 function mergeOptionsForApproval(

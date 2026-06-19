@@ -73,6 +73,7 @@ export interface ProjectWorkflowConfig {
     base_branch?: string;
     remote: string;
     auto_merge: boolean;
+    push: boolean;
     check_poll_interval_ms: number;
     check_timeout_ms: number;
   };

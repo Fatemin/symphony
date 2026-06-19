@@ -31,6 +31,7 @@ const DEFAULT_CONFIG: ProjectWorkflowConfig = {
     mode: 'direct-merge',
     remote: 'origin',
     auto_merge: false,
+    push: true,
     check_poll_interval_ms: 15_000,
     check_timeout_ms: 10 * 60_000,
   },
@@ -322,6 +323,15 @@ export function ProjectAgent() {
                   <option value="true">on</option>
                 </Select>
               </Field>
+              <Field label="Push base on approve" hint="direct-merge: push the base to the remote after approve so CI fires; turn off for local-only repos">
+                <Select
+                  value={String(config.promotion.push)}
+                  onChange={(e) => setConfig((c) => ({ ...c, promotion: { ...c.promotion, push: e.target.value === 'true' } }))}
+                >
+                  <option value="true">on</option>
+                  <option value="false">off</option>
+                </Select>
+              </Field>
               <Field label="Check poll (ms)">
                 <Input
                   type="number"
@@ -453,6 +463,7 @@ function normalizeConfig(value: unknown): ProjectWorkflowConfig {
       base_branch: stringOrUndefined(promotion.base_branch),
       remote: stringOrUndefined(promotion.remote) ?? DEFAULT_CONFIG.promotion.remote,
       auto_merge: typeof promotion.auto_merge === 'boolean' ? promotion.auto_merge : DEFAULT_CONFIG.promotion.auto_merge,
+      push: typeof promotion.push === 'boolean' ? promotion.push : DEFAULT_CONFIG.promotion.push,
       check_poll_interval_ms: numberOrUndefined(promotion.check_poll_interval_ms) ?? DEFAULT_CONFIG.promotion.check_poll_interval_ms,
       check_timeout_ms: numberOrUndefined(promotion.check_timeout_ms) ?? DEFAULT_CONFIG.promotion.check_timeout_ms,
     },

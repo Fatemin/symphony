@@ -21,6 +21,11 @@ export interface PromotionConfig {
   base_branch?: string;
   remote: string;
   auto_merge: boolean;
+  /**
+   * Direct-merge only (§ SYM-18): after a successful approve moves the LOCAL base ref, push the base
+   * to `remote` so GitHub Actions fire. Default on; opt out for local-only repos without a remote.
+   */
+  push: boolean;
   check_poll_interval_ms: number;
   check_timeout_ms: number;
 }
@@ -78,6 +83,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
     mode: 'direct-merge',
     remote: 'origin',
     auto_merge: false,
+    push: true,
     check_poll_interval_ms: 15_000,
     check_timeout_ms: 10 * 60_000,
   },
@@ -174,6 +180,7 @@ function mergePromotion(out: ProjectConfig, raw: unknown): void {
   if (typeof obj.base_branch === 'string' && obj.base_branch.trim()) out.promotion.base_branch = obj.base_branch.trim();
   if (typeof obj.remote === 'string' && obj.remote.trim()) out.promotion.remote = obj.remote.trim();
   if (typeof obj.auto_merge === 'boolean') out.promotion.auto_merge = obj.auto_merge;
+  if (typeof obj.push === 'boolean') out.promotion.push = obj.push;
   const poll = numberOrUndefined(obj.check_poll_interval_ms);
   if (poll !== undefined) out.promotion.check_poll_interval_ms = poll;
   const timeout = numberOrUndefined(obj.check_timeout_ms);
