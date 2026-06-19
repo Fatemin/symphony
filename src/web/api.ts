@@ -177,6 +177,7 @@ export const api = {
     list: () => req<Project[]>('/api/projects'),
     get: (id: string) => req<ProjectWithIssues>(`/api/projects/${id}`),
     branches: (id: string) => req<BranchList>(`/api/projects/${id}/branches`),
+    relations: (id: string) => req<IssueRelation[]>(`/api/projects/${id}/relations`),
     create: (data: Partial<Project>) => req<Project>('/api/projects', { method: 'POST', ...body(data) }),
     update: (id: string, data: Partial<Project>) =>
       req<Project>(`/api/projects/${id}`, { method: 'PATCH', ...body(data) }),

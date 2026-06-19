@@ -38,7 +38,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
 - `src/server/workspace/` — per-issue git worktrees. Safety invariants: agent `cwd` must be the
   worktree, and the worktree must resolve inside `workspace_root`.
 - `src/web/` — React 19 + Vite + Tailwind v4 + TanStack Query. `src/shared/types.ts` holds domain
-  types shared by both sides.
+  types shared by both sides. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
+  Story Tree / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
+  `issue_relations` into a forest via the pure `lib/storyTree.ts#buildStoryTrees` (follow_up edges
+  nest, relates_to surface as cross-links), backed by read-only `GET /api/projects/:id/relations`.
 
 ## Conventions
 

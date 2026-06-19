@@ -225,6 +225,25 @@ export function listIssueRelations(issueId: string): IssueRelationMap {
   };
 }
 
+/**
+ * Every relation in a project as a flat list (Story Tree tab, SYM-30). The client folds these into
+ * a forest — `follow_up` edges nest source→target, `relates_to` surface as cross-links. Only issues
+ * that appear in some relation have a story tree, so this list IS the "has a story tree" filter.
+ */
+export function listProjectRelations(projectId: string): IssueRelation[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT ${LINK_COLUMNS}
+       FROM issue_relations r
+       JOIN issues s ON s.id = r.source_issue_id
+       JOIN issues t ON t.id = r.target_issue_id
+       WHERE r.project_id = ?
+       ORDER BY r.created_at ASC`,
+    )
+    .all(projectId) as unknown as RelationRow[];
+  return rows.map(mapRelation);
+}
+
 export function listStoryReferenceContexts(issueId: string): StoryReferenceContext[] {
   return listIssueRelations(issueId).incoming
     .filter((relation) => relation.type === 'follow_up' && relation.context_summary?.trim())
