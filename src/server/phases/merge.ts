@@ -1,5 +1,5 @@
 import { buildMergePrompt, parseMerge } from '../core/prompt';
-import { runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
+import { phasePrompt, runPhaseAgent, type PhaseContext, type PhaseOutcome } from './types';
 
 /**
  * Merge phase (§SYM-16): a fresh agent pushes the issue's branch to the remote and integrates it
@@ -53,6 +53,3 @@ export async function runMerge(ctx: PhaseContext): Promise<PhaseOutcome> {
     report: result.text,
   };
 }
-
-const phasePrompt = (...parts: (string | undefined)[]) =>
-  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;
