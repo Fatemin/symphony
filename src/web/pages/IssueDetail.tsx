@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Square, X, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Sparkles, Square, X, XCircle } from 'lucide-react';
 import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
+import { Markdown } from '../components/Markdown';
 import { Badge, Button, Field, Input, Panel, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 
@@ -561,6 +562,10 @@ function Runs({ issue }: { issue: Detail }) {
 }
 
 function ReviewPanel({ issue }: { issue: Detail }) {
+  // ── delivery summary (§SYM-22): the user-facing wrap-up, shown above the QA box ──
+  // listRuns is newest-first, so .find lands on the latest round's delivery report.
+  const deliveryReport = issue.runs.find((r) => r.phase === 'delivery')?.report?.trim();
+
   // ── QA verdict + evidence (item 2), derived from existing runs/events ──
   const qaRun = issue.runs.find((r) => r.phase === 'qa');
   const pass = qaRun?.status === 'succeeded';
@@ -576,6 +581,18 @@ function ReviewPanel({ issue }: { issue: Detail }) {
 
   return (
     <Panel className="p-4">
+      {/* Delivery summary — the friendly wrap-up, sits above the QA evidence box (§SYM-22) */}
+      {deliveryReport && (
+        <section className="mb-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted">
+            <Sparkles className="h-3.5 w-3.5 text-indigo-300" /> Delivery summary
+          </div>
+          <div className="rounded-md border border-indigo-500/20 bg-indigo-500/[0.06] p-3">
+            <Markdown source={deliveryReport} />
+          </div>
+        </section>
+      )}
+
       <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted">
         <FileDiff className="h-3.5 w-3.5" /> Review evidence
       </div>

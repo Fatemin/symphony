@@ -28,6 +28,7 @@ import { log } from '../observability/logger';
 import { runPlan } from './plan';
 import { runImplement } from './implement';
 import { runQa } from './qa';
+import { runDelivery } from './delivery';
 import { runMerge } from './merge';
 import { PHASE_ORDER, type PhaseContext, type PhaseOutcome } from './types';
 
@@ -163,14 +164,21 @@ export async function runIssuePipeline(
       storyContext,
       skills: skills.filter((s) => s.enabled),
       resumeSessionId,
-      implementReport: phase === 'qa' ? implementReport : null,
+      implementReport: phase === 'qa' || phase === 'delivery' ? implementReport : null,
       round,
       revisionFeedback,
     };
 
     let outcome: PhaseOutcome;
     try {
-      outcome = phase === 'plan' ? await runPlan(ctx) : phase === 'implement' ? await runImplement(ctx) : await runQa(ctx);
+      outcome =
+        phase === 'plan'
+          ? await runPlan(ctx)
+          : phase === 'implement'
+            ? await runImplement(ctx)
+            : phase === 'delivery'
+              ? await runDelivery(ctx)
+              : await runQa(ctx);
     } catch (e) {
       outcome = { ok: false, usage: zeroUsage(), sessionId: null, summary: `${phase} threw`, error: asMsg(e) };
     }
@@ -188,6 +196,13 @@ export async function runIssuePipeline(
       data: { phase, ok: outcome.ok, status: runStatus, auxiliary: auxiliaryQa },
     });
 
+    // §SYM-22: delivery is a best-effort, user-facing summary — a failed summary must never block
+    // landing or the review gate, so (like an auxiliary QA fail) it is non-blocking: log and move on.
+    // A cancellation still falls through to the normal handler so a stopped issue actually stops.
+    if (!outcome.ok && phase === 'delivery' && runStatus !== 'cancelled') {
+      log.warn('delivery summary failed (non-blocking)', { issue: issue.key, error: outcome.error });
+      continue;
+    }
     if (!outcome.ok && !auxiliaryQa) {
       if (runStatus === 'cancelled') {
         log.info('phase cancelled', { issue: issue.key, phase, error: outcome.error });
@@ -379,6 +394,7 @@ function skipCompletedPhase(issueId: string, phase: RunPhase, round: number): st
     }
     return 'previous successful implementation';
   }
+  if (phase === 'delivery') return 'previous successful delivery';
   return 'previous successful QA';
 }
 

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentResult, AgentRunInput, AgentRunner } from '../../src/server/agent/types';
 
-type Phase = 'plan' | 'implement' | 'qa' | 'merge';
+type Phase = 'plan' | 'implement' | 'qa' | 'delivery' | 'merge';
 
 export interface FakeRunnerOptions {
   /** Make QA return PASS (default) or FAIL. */
@@ -21,7 +21,7 @@ export interface FakeRunnerOptions {
   fileContent?: string;
   implementReport?: string;
   /** Count of calls per phase, for assertions (merge only present once that phase runs). */
-  calls?: { plan: number; implement: number; qa: number; merge?: number };
+  calls?: { plan: number; implement: number; qa: number; delivery?: number; merge?: number };
   /** Captured runner inputs in call order, for assertions. */
   inputs?: AgentRunInput[];
 }
@@ -38,6 +38,7 @@ const usage = (n: number) => ({
 /** Detect which phase a prompt belongs to (the prompts are distinctive). */
 function phaseOf(prompt: string): Phase {
   if (prompt.includes('independent **QA engineer**')) return 'qa';
+  if (prompt.includes('**delivery lead**')) return 'delivery';
   if (prompt.includes('**release engineer**')) return 'merge';
   if (prompt.includes('**implementing engineer**')) return 'implement';
   return 'plan';
@@ -48,7 +49,7 @@ function phaseOf(prompt: string): Phase {
  * canned, well-formed response (plan JSON / a real file write / a QA verdict). No tokens, no CLI.
  */
 export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
-  const counters = opts.calls ?? { plan: 0, implement: 0, qa: 0, merge: 0 };
+  const counters = opts.calls ?? { plan: 0, implement: 0, qa: 0, delivery: 0, merge: 0 };
   let quotaReturned = false;
   let failedOnce = false;
 
@@ -116,6 +117,16 @@ export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
     if (phase === 'qa') {
       const pass = (opts.qa ?? 'pass') === 'pass';
       return result(`QA_RESULT: ${pass ? 'PASS — meets the acceptance criteria' : 'FAIL — missing behavior'}`, true);
+    }
+
+    if (phase === 'delivery') {
+      // Read-only summary: write nothing, just return the user-facing Markdown the UI renders.
+      return result(
+        '## What\'s new\nThe requested behavior now works.\n\n' +
+          '## How to use it\nRun the app and try the new feature.\n\n' +
+          '## Files changed\n- `AGENT_OUTPUT.md` — added by the fake agent.\n\n' +
+          '## Docs updated\nNo documentation changes were needed.',
+      );
     }
 
     // merge — no real git; just emit the verdict the pipeline parses.

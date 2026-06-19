@@ -40,7 +40,7 @@ test('retries reuse plan context, rerun implement after QA verdict fail, and res
     attempt: 2,
   });
   assert.equal(second.ok, true);
-  assert.equal(inputs.length, 2, 'plan should be skipped, implement and QA should run');
+  assert.equal(inputs.length, 3, 'plan should be skipped; implement, QA, and delivery should run');
 
   const [implement, qa] = inputs;
   // (1) The last failure (phase + QA verdict) is threaded into every phase prompt.
@@ -90,7 +90,7 @@ test('restart after implement cancellation skips completed plan and resumes impl
     config: getConfig(),
   });
   assert.equal(second.ok, true);
-  assert.deepEqual(calls, { plan: 1, implement: 2, qa: 1 }, 'plan should not rerun after restart');
+  assert.deepEqual(calls, { plan: 1, implement: 2, qa: 1, delivery: 1 }, 'plan should not rerun after restart');
   assert.equal(inputs[0]!.resumeSessionId, 'fake-implement');
   assert.match(inputs[0]!.prompt, /\*\*implementing engineer\*\*/);
 });
@@ -165,5 +165,6 @@ test('a rejected resume falls back to one fresh session per phase', async () => 
   const result = await runIssuePipeline(issue.id, { runner, config: getConfig(), attempt: 2 });
   assert.equal(result.ok, true);
   assert.equal(inputs.filter((i) => i.resumeSessionId).length, 1, 'only the failed QA phase resumes');
-  assert.equal(inputs.filter((i) => !i.resumeSessionId).length, 1, 'only the QA fallback runs fresh');
+  // The QA fallback runs fresh, then the always-fresh delivery phase runs (it never resumes).
+  assert.equal(inputs.filter((i) => !i.resumeSessionId).length, 2, 'the QA fallback and delivery run fresh');
 });

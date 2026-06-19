@@ -47,14 +47,18 @@ test('full pipeline drives an issue todo → review with a real commit', async (
   // Planner wrote a task checklist.
   assert.ok(listTasks(issue.id).length >= 1, 'expected at least one planned task');
 
-  // Three run rows (plan, implement, qa), all succeeded.
+  // Four run rows (plan, implement, qa, delivery), all succeeded.
   const runs = listRuns(issue.id);
-  assert.equal(runs.length, 3);
+  assert.equal(runs.length, 4);
   assert.deepEqual(
     runs.map((r) => r.phase).sort(),
-    ['implement', 'plan', 'qa'],
+    ['delivery', 'implement', 'plan', 'qa'],
   );
   assert.ok(runs.every((r) => r.status === 'succeeded'));
+
+  // The delivery phase persisted a user-facing summary for the review screen (§SYM-22).
+  const delivery = runs.find((r) => r.phase === 'delivery');
+  assert.match(delivery?.report ?? '', /## What's new/);
 
   // Cache traffic is recorded per run — it's the real cost driver; total_tokens alone
   // understates throughput by an order of magnitude on long sessions.
@@ -87,10 +91,11 @@ test('WORKFLOW.md per-phase max_turns overrides only the named phase', async () 
     });
 
     assert.equal(result.ok, true);
-    assert.equal(inputs.length, 3, 'plan, implement, qa each ran once');
+    assert.equal(inputs.length, 4, 'plan, implement, qa, delivery each ran once');
     assert.equal(inputs[1]!.maxTurns, 7, 'implement uses its per-phase cap');
     assert.equal(inputs[0]!.maxTurns, getConfig().max_turns, 'plan falls back to the engine default');
     assert.equal(inputs[2]!.maxTurns, getConfig().max_turns, 'qa falls back to the engine default');
+    assert.equal(inputs[3]!.maxTurns, getConfig().max_turns, 'delivery falls back to the engine default');
   } finally {
     fs.unlinkSync(wf); // env.repoPath is shared by the other tests in this file
   }
@@ -127,12 +132,14 @@ test('project agent config affects CLI input and phase prompts', async () => {
   });
 
   assert.equal(result.ok, true);
-  assert.equal(inputs.length, 3, 'plan, implement, qa each ran once');
-  assert.deepEqual(inputs.map((input) => input.permissionMode), ['acceptEdits', 'acceptEdits', 'acceptEdits']);
-  assert.deepEqual(inputs.map((input) => input.maxTurns), [11, 22, 33]);
+  assert.equal(inputs.length, 4, 'plan, implement, qa, delivery each ran once');
+  assert.deepEqual(inputs.map((input) => input.permissionMode), ['acceptEdits', 'acceptEdits', 'acceptEdits', 'acceptEdits']);
+  // delivery has no per-phase cap configured, so it falls back to the engine default.
+  assert.deepEqual(inputs.map((input) => input.maxTurns), [11, 22, 33, getConfig().max_turns]);
   assert.match(inputs[0]!.prompt, /Project plan prompt marker/);
   assert.match(inputs[1]!.prompt, /Project implement prompt marker/);
   assert.match(inputs[2]!.prompt, /Project QA prompt marker/);
+  assert.match(inputs[3]!.prompt, /\*\*delivery lead\*\*/);
 });
 
 test('autonomous done path runs a merge phase to push the branch (SYM-16)', async () => {
@@ -155,12 +162,12 @@ test('autonomous done path runs a merge phase to push the branch (SYM-16)', asyn
   assert.equal(result.finalStatus, 'done');
   assert.equal(getIssue(issue.id)!.status, 'done');
 
-  // Four run rows now: plan, implement, qa, merge — all succeeded.
+  // Five run rows now: plan, implement, qa, delivery, merge — all succeeded.
   const runs = listRuns(issue.id);
-  assert.equal(runs.length, 4);
+  assert.equal(runs.length, 5);
   assert.deepEqual(
     runs.map((r) => r.phase).sort(),
-    ['implement', 'merge', 'plan', 'qa'],
+    ['delivery', 'implement', 'merge', 'plan', 'qa'],
   );
   const merge = runs.find((r) => r.phase === 'merge');
   assert.ok(merge && merge.status === 'succeeded', 'expected a succeeded merge run');

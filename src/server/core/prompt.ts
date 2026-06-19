@@ -321,6 +321,60 @@ export function parseQa(text: string): QaVerdict {
   return { pass: match[1]!.toUpperCase() === 'PASS', reason: (match[2] ?? '').trim() };
 }
 
+// ── delivery phase ────────────────────────────────────────────────────────
+
+/**
+ * Delivery prompt (§SYM-22): after QA passes, a fresh agent writes a user-facing summary of the
+ * round — what shipped, how to use it, and which files/docs changed. Unlike QA/merge there is no
+ * PASS/FAIL verdict to parse: the agent's whole reply IS the deliverable, rendered as Markdown
+ * above the QA box on the review screen, so the prompt asks for clean, structured Markdown.
+ */
+export function buildDeliveryPrompt(
+  ctx: PromptContext,
+  implementReport: string | null,
+  extra?: string,
+): string {
+  const reportSection = implementReport?.trim()
+    ? `
+The implementing engineer reported:
+
+<implementation-report>
+${implementReport.trim().slice(-2000)}
+</implementation-report>
+`
+    : '';
+  return withPolicy(
+    `${issueBrief(ctx)}
+
+---
+
+You are the **delivery lead**. The work for this issue has passed implementation and QA, and every
+change is already committed to the current worktree. Your job is to write a short, friendly summary
+for the person who asked for this work — NOT a technical changelog. This is READ-ONLY: do not modify,
+create, or delete any files, and do not commit. Review the committed diff against the base branch and
+the report below, then explain the outcome in plain language.
+${reportSection}
+Write your reply as Markdown with these sections (omit one only if it truly does not apply):
+
+## What's new
+A 1–3 sentence plain-language summary of what this round delivered and the value it adds.
+
+## How to use it
+Concrete, friendly steps for trying the new behaviour (commands to run, where to click, an example).
+Address the reader directly ("you"). Skip this only for purely internal changes with nothing to try.
+
+## Files changed
+A short bulleted list of the notable files added or modified, each with a few words on what changed.
+
+## Docs updated
+Which docs/README/config examples were updated (or "No documentation changes were needed." if none).
+
+Keep it concise and welcoming — assume the reader is not the engineer who built it. This summary is
+the entire deliverable for this step; there is no PASS/FAIL line to add.`,
+    extra,
+  );
+}
+
 // ── merge phase ───────────────────────────────────────────────────────────────
 
 /** Where the merge agent must publish the branch (§SYM-16: the autonomous push that was missing). */

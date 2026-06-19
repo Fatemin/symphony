@@ -41,7 +41,7 @@ test('a codex project drives the pipeline with codex cliPath + default model', a
   });
 
   assert.equal(result.ok, true);
-  assert.equal(inputs.length, 3, 'plan, implement, qa each ran once');
+  assert.equal(inputs.length, 4, 'plan, implement, qa, delivery each ran once');
   assert.ok(inputs.every((i) => i.agent === 'codex'), 'every phase routes to the codex agent');
   assert.ok(inputs.every((i) => i.cliPath === config.codex_cli_path), 'codex cliPath is used');
   assert.ok(inputs.every((i) => i.model === config.codex_model), 'codex default model is used when unset');

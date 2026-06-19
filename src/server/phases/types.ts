@@ -115,7 +115,7 @@ export async function runPhaseAgent(ctx: PhaseContext, prompt: string): Promise<
   return ctx.runner({ ...input, resumeSessionId: undefined }, ctx.onAgentEvent);
 }
 
-export const PHASE_ORDER: RunPhase[] = ['plan', 'implement', 'qa'];
+export const PHASE_ORDER: RunPhase[] = ['plan', 'implement', 'qa', 'delivery'];
 
 /** Join phase-prompt additions (per-project config + WORKFLOW.md), dropping blanks; undefined if none. */
 export const phasePrompt = (...parts: (string | undefined)[]): string | undefined =>
