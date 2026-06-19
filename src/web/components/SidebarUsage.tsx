@@ -1,19 +1,25 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import { formatTokens } from '../lib/format';
-import type { AgentType, AgentUsageReport, Issue } from '../../shared/types';
+import { formatPercent, formatTokens } from '../lib/format';
+import type { AgentType, AgentUsage, AgentUsageReport, Issue, RateWindow } from '../../shared/types';
 
 /**
- * SYM-38: sidebar footer widget showing today's LOCAL Claude Code / Codex token usage.
+ * SYM-38 / SYM-39: sidebar footer widget. SYM-39 repurposed it from today's token *usage* to
+ * **remaining** rate-limit quota — the user wants to see what's left, not what's spent.
  *
- * Refreshes on two triggers (AC#2): a 60s interval, and whenever any issue takes an action — the
- * latter by reading the SAME `['issues']` query Layout already polls every 3s (TanStack dedupes) and
- * invalidating the usage query when the issues' status/updated_at signature changes.
+ * Codex logs its live rate limits locally, so its row headlines the lowest remaining window
+ * ("NN% left") with a threshold-colored dot and a per-window/reset tooltip. Claude exposes NO local
+ * quota state, so it renders an honest `unsupported` row ("本地不可用") rather than a fabricated budget.
  *
- * Every state is rendered (AC#1/#3): loading, ok (figure), empty (no usage today), not_found (not
- * detected), and error → "检测失败 / detection failed". Each agent is read independently server-side,
- * so one missing CLI never blanks the other row; a whole-query failure shows 检测失败 on both.
+ * Refreshes on two triggers (AC#2 from SYM-38): a 60s interval, and whenever any issue takes an
+ * action — the latter by reading the SAME `['issues']` query Layout already polls every 3s (TanStack
+ * dedupes) and invalidating the usage query when the issues' status/updated_at signature changes.
+ *
+ * Every state is rendered (AC#1/#3): loading, ok (remaining %), empty (no recent activity),
+ * unsupported (Claude), not_found (not detected), and error → "检测失败 / detection failed". Each agent
+ * is read independently server-side, so one missing CLI never blanks the other; a whole-query failure
+ * shows 检测失败 on both.
  */
 export function SidebarUsage() {
   const qc = useQueryClient();
@@ -48,11 +54,11 @@ export function SidebarUsage() {
 
   return (
     <div className="text-[11px] leading-relaxed">
-      <div className="mb-1 flex items-center justify-between text-[10px] font-medium uppercase tracking-wide text-subtle">
-        <span>Local usage</span>
-        <span title={report?.generated_at ? `Updated ${new Date(report.generated_at).toLocaleString()}` : undefined}>
-          today
-        </span>
+      <div
+        className="mb-1 text-[10px] font-medium uppercase tracking-wide text-subtle"
+        title={report?.generated_at ? `Updated ${new Date(report.generated_at).toLocaleString()}` : undefined}
+      >
+        Remaining
       </div>
       <div className="space-y-0.5">
         {AGENTS.map((agent) => (
@@ -115,15 +121,25 @@ function rowDisplay(
   if (loading || !report) return { text: '…', dot: 'bg-slate-600', strong: false };
 
   switch (report.status) {
-    case 'ok':
+    case 'ok': {
+      const windows = report.windows ?? [];
+      const minRemaining = windows.length > 0 ? Math.min(...windows.map((w) => w.remaining_percent)) : 0;
       return {
-        text: formatTokens(report.usage.total_tokens),
-        dot: 'bg-emerald-500',
+        text: `${formatPercent(minRemaining)} left`,
+        dot: remainingDot(minRemaining),
         strong: true,
-        title: okTitle(report, generatedAt),
+        title: remainingTitle(report, windows, generatedAt),
       };
+    }
     case 'empty':
-      return { text: 'no usage today', dot: 'bg-slate-500', strong: false, title: 'Detected, but no tokens logged today' };
+      return {
+        text: 'no recent activity',
+        dot: 'bg-slate-500',
+        strong: false,
+        title: 'Detected, but no recent rate-limit data logged',
+      };
+    case 'unsupported':
+      return { text: '本地不可用', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt) };
     case 'not_found':
       return { text: 'not detected', dot: 'bg-slate-600', strong: false, title: 'CLI data directory not found on this machine' };
     case 'error':
@@ -133,9 +149,57 @@ function rowDisplay(
   }
 }
 
-function okTitle(report: AgentUsageReport, generatedAt?: string): string {
-  const u = report.usage;
+/** Dot color by remaining headroom: healthy >50, getting low 20–50, critical <20. */
+function remainingDot(remaining: number): string {
+  if (remaining > 50) return 'bg-emerald-500';
+  if (remaining >= 20) return 'bg-amber-400';
+  return 'bg-red-500';
+}
+
+/** Codex tooltip: per-window remaining + reset, then today's tokens, then the snapshot time. */
+function remainingTitle(report: AgentUsageReport, windows: RateWindow[], generatedAt?: string): string {
+  const lines = windows.map((w) => {
+    const reset = w.resets_at > 0 ? ` · resets ${formatReset(w.resets_at)}` : '';
+    return `${windowLabel(w)} ${formatPercent(w.remaining_percent)} left${reset}`;
+  });
+  if (report.usage.total_tokens > 0) lines.push(todayUsageLine(report.usage));
+  if (generatedAt) lines.push(`Updated ${new Date(generatedAt).toLocaleTimeString()}`);
+  return lines.join('\n');
+}
+
+/** Claude tooltip: an honest explanation that remaining isn't available locally, plus today's tokens. */
+function unsupportedTitle(report: AgentUsageReport, generatedAt?: string): string {
+  const lines = ['本地无法获取 Claude 剩余量,请在 Claude CLI 运行 /usage'];
+  if (report.usage.total_tokens > 0) lines.push(todayUsageLine(report.usage));
+  if (generatedAt) lines.push(`Updated ${new Date(generatedAt).toLocaleTimeString()}`);
+  return lines.join('\n');
+}
+
+function todayUsageLine(u: AgentUsage): string {
   const cache = u.cache_read_tokens + u.cache_creation_tokens;
-  const breakdown = `Input ${u.input_tokens.toLocaleString()} · Output ${u.output_tokens.toLocaleString()} · Cache ${cache.toLocaleString()}`;
-  return generatedAt ? `${breakdown}\nUpdated ${new Date(generatedAt).toLocaleTimeString()}` : breakdown;
+  return `Today · in ${formatTokens(u.input_tokens)} · out ${formatTokens(u.output_tokens)} · cache ${formatTokens(cache)}`;
+}
+
+/** Short label for a window: prefer its known length, fall back to the slot name. */
+function windowLabel(w: RateWindow): string {
+  const m = w.window_minutes;
+  if (m === 300) return '5h';
+  if (m === 10080) return 'Week';
+  if (m > 0) {
+    const hrs = m / 60;
+    if (hrs >= 24) return `${Math.round(hrs / 24)}d`;
+    if (Number.isInteger(hrs)) return `${hrs}h`;
+    return `${Math.round(m)}m`;
+  }
+  return w.key === 'primary' ? '5h' : 'Week';
+}
+
+/** A reset within ~a day shows a clock time; further out shows a short date. */
+function formatReset(ms: number): string {
+  const d = new Date(ms);
+  const delta = ms - Date.now();
+  const withinDay = delta > -60_000 && delta < 24 * 60 * 60 * 1000;
+  return withinDay
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }

@@ -61,8 +61,9 @@ src/server/
   tracker/          localTracker.ts — the Tracker interface backed by the local DB
   workspace/        per-issue git worktrees + git/promotion/verification/skills helpers;
                     docs.ts reads the project repo's documentation for the Docs tab (read-only)
-  usage/            localUsage.ts: reads the LOCAL Claude/Codex CLI session logs and aggregates
-                    today's tokens for the sidebar footer (read-only; writes nothing) — SYM-38
+  usage/            localUsage.ts: reads the LOCAL Claude/Codex CLI session logs for the sidebar
+                    footer — Codex remaining rate-limit quota (windows) + today's tokens for the
+                    tooltip; Claude has no local quota → 'unsupported' (read-only) — SYM-38/SYM-39
   observability/    structured logger + in-process event bus (SSE source)
   preview/          launch the project from an issue's worktree (preview server)
 
@@ -266,12 +267,15 @@ the built-in professional-team prompt, never replacing it. Default values are ta
   allow-listed text/markdown files under `config.docs.directories` (default `['docs']`) via
   `workspace/docs.ts`; an inline editor adds/removes directories by PATCHing `config.docs`.
 
-The left sidebar (`components/Layout.tsx`) ends in a footer widget, **`SidebarUsage.tsx`** (SYM-38),
-that shows today's local Claude Code / Codex token usage from `GET /api/usage/local`. It refreshes on
-a 60s interval and whenever any issue takes an action — the latter by observing the shared
-`['issues']` poll (Layout already runs it every 3s) and invalidating the usage query when the issues'
-status/`updated_at` signature changes. It renders every state: loading, `ok` (compact token figure),
-`empty`, `not_found`, and `error` → "检测失败".
+The left sidebar (`components/Layout.tsx`) ends in a footer widget, **`SidebarUsage.tsx`** (SYM-38,
+SYM-39), that shows local Claude Code / Codex **remaining** quota from `GET /api/usage/local`. SYM-39
+flipped it from spent tokens to what's left: Codex headlines its lowest remaining window ("NN% left")
+with a threshold-colored dot (>50 emerald, 20–50 amber, <20 red) and a per-window/reset tooltip;
+Claude has no local quota data, so it renders an honest `unsupported` row ("本地不可用"). It refreshes on
+a 60s interval and whenever any issue takes an action — the latter by observing the shared `['issues']`
+poll (Layout already runs it every 3s) and invalidating the usage query when the issues'
+status/`updated_at` signature changes. It renders every state: loading, `ok` (remaining %), `empty`,
+`unsupported`, `not_found`, and `error` → "检测失败".
 
 The frontend is documented at module level only; its components are not part of the server contract.
 

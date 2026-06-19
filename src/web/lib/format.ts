@@ -74,3 +74,12 @@ export function formatTokens(n: number): string {
   const [value, suffix] = n < 1_000_000 ? [n / 1_000, 'K'] : [n / 1_000_000, 'M'];
   return `${value.toFixed(1).replace(/\.0$/, '')}${suffix}`;
 }
+
+/**
+ * Compact percentage for tight UI (e.g. the sidebar "Remaining" figure, SYM-39): clamped to 0–100 and
+ * rounded to a whole number with a '%' suffix. 83.4 → "83%", 120 → "100%", -5 → "0%", NaN → "0%".
+ */
+export function formatPercent(n: number): string {
+  if (!Number.isFinite(n)) return '0%';
+  return `${Math.round(Math.max(0, Math.min(100, n)))}%`;
+}

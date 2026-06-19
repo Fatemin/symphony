@@ -343,16 +343,20 @@ export interface AskHistory {
   messages: AskMessage[];
 }
 
-// ── Local CLI usage (SYM-38) ───────────────────────────────────────────────
+// ── Local CLI usage / remaining quota (SYM-38, SYM-39) ─────────────────────
 
 /**
- * Per-agent detection result for the sidebar usage widget (SYM-38).
- * - `ok`        — the CLI's local data dir was found and it logged tokens today.
- * - `empty`     — the data dir was found but there is no usage for today (tokens === 0).
- * - `not_found` — the data dir does not exist (the CLI isn't installed, or has never run).
- * - `error`     — an unexpected failure reading the dir (e.g. EACCES); `error` carries the reason.
+ * Per-agent detection result for the sidebar "Remaining" widget. SYM-39 repurposed this widget from
+ * token *usage* to remaining rate-limit quota, since the user wants to see what's left, not what's
+ * spent. Codex logs its live rate limits locally; Claude does not (its logs carry no quota state).
+ * - `ok`          — Codex: a rate-limit snapshot was found, so `windows` carry remaining quota.
+ * - `empty`       — Codex: the data dir was found but no recent rate-limit snapshot exists.
+ * - `unsupported` — Claude: the data dir was found, but remaining quota is NOT available locally
+ *                   (run `/usage` in the Claude CLI). `usage` still holds today's totals for the tooltip.
+ * - `not_found`   — the data dir does not exist (the CLI isn't installed, or has never run).
+ * - `error`       — an unexpected failure reading the dir (e.g. EACCES); `error` carries the reason.
  */
-export type UsageStatus = 'ok' | 'empty' | 'not_found' | 'error';
+export type UsageStatus = 'ok' | 'empty' | 'unsupported' | 'not_found' | 'error';
 
 /** Token totals summed across one agent's local sessions for the current local-machine day. */
 export interface AgentUsage {
@@ -361,25 +365,47 @@ export interface AgentUsage {
   /** Prompt-cache reads (the bulk of Claude throughput); 0 for agents that don't report it. */
   cache_read_tokens: number;
   cache_creation_tokens: number;
-  /** input + output + cache_read + cache_creation — the headline figure shown in the footer. */
+  /** input + output + cache_read + cache_creation — today's total, shown in the tooltip. */
   total_tokens: number;
 }
 
-/** One agent row in the local usage report: which agent, its detection status, and today's totals. */
+/**
+ * One remaining-quota window for an agent (Codex exposes two: a short rolling window + a weekly one).
+ * `remaining_percent = clamp(0, 100, 100 - used_percent)`. A window whose `resets_at` has already
+ * passed has rolled over since the snapshot, so it is reported as fully remaining (used 0 / left 100)
+ * with `resets_at` projected forward to the next boundary.
+ */
+export interface RateWindow {
+  /** Which slot in the source rate-limit object: the short rolling window vs. the weekly one. */
+  key: 'primary' | 'secondary';
+  /** 0..100 — how much of this window's quota is consumed. */
+  used_percent: number;
+  /** 0..100 — `100 - used_percent`, the figure the footer headlines. */
+  remaining_percent: number;
+  /** Window length in minutes (e.g. 300 = 5h, 10080 = weekly); 0 if unknown. */
+  window_minutes: number;
+  /** Epoch MILLISECONDS when this window's quota resets; 0 if unknown. */
+  resets_at: number;
+}
+
+/** One agent row in the local report: which agent, its detection status, remaining windows, totals. */
 export interface AgentUsageReport {
   /** Stable agent key matching AgentType; used to key rows and pick the label. */
   agent: AgentType;
   status: UsageStatus;
+  /** Today's token totals (kept for the tooltip on every agent, even when `windows` is absent). */
   usage: AgentUsage;
+  /** Remaining rate-limit windows — present only for Codex with a snapshot (`status === 'ok'`). */
+  windows?: RateWindow[];
   /** Present only when `status === 'error'` — a short human-readable reason. */
   error?: string;
 }
 
 /**
- * The local CLI usage report served by `GET /api/usage/local` and rendered in the sidebar footer.
- * Each agent is read + aggregated independently so one failing CLI never blanks the other.
- * `generated_at` is when the server computed the snapshot; "today" is the server's local-machine day
- * (Symphony runs locally beside the CLIs).
+ * The local CLI report served by `GET /api/usage/local` and rendered in the sidebar footer. Each
+ * agent is read + aggregated independently so one failing CLI never blanks the other. `generated_at`
+ * is when the server computed the snapshot; "today" (used for the tooltip totals) is the server's
+ * local-machine day (Symphony runs locally beside the CLIs).
  */
 export interface LocalUsageReport {
   generated_at: string; // ISO

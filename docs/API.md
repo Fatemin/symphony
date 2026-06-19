@@ -120,27 +120,38 @@ feature/bug suggestion.
 ## Usage — `/api/usage` (`http/routes/usage.ts`)
 
 Read-only, computed (no DB). Reads the **local** Claude Code / Codex CLI session logs on the same
-machine and aggregates today's token usage for the sidebar footer (SYM-38).
+machine for the sidebar footer. SYM-39 repurposed this from spent token *usage* to **remaining**
+rate-limit quota (the user wants to see what's left). Codex logs its live rate limits locally; Claude
+does not, so Claude reports `unsupported`. Today's token totals are still computed for the tooltip.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/usage/local` | Today's local token usage per agent (`LocalUsageReport`). |
+| `GET` | `/api/usage/local` | Per-agent remaining quota + today's token totals (`LocalUsageReport`). |
 
 `GET /api/usage/local` → `200 { generated_at, agents }`:
 
 - `generated_at` — ISO timestamp of the snapshot.
-- `agents` — one `AgentUsageReport` per agent (`claude`, `codex`), each `{ agent, status, usage, error? }`:
-  - `status`: `ok` (detected, tokens logged today), `empty` (detected, 0 today), `not_found` (the
-    CLI's data dir doesn't exist — not installed / never run), `error` (read failure; `error` carries
-    the reason).
+- `agents` — one `AgentUsageReport` per agent (`claude`, `codex`), each `{ agent, status, usage, windows?, error? }`:
+  - `status`: `ok` (Codex: a rate-limit snapshot was found → `windows` populated), `empty` (Codex:
+    dir found but no recent snapshot), `unsupported` (Claude: dir found but remaining quota isn't
+    available locally — run `/usage` in the Claude CLI), `not_found` (the CLI's data dir doesn't
+    exist — not installed / never run), `error` (read failure; `error` carries the reason).
+  - `windows` (Codex `ok` only) — array of `RateWindow` `{ key, used_percent, remaining_percent,
+    window_minutes, resets_at }` from the **latest** rate-limit snapshot. `key` is `primary` (short
+    rolling window) or `secondary` (weekly); `remaining_percent = clamp(0, 100, 100 − used_percent)`;
+    `resets_at` is epoch **milliseconds** (0 if unknown). A window whose `resets_at` already passed
+    has rolled over since the snapshot, so it's reported as fully remaining (used 0 / left 100) with
+    `resets_at` projected forward to the next boundary.
   - `usage`: `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens }`,
-    summed across today's sessions. `total_tokens` is the sum of the other four.
+    summed across **today's** sessions (the tooltip figure). `total_tokens` is the sum of the other four.
 
 **Always `200`** — each agent is read inside its own try/catch, so a missing/locked CLI dir yields a
-per-agent `not_found`/`error` row rather than failing the whole request. **"Today" is the server's
-local-machine day** (Symphony runs locally beside the CLIs). The numbers are token *usage*, not a
-billing/cost figure. Data roots honor `CLAUDE_CONFIG_DIR` (Claude, may be comma-separated; else
-`~/.claude` + `~/.config/claude`) and `CODEX_HOME` (Codex; else `~/.codex`), read at request time.
+per-agent `not_found`/`error` row rather than failing the whole request. **"Today" (for the usage
+totals) is the server's local-machine day** (Symphony runs locally beside the CLIs). Codex rate-limit
+snapshots are scanned across rollouts touched within ~8 days (so the weekly window stays visible);
+the today-only usage filter is per-line, so the wider file set doesn't change the usage numbers. Data
+roots honor `CLAUDE_CONFIG_DIR` (Claude, may be comma-separated; else `~/.claude` + `~/.config/claude`)
+and `CODEX_HOME` (Codex; else `~/.codex`), read at request time.
 
 ---
 
