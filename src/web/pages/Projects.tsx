@@ -4,24 +4,37 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { FolderGit2, Plus } from 'lucide-react';
 import { api } from '../api';
+import { suggestProjectKey } from '../../shared/keys';
 import { Button, Field, Input, Panel, Textarea } from '../components/ui';
 import { PathField } from '../components/PathField';
+
+const EMPTY_FORM = { name: '', key: '', repo_path: '', default_branch: 'main', context: '', preview_command: '' };
 
 export function Projects() {
   const qc = useQueryClient();
   const { data: projects, isLoading } = useQuery({ queryKey: ['projects'], queryFn: api.projects.list });
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', key: '', repo_path: '', default_branch: 'main', context: '', preview_command: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
+  // Track whether the user has hand-edited the Key so we stop auto-syncing it from the name.
+  const [keyEdited, setKeyEdited] = useState(false);
+
+  // Project keys are stored uppercase; compare case-insensitively against the already-loaded list.
+  const keyTaken = !!form.key && (projects?.some((p) => p.key.toUpperCase() === form.key) ?? false);
+
+  function resetForm() {
+    setForm(EMPTY_FORM);
+    setKeyEdited(false);
+  }
 
   const create = useMutation({
     mutationFn: () => api.projects.create({ ...form, key: form.key || undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] });
       setOpen(false);
-      setForm({ name: '', key: '', repo_path: '', default_branch: 'main', context: '', preview_command: '' });
+      resetForm();
       toast.success('Project created');
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
   });
 
   return (
@@ -37,11 +50,36 @@ export function Projects() {
         <Panel className="mb-6 p-4">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Name">
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="My Web App" />
+              <Input
+                value={form.name}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  // Keep the Key in sync with the derived default until the user edits it directly.
+                  setForm((f) => ({ ...f, name, key: keyEdited ? f.key : suggestProjectKey(name) }));
+                }}
+                placeholder="My Web App"
+              />
             </Field>
-            <Field label="Key (optional)">
-              <Input value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value.toUpperCase() })} placeholder="WEB" maxLength={5} />
-            </Field>
+            <div>
+              <Field label="Key">
+                <Input
+                  value={form.key}
+                  onChange={(e) => {
+                    setKeyEdited(true);
+                    setForm((f) => ({ ...f, key: e.target.value.toUpperCase() }));
+                  }}
+                  placeholder="WEB"
+                  maxLength={5}
+                  aria-invalid={keyTaken || undefined}
+                  className={keyTaken ? 'border-red-500 focus:border-red-500' : ''}
+                />
+              </Field>
+              {keyTaken ? (
+                <p className="mt-1 text-xs text-red-500">Key “{form.key}” is taken — pick a different one.</p>
+              ) : (
+                <p className="mt-1 text-xs text-muted">Used in issue ids like {form.key || 'WEB'}-12. Auto-filled from the name; edit to customize.</p>
+              )}
+            </div>
             <Field label="Local git repo path">
               <PathField value={form.repo_path} onChange={(v) => setForm({ ...form, repo_path: v })} />
             </Field>
@@ -60,8 +98,8 @@ export function Projects() {
             </div>
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <Button variant="primary" disabled={!form.name || create.isPending} onClick={() => create.mutate()}>
+            <Button onClick={() => { setOpen(false); resetForm(); }}>Cancel</Button>
+            <Button variant="primary" disabled={!form.name || keyTaken || create.isPending} onClick={() => create.mutate()}>
               Create
             </Button>
           </div>

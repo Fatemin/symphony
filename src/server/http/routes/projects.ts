@@ -28,7 +28,13 @@ projectRoutes.post('/', async (c) => {
   if (!body.name || typeof body.name !== 'string') {
     return c.json({ error: 'name is required' }, 400);
   }
-  return c.json(createProject(body), 201);
+  // projects.key is UNIQUE (db/schema.ts) — a derived or supplied key can collide with an
+  // existing project, so translate the constraint error to a friendly 409 (mirrors skills).
+  try {
+    return c.json(createProject(body), 201);
+  } catch (e) {
+    return c.json({ error: projectErrorMessage(e) }, 409);
+  }
 });
 
 projectRoutes.get('/:id/branches', async (c) => {
@@ -172,5 +178,12 @@ projectRoutes.delete('/:id/skills/:skillId', (c) => {
 function skillErrorMessage(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/unique|constraint/i.test(msg)) return 'a skill with that name already exists in this project';
+  return msg;
+}
+
+/** Map a project INSERT failure to a user-facing message (projects.key is UNIQUE). */
+function projectErrorMessage(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/unique|constraint/i.test(msg)) return 'a project with that key already exists';
   return msg;
 }

@@ -1,4 +1,5 @@
 import { customAlphabet, nanoid } from 'nanoid';
+import { suggestProjectKey } from '../../shared/keys';
 
 /** Opaque primary-key generator for rows (URL-safe, 16 chars). */
 export const newId = (): string => nanoid(16);
@@ -6,10 +7,14 @@ export const newId = (): string => nanoid(16);
 const KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const randomKey = customAlphabet(KEY_ALPHABET, 3);
 
-/** Derive a short uppercase project key (e.g. "Web App" → "WEB"). Falls back to random. */
+/**
+ * Derive a short uppercase project key (e.g. "Web App" → "WEB"). Uses the shared deterministic
+ * prefix (so the web form's suggestion never drifts from the server) and pads short/empty names
+ * with random letters — API callers may still submit a name with fewer than three letters.
+ */
 export function deriveProjectKey(name: string): string {
-  const letters = name.toUpperCase().replace(/[^A-Z]/g, '');
-  if (letters.length >= 3) return letters.slice(0, 3);
+  const letters = suggestProjectKey(name);
+  if (letters.length >= 3) return letters;
   if (letters.length > 0) return (letters + randomKey()).slice(0, 3);
   return randomKey();
 }

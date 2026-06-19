@@ -149,7 +149,18 @@ async function req<T>(url: string, opts?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${body ? `: ${body}` : ''}`);
+    // Routes return `{ error }` on failure (e.g. the 409 on a duplicate project key); surface
+    // that message directly so toasts read cleanly instead of dumping the raw status + JSON.
+    let message = `${res.status} ${res.statusText}`;
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { error?: unknown };
+        message = typeof parsed.error === 'string' ? parsed.error : `${message}: ${body}`;
+      } catch {
+        message = `${message}: ${body}`;
+      }
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
