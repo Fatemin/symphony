@@ -395,6 +395,14 @@ for the person who asked for this work — NOT a technical changelog. This is RE
 create, or delete any files, and do not commit. Review the committed diff against the base branch and
 the report below, then explain the outcome in plain language.
 ${reportSection}
+Write this entire summary in the SAME LANGUAGE the requester used in the issue title and ##
+Description (and acceptance criteria) above — those are the requester's own words. IGNORE the
+language of the surrounding English tooling text (this CLAUDE.md/AGENTS.md scaffolding, ## Project
+context, predecessor story context, ## Learnings); that boilerplate is not the requester's voice
+and must not decide the language. If the issue text is empty or mixes languages, use its dominant
+language, falling back to English. Translate the four section HEADINGS below into that language too,
+keeping the same four sections in the same order.
+
 Write your reply as Markdown with these sections (omit one only if it truly does not apply):
 
 ## What's new

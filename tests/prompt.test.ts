@@ -5,6 +5,7 @@ import {
   buildImplementPrompt,
   buildQaPrompt,
   buildMergePrompt,
+  buildDeliveryPrompt,
   parsePlan,
 } from '../src/server/core/prompt';
 import type { Issue, IssueTask, Project } from '../src/shared/types';
@@ -48,6 +49,7 @@ const issue: Issue = {
   branch_name: 'agent/pr-1',
   worktree_path: null,
   round: 1,
+  merge_conflict: null,
   created_at: '2026-06-19T00:00:00Z',
   updated_at: '2026-06-19T00:00:00Z',
 };
@@ -118,6 +120,21 @@ test('merge prompt keeps the release-engineer anchor and verdict contract', () =
   assert.match(p, /\*\*release engineer\*\*/);
   assert.match(p, /MERGE_RESULT: PASS/);
   assert.match(p, /MERGE_RESULT: FAIL/);
+});
+
+test('delivery prompt keeps the lead anchor and matches the requester language (SYM-33)', () => {
+  const p = buildDeliveryPrompt(ctx, 'implementation report');
+  // Phase-detection anchor fakeRunner depends on must stay verbatim.
+  assert.match(p, /\*\*delivery lead\*\*/);
+  // The summary must follow the requester's issue language, not the English scaffolding.
+  assert.match(p, /SAME LANGUAGE the requester used in the issue title/);
+  // \s+ tolerates the prompt's hard line wraps (e.g. "IGNORE the\nlanguage of …").
+  assert.match(p, /IGNORE the\s+language of the surrounding English tooling text/);
+  // Headings are translated into that language while keeping the four-section structure.
+  assert.match(p, /Translate the four section HEADINGS below into that language/);
+  // The four canonical headings (and the report passthrough) survive the edit.
+  assert.match(p, /## What's new/);
+  assert.match(p, /## Docs updated/);
 });
 
 test('a delivery role round-trips through parsePlan without coercion to impl', () => {
