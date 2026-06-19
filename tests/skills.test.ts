@@ -10,6 +10,7 @@ import { setupEnv } from './helpers/env';
 const env = setupEnv();
 
 const { parseGithubSkillUrl, stripFrontMatter } = await import('../src/server/core/githubSkill');
+const { parseMarketplaceImport } = await import('../src/server/core/marketplaceSkill');
 const { buildSkillMarkdown, skillSlug, materializeSkills } = await import('../src/server/workspace/skills');
 const { createProject } = await import('../src/server/repo/projects');
 const { createProjectSkill, listProjectSkills } = await import('../src/server/repo/projectSkills');
@@ -51,6 +52,46 @@ test('parseGithubSkillUrl rejects unsupported URLs', () => {
   assert.throws(() => parseGithubSkillUrl('not a url'));
   assert.throws(() => parseGithubSkillUrl('https://example.com/skills/foo'));
   assert.throws(() => parseGithubSkillUrl('https://github.com/o/r')); // no blob/tree/ref
+});
+
+// ── parseMarketplaceImport (pure, offline) ───────────────────────────────────
+// Note: the network resolver fetchMarketplaceSkills() is verified manually against a real repo,
+// like fetchGithubSkill — only the pure parser and the route's 400 path are exercised offline.
+
+test('parseMarketplaceImport reads the two pasted /plugin commands', () => {
+  const spec = parseMarketplaceImport(
+    '/plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill\n/plugin install ui-ux-pro-max@ui-ux-pro-max-skill',
+  );
+  assert.deepEqual(spec, {
+    owner: 'nextlevelbuilder',
+    repo: 'ui-ux-pro-max-skill',
+    plugin: 'ui-ux-pro-max',
+    marketplace: 'ui-ux-pro-max-skill',
+  });
+});
+
+test('parseMarketplaceImport accepts a single marketplace-add line (import all plugins)', () => {
+  const spec = parseMarketplaceImport('/plugin marketplace add owner/repo');
+  assert.equal(spec.owner, 'owner');
+  assert.equal(spec.repo, 'repo');
+  assert.equal(spec.plugin, undefined);
+});
+
+test('parseMarketplaceImport accepts a bare owner/repo', () => {
+  assert.deepEqual(parseMarketplaceImport('owner/repo'), { owner: 'owner', repo: 'repo', plugin: undefined, marketplace: undefined });
+});
+
+test('parseMarketplaceImport accepts a full GitHub repo URL', () => {
+  const spec = parseMarketplaceImport('https://github.com/owner/repo.git');
+  assert.equal(spec.owner, 'owner');
+  assert.equal(spec.repo, 'repo'); // .git suffix stripped
+});
+
+test('parseMarketplaceImport throws on unparseable input', () => {
+  assert.throws(() => parseMarketplaceImport(''));
+  assert.throws(() => parseMarketplaceImport('garbage'));
+  // An install line alone names a marketplace, not a resolvable owner/repo.
+  assert.throws(() => parseMarketplaceImport('/plugin install foo@bar'));
 });
 
 // ── front-matter helpers (pure, offline) ─────────────────────────────────────
@@ -174,6 +215,14 @@ test('skills CRUD round-trips through the project routes without any network', a
 
   // import with no url → 400 (does not hit the network)
   res = await projectRoutes.request(`/${project.id}/skills/import`, json({}));
+  assert.equal(res.status, 400);
+
+  // install with no command → 400 (does not hit the network)
+  res = await projectRoutes.request(`/${project.id}/skills/install`, json({}));
+  assert.equal(res.status, 400);
+
+  // install with an unparseable command → 400 before any fetch
+  res = await projectRoutes.request(`/${project.id}/skills/install`, json({ command: 'garbage' }));
   assert.equal(res.status, 400);
 
   // list

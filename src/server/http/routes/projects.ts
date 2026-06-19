@@ -14,8 +14,10 @@ import {
   updateProjectSkill,
 } from '../../repo/projectSkills';
 import { fetchGithubSkill } from '../../core/githubSkill';
+import { fetchMarketplaceSkills, parseMarketplaceImport } from '../../core/marketplaceSkill';
 import { listIssues } from '../../repo/issues';
 import { listBranches } from '../../workspace/worktree';
+import type { MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
 
 export const projectRoutes = new Hono();
 
@@ -102,6 +104,51 @@ projectRoutes.post('/:id/skills/import', async (c) => {
   } catch (e) {
     return c.json({ error: skillErrorMessage(e) }, 409);
   }
+});
+
+// Install the skills of a Claude Code marketplace plugin from the pasted /plugin commands (SYM-17).
+// Parse errors → 400; GitHub fetch failures → 502; per-skill duplicates are collected into `skipped`
+// rather than failing the batch. 201 when at least one skill landed, 422 when none did.
+projectRoutes.post('/:id/skills/install', async (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  if (!body.command || typeof body.command !== 'string') {
+    return c.json({ error: 'command is required' }, 400);
+  }
+  let spec;
+  try {
+    spec = parseMarketplaceImport(body.command);
+  } catch (e) {
+    return c.json({ error: skillErrorMessage(e) }, 400);
+  }
+  let fetched;
+  try {
+    fetched = await fetchMarketplaceSkills(spec);
+  } catch (e) {
+    return c.json({ error: skillErrorMessage(e) }, 502);
+  }
+  const imported: ProjectSkill[] = [];
+  const skipped: { name: string; reason: string }[] = [];
+  for (const skill of fetched) {
+    try {
+      imported.push(
+        createProjectSkill({
+          project_id: project.id,
+          name: skill.name,
+          description: skill.description,
+          content: skill.content,
+          files: skill.files,
+          source: 'marketplace',
+          source_url: skill.source_url,
+        }),
+      );
+    } catch (e) {
+      skipped.push({ name: skill.name, reason: skillErrorMessage(e) });
+    }
+  }
+  const result: MarketplaceInstallResult = { imported, skipped };
+  return c.json(result, imported.length ? 201 : 422);
 });
 
 projectRoutes.patch('/:id/skills/:skillId', async (c) => {

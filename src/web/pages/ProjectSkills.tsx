@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Download, Github, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Download, Github, Package, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
 import type { ProjectSkill } from '../../shared/types';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
@@ -16,6 +16,13 @@ interface SkillForm {
 
 const EMPTY_FORM: SkillForm = { name: '', description: '', content: '' };
 
+const sourceBadgeClass = (source: ProjectSkill['source']) =>
+  source === 'github'
+    ? 'bg-indigo-500/15 text-indigo-300'
+    : source === 'marketplace'
+      ? 'bg-emerald-500/15 text-emerald-300'
+      : 'bg-panel-2 text-muted';
+
 export function ProjectSkills() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -28,6 +35,7 @@ export function ProjectSkills() {
   });
 
   const [importUrl, setImportUrl] = useState('');
+  const [installCommand, setInstallCommand] = useState('');
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<SkillForm>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -40,6 +48,22 @@ export function ProjectSkills() {
       invalidate();
       setImportUrl('');
       toast.success(`Imported “${skill.name}”`);
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const installSkills = useMutation({
+    mutationFn: () => api.projects.skills.install(projectId, installCommand.trim()),
+    onSuccess: (result) => {
+      invalidate();
+      setInstallCommand('');
+      const imported = result.imported.length;
+      const summary = `Imported ${imported} skill${imported === 1 ? '' : 's'}`;
+      if (result.skipped.length) {
+        toast.success(`${summary} · skipped ${result.skipped.length} (${result.skipped.map((s) => s.name).join(', ')})`);
+      } else {
+        toast.success(summary);
+      }
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -122,6 +146,33 @@ export function ProjectSkills() {
           </div>
         </Panel>
 
+        <Panel className="p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-fg">
+            <Package className="h-4 w-4 text-emerald-300" /> Install from Claude Code
+          </div>
+          <p className="mb-3 text-xs text-muted">
+            Paste the <code>/plugin</code> commands a marketplace prints (the <code>marketplace add</code> and{' '}
+            <code>install</code> lines) — every skill the plugin ships is imported. An <code>owner/repo</code> or
+            GitHub repo URL works too.
+          </p>
+          <Textarea
+            rows={3}
+            className="font-mono text-xs"
+            value={installCommand}
+            onChange={(e) => setInstallCommand(e.target.value)}
+            placeholder={'/plugin marketplace add owner/repo\n/plugin install my-plugin@my-marketplace'}
+          />
+          <div className="mt-3 flex justify-end">
+            <Button
+              variant="primary"
+              disabled={!installCommand.trim() || installSkills.isPending}
+              onClick={() => installSkills.mutate()}
+            >
+              <Package className="h-4 w-4" /> {installSkills.isPending ? 'Installing…' : 'Install'}
+            </Button>
+          </div>
+        </Panel>
+
         {creating && (
           <Panel className="p-4">
             <div className="mb-3 text-sm font-medium text-fg">New skill</div>
@@ -173,9 +224,7 @@ export function ProjectSkills() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">{skill.name}</span>
-                        <Badge className={skill.source === 'github' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-panel-2 text-muted'}>
-                          {skill.source}
-                        </Badge>
+                        <Badge className={sourceBadgeClass(skill.source)}>{skill.source}</Badge>
                         {!skill.enabled && <Badge className="bg-amber-500/15 text-amber-400">disabled</Badge>}
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs text-muted">{skill.description || 'No description'}</p>

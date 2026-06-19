@@ -167,7 +167,7 @@ export interface Run {
   ended_at: string | null;
 }
 
-export type ProjectSkillSource = 'manual' | 'github';
+export type ProjectSkillSource = 'manual' | 'github' | 'marketplace';
 
 /** An optional extra file shipped alongside a multi-file skill (relative to the skill directory). */
 export interface ProjectSkillFile {
@@ -193,6 +193,15 @@ export interface ProjectSkill {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Result of installing a Claude Code marketplace plugin's skills (SYM-17). A single paste can pull
+ * several skills; duplicates (by name) are reported in `skipped` rather than failing the batch.
+ */
+export interface MarketplaceInstallResult {
+  imported: ProjectSkill[];
+  skipped: { name: string; reason: string }[];
 }
 
 /** A distilled learning from a completed issue, injected into later agent prompts. */
