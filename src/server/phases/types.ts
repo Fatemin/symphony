@@ -116,3 +116,7 @@ export async function runPhaseAgent(ctx: PhaseContext, prompt: string): Promise<
 }
 
 export const PHASE_ORDER: RunPhase[] = ['plan', 'implement', 'qa'];
+
+/** Join phase-prompt additions (per-project config + WORKFLOW.md), dropping blanks; undefined if none. */
+export const phasePrompt = (...parts: (string | undefined)[]): string | undefined =>
+  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;

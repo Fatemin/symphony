@@ -99,7 +99,8 @@ export class Orchestrator {
       });
     }
     this.state.release(issueId); // drop any stale claim left by the superseded retry
-    // Move into an active status so reconciliation won't immediately abort it.
+    // Move into an active status; dispatch() then flips it to in_progress before the run is
+    // registered, so reconciliation never sees a non-in_progress running issue and aborts it.
     if (!isActive(issue.status)) setStatus(issueId, 'todo');
     this.dispatch(getIssue(issueId)!, 1);
     return { ok: true };
@@ -158,6 +159,11 @@ export class Orchestrator {
 
   private dispatch(issue: Issue, attempt: number): void {
     this.state.claim(issue.id);
+    // Flip to in_progress synchronously, before the entry joins `running`: the pipeline only sets
+    // this status after awaiting worktree setup, and reconcile() aborts any running issue that is
+    // not exactly 'in_progress' — so a tick (or Ops "kick") landing in that gap would otherwise
+    // abort a just-dispatched run (notably the out-of-band runNow / request-changes path).
+    if (issue.status !== 'in_progress') setStatus(issue.id, 'in_progress');
     const abort = new AbortController();
     const entry: RunningEntry = {
       issueId: issue.id,

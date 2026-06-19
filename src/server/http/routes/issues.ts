@@ -15,6 +15,7 @@ import {
 } from '../../repo/issues';
 import { addRevision, listRevisions } from '../../repo/revisions';
 import { mergeProjectConfigs } from '../../core/projectConfig';
+import { buildConflictPrompt } from '../../core/prompt';
 import { loadWorkflow } from '../../core/workflow';
 import { getProject, updateProject } from '../../repo/projects';
 import { getConfig as readEngineConfig } from '../../repo/settings';
@@ -295,7 +296,7 @@ async function resolveMergeConflicts(
   const result = await runClaudeCode({
     agent: 'claude', // this resolver always drives the Claude CLI directly
     cwd: input.checkoutPath,
-    prompt: conflictPrompt(issue, project, input),
+    prompt: buildConflictPrompt(issue, project, input),
     systemPrompt: 'You are Symphony conflict-resolution automation. Resolve the merge conflict completely, do not commit, and never ask the user questions.',
     model: workflow?.model || project.model?.trim() || engineConfig.model,
     permissionMode: workflow?.permission_mode ?? projectConfig.agent.permission_mode ?? engineConfig.permission_mode,
@@ -347,36 +348,6 @@ function persistApproveAgentEvent(issueId: string, event: AgentEvent): void {
   } else if (event.type === 'error') {
     appendEvent({ issue_id: issueId, kind: 'approve.agent_error', level: 'error', message: event.message });
   }
-}
-
-function conflictPrompt(issue: Issue, project: NonNullable<ReturnType<typeof getProject>>, input: MergeConflictResolverInput): string {
-  return [
-    `Resolve the merge conflict for ${issue.key}: ${issue.title}.`,
-    '',
-    `Project: ${project.name} (${project.key})`,
-    `Target branch: ${input.base}`,
-    `Agent branch: ${input.branch}`,
-    `Integration worktree: ${input.checkoutPath}`,
-    '',
-    'Issue description:',
-    issue.description?.trim() || '_(none)_',
-    '',
-    'Acceptance criteria:',
-    issue.acceptance_criteria?.trim() || '_(none)_',
-    '',
-    'Merge output:',
-    input.mergeOutput,
-    '',
-    'Conflicted files:',
-    ...input.conflictedFiles.map((file) => `- ${file}`),
-    '',
-    'Instructions:',
-    '- Preserve the current target-branch behavior and the story implementation.',
-    '- Resolve every conflict marker in the conflicted files.',
-    '- Read nearby files when needed, but keep edits tightly scoped to the integration conflict.',
-    '- Do not commit; Symphony will stage and commit the merge after checking your work.',
-    '- Run lightweight checks when useful, and finish with a short summary of what you resolved.',
-  ].join('\n');
 }
 
 async function verifyIntegratedMerge(

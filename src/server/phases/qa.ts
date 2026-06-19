@@ -1,6 +1,6 @@
 import { buildQaPrompt, parseQa } from '../core/prompt';
 import { commitWorktree } from '../workspace/worktree';
-import { runPhaseAgent, type PhaseContext, type QaOutcome } from './types';
+import { phasePrompt, runPhaseAgent, type PhaseContext, type QaOutcome } from './types';
 
 /**
  * QA phase: a fresh agent verifies the committed work against the acceptance criteria and emits
@@ -64,6 +64,3 @@ export async function runQa(ctx: PhaseContext): Promise<QaOutcome> {
     report: result.text,
   };
 }
-
-const phasePrompt = (...parts: (string | undefined)[]) =>
-  parts.map((p) => p?.trim()).filter(Boolean).join('\n\n') || undefined;

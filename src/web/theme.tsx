@@ -10,8 +10,12 @@ const STORAGE_KEY = 'symphony-theme';
  * with React's first render. Dark is the fallback to mirror the original look.
  */
 function initialTheme(): Theme {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === 'light' || stored === 'dark') return stored;
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === 'light' || stored === 'dark') return stored;
+  } catch {
+    /* localStorage may be unavailable in hardened browser contexts — fall through */
+  }
   if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
   return 'dark';
 }
@@ -24,7 +28,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Apply + persist on every change; the attribute drives the CSS token overrides in globals.css.
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem(STORAGE_KEY, theme);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      /* localStorage may be unavailable in hardened browser contexts — theme still applies */
+    }
   }, [theme]);
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);

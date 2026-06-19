@@ -90,7 +90,10 @@ export const runCodex: AgentRunner = (input: AgentRunInput, onEvent) =>
     }
 
     try {
-      proc.stdin.write(input.prompt);
+      // Codex `exec` has no system-prompt flag, so fold the caller's systemPrompt (e.g. Ask's
+      // read-only guardrails) into the stdin prompt instead of silently dropping it.
+      const prompt = input.systemPrompt ? `${input.systemPrompt}\n\n${input.prompt}` : input.prompt;
+      proc.stdin.write(prompt);
       proc.stdin.end();
     } catch {
       /* surfaced via the no-result path below */

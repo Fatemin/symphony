@@ -7,7 +7,7 @@ import type { Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority 
 import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { Badge, Button, Field, Input, Panel, Select, Spinner, Textarea } from '../components/ui';
-import { PRIORITY_META, relativeTime, STATUS_META } from '../lib/format';
+import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 
 type LiveEvent = Event & { cursor: number };
 
@@ -77,7 +77,7 @@ function QueueStatusBanner({
         <Clock className="h-4 w-4 shrink-0" />
         {retry ? (
           <span>
-            Queued for retry — attempt {retry.attempt}, due {relativeTime(retry.due_at)}.
+            Queued for retry — attempt {retry.attempt}, due {relativeFuture(retry.due_at)}.
           </span>
         ) : (
           <span>Queue paused until {new Date(suspended!.until).toLocaleString()}.</span>

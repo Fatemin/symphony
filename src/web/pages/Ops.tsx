@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, History, RefreshCw, Zap } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Input, Panel, Select } from '../components/ui';
-import { fmtDuration, relativeTime, STATUS_META } from '../lib/format';
+import { fmtDuration, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 import type { IssueStatus, OpsHistoryRow, RunStatus } from '../../shared/types';
 
 export function Ops() {
@@ -86,7 +86,7 @@ export function Ops() {
             {snap.retrying.map((r) => (
               <div key={r.issue_id} className="flex items-center justify-between px-4 py-2 text-sm">
                 <span className="font-mono text-fg">{r.issue_key}</span>
-                <span className="text-xs text-muted">attempt {r.attempt} · due {relativeTime(r.due_at)}</span>
+                <span className="text-xs text-muted">attempt {r.attempt} · due {relativeFuture(r.due_at)}</span>
                 <span className="max-w-md truncate text-xs text-red-400/80">{r.error}</span>
               </div>
             ))}

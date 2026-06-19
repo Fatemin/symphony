@@ -35,6 +35,17 @@ export function relativeTime(iso: string | number): string {
   return `${Math.round(secs / 86400)}d ago`;
 }
 
+/** Forward-looking counterpart to relativeTime, for future timestamps (e.g. a retry's due_at). */
+export function relativeFuture(iso: string | number): string {
+  const then = typeof iso === 'number' ? iso : new Date(iso).getTime();
+  const secs = Math.round((then - Date.now()) / 1000);
+  if (secs <= 0) return 'now';
+  if (secs < 60) return `in ${secs}s`;
+  if (secs < 3600) return `in ${Math.round(secs / 60)}m`;
+  if (secs < 86400) return `in ${Math.round(secs / 3600)}h`;
+  return `in ${Math.round(secs / 86400)}d`;
+}
+
 export function fmtDuration(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
