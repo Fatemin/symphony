@@ -268,14 +268,18 @@ the built-in professional-team prompt, never replacing it. Default values are ta
   `workspace/docs.ts`; an inline editor adds/removes directories by PATCHing `config.docs`.
 
 The left sidebar (`components/Layout.tsx`) ends in a footer widget, **`SidebarUsage.tsx`** (SYM-38,
-SYM-39), that shows local Claude Code / Codex **remaining** quota from `GET /api/usage/local`. SYM-39
-flipped it from spent tokens to what's left: Codex headlines its lowest remaining window ("NN% left")
-with a threshold-colored dot (>50 emerald, 20–50 amber, <20 red) and a per-window/reset tooltip;
-Claude has no local quota data, so it renders an honest `unsupported` row ("本地不可用"). It refreshes on
-a 60s interval and whenever any issue takes an action — the latter by observing the shared `['issues']`
-poll (Layout already runs it every 3s) and invalidating the usage query when the issues'
-status/`updated_at` signature changes. It renders every state: loading, `ok` (remaining %), `empty`,
-`unsupported`, `not_found`, and `error` → "检测失败".
+SYM-39, SYM-40), that shows local Claude Code / Codex **remaining** quota from `GET /api/usage/local`.
+SYM-39 flipped it from spent tokens to what's left: Codex headlines its lowest remaining window
+("NN% left") with a threshold-colored dot (>50 emerald, 20–50 amber, <20 red) and a per-window/reset
+tooltip. Claude has no local quota data (`status: 'unsupported'`); SYM-40 replaced the old flat
+"本地不可用" — which misread as "Claude Code is unavailable" even while in active use — with an honest
+fallback to today's token usage ("N 今日", self-qualified so it isn't mistaken for a remaining %; neutral
+dot), or "无今日用量" when nothing ran today, keeping the "remaining isn't derivable locally → run
+`/usage`" note in the tooltip. It refreshes on a 60s interval and whenever any issue takes an action —
+the latter by observing the shared `['issues']` poll (Layout already runs it every 3s) and invalidating
+the usage query when the issues' status/`updated_at` signature changes. It renders every state: loading,
+`ok` (remaining %), `empty`, `unsupported` (Claude → today's usage / idle), `not_found`, and `error` →
+"检测失败".
 
 The frontend is documented at module level only; its components are not part of the server contract.
 

@@ -81,10 +81,13 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
   `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The sidebar
-  footer widget (`components/SidebarUsage.tsx`, SYM-38/SYM-39) shows local Claude/Codex **remaining**
-  quota from `GET /api/usage/local` — Codex's lowest remaining window ("NN% left", threshold-colored
-  dot) and Claude's honest `unsupported` row — refreshing every 60s and whenever the shared `['issues']`
-  poll's status/`updated_at` signature changes.
+  footer widget (`components/SidebarUsage.tsx`, SYM-38/SYM-39/SYM-40) shows local Claude/Codex
+  **remaining** quota from `GET /api/usage/local` — Codex's lowest remaining window ("NN% left",
+  threshold-colored dot). Claude has no local quota (`status: 'unsupported'`), so rather than the old
+  flat "本地不可用" that misread as "Claude unavailable" (SYM-40), its row honestly falls back to today's
+  token usage ("N 今日", neutral dot) — or "无今日用量" when idle — with the remaining-not-local caveat in
+  the tooltip. Refreshes every 60s and whenever the shared `['issues']` poll's status/`updated_at`
+  signature changes.
 
 ## Conventions
 

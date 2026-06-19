@@ -10,16 +10,20 @@ import type { AgentType, AgentUsage, AgentUsageReport, Issue, RateWindow } from 
  *
  * Codex logs its live rate limits locally, so its row headlines the lowest remaining window
  * ("NN% left") with a threshold-colored dot and a per-window/reset tooltip. Claude exposes NO local
- * quota state, so it renders an honest `unsupported` row ("本地不可用") rather than a fabricated budget.
+ * quota state, so instead of fabricating a budget — or, as before, showing a flat "本地不可用" that
+ * misread as "Claude Code is unavailable" (SYM-40) — its row honestly falls back to today's token
+ * usage ("N 今日", self-qualified so it isn't mistaken for a remaining %) with a neutral dot, or a
+ * neutral idle label ("无今日用量") when nothing ran today. The tooltip explains that remaining quota
+ * isn't derivable locally (run `/usage` in the Claude CLI).
  *
  * Refreshes on two triggers (AC#2 from SYM-38): a 60s interval, and whenever any issue takes an
  * action — the latter by reading the SAME `['issues']` query Layout already polls every 3s (TanStack
  * dedupes) and invalidating the usage query when the issues' status/updated_at signature changes.
  *
  * Every state is rendered (AC#1/#3): loading, ok (remaining %), empty (no recent activity),
- * unsupported (Claude), not_found (not detected), and error → "检测失败 / detection failed". Each agent
- * is read independently server-side, so one missing CLI never blanks the other; a whole-query failure
- * shows 检测失败 on both.
+ * unsupported (Claude → today's usage / idle), not_found (not detected), and error → "检测失败 /
+ * detection failed". Each agent is read independently server-side, so one missing CLI never blanks the
+ * other; a whole-query failure shows 检测失败 on both.
  */
 export function SidebarUsage() {
   const qc = useQueryClient();
@@ -138,8 +142,16 @@ function rowDisplay(
         strong: false,
         title: 'Detected, but no recent rate-limit data logged',
       };
-    case 'unsupported':
-      return { text: '本地不可用', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt) };
+    case 'unsupported': {
+      // SYM-40: Claude IS in active use; showing "本地不可用" misreads as "Claude Code unavailable".
+      // Remaining quota genuinely isn't derivable from Claude's logs, so we honestly fall back to
+      // today's token usage (self-qualified with 今日 so it isn't mistaken for a remaining %) and a
+      // neutral dot — never a quota signal. The tooltip carries the "run /usage" explanation.
+      const today = report.usage.total_tokens;
+      return today > 0
+        ? { text: `${formatTokens(today)} 今日`, dot: 'bg-slate-600', strong: true, title: unsupportedTitle(report, generatedAt) }
+        : { text: '无今日用量', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt) };
+    }
     case 'not_found':
       return { text: 'not detected', dot: 'bg-slate-600', strong: false, title: 'CLI data directory not found on this machine' };
     case 'error':

@@ -351,8 +351,10 @@ export interface AskHistory {
  * spent. Codex logs its live rate limits locally; Claude does not (its logs carry no quota state).
  * - `ok`          — Codex: a rate-limit snapshot was found, so `windows` carry remaining quota.
  * - `empty`       — Codex: the data dir was found but no recent rate-limit snapshot exists.
- * - `unsupported` — Claude: the data dir was found, but remaining quota is NOT available locally
- *                   (run `/usage` in the Claude CLI). `usage` still holds today's totals for the tooltip.
+ * - `unsupported` — Claude: the data dir was found, but remaining quota is NOT derivable locally
+ *                   (run `/usage` in the Claude CLI). `usage` holds today's totals, which the row
+ *                   headlines ("N 今日") as an honest fallback so the agent never reads as unavailable
+ *                   (SYM-40); the remaining-not-local caveat lives in the tooltip.
  * - `not_found`   — the data dir does not exist (the CLI isn't installed, or has never run).
  * - `error`       — an unexpected failure reading the dir (e.g. EACCES); `error` carries the reason.
  */
