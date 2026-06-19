@@ -1,0 +1,149 @@
+# Symphony — HTTP & SSE API
+
+The complete server API, grounded in the Hono entry ([`src/server/index.ts`](../src/server/index.ts))
+and the route modules in [`src/server/http/routes/`](../src/server/http/routes/). All routes are
+mounted under **`/api`**. In dev the Vite client proxies `/api/*` to the Hono server on `:3030`; in
+production the same server also serves the built SPA.
+
+This is a **single-user, localhost tool** — there is no authentication, no rate limiting, and no
+versioning. Request bodies are JSON; responses are JSON unless noted (SSE for the stream route).
+
+## Conventions
+
+- **Mount points** (`index.ts`): `/api/projects` (project CRUD **and** the `ask` sub-routes),
+  `/api/issues`, `/api/ops`, `/api/stream`, `/api/fs`, plus `GET /api/health`.
+- **Errors** are `{ "error": "<message>" }` with a 4xx/5xx status; review-gate actions return
+  `{ "ok": false, "reason": "<message>" }`.
+- **Status codes** used deliberately: `201` create, `202` accepted/dispatched, `204` no content,
+  `400` bad input, `404` not found, `409` conflict/illegal-state, `422` nothing imported,
+  `502` upstream (agent/GitHub) failure.
+
+---
+
+## Health
+
+### `GET /api/health`
+Liveness probe. → `200 { "status": "ok" }`.
+
+---
+
+## Projects — `/api/projects` (`http/routes/projects.ts`)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/projects` | List all projects. |
+| `POST` | `/api/projects` | Create a project. Body requires `name`; `409` if the derived/supplied `key` collides. → `201` |
+| `GET` | `/api/projects/:id` | One project **plus** its issues (`{ ...project, issues }`). `404` if missing. |
+| `PATCH` | `/api/projects/:id` | Update project fields (incl. `model`, `context`, `agent`, `default_branch`, `preview_command`, `config`). `404` if missing. |
+| `DELETE` | `/api/projects/:id` | Delete a project (cascades issues etc.). → `204` |
+| `GET` | `/api/projects/:id/branches` | Git branches of the project's repo (`{ default_branch, branches }`); empty list if no `repo_path`. |
+
+### Project skills (SYM-14)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/projects/:id/skills` | List the project's skills. |
+| `POST` | `/api/projects/:id/skills` | Create a manual skill. Body requires `name`; `409` on duplicate name. → `201` |
+| `POST` | `/api/projects/:id/skills/import` | Import a skill from a GitHub `url`. Fetch failure → `502`; duplicate → `409`. → `201` |
+| `POST` | `/api/projects/:id/skills/install` | Install a marketplace plugin's skills from a pasted `command`. Parse error → `400`; fetch failure → `502`; per-skill duplicates collected into `skipped`. → `201` if any imported, else `422`. |
+| `PATCH` | `/api/projects/:id/skills/:skillId` | Update a skill (e.g. toggle `enabled`). `404` if not in this project; `409` on name clash. |
+| `DELETE` | `/api/projects/:id/skills/:skillId` | Delete a skill. → `204` |
+
+### Ask — conversational project Q&A (`http/routes/ask.ts`, mounted under `/api/projects`)
+
+Read-only Q&A against the project's **real repo** (not a worktree). Synchronous request/response — no
+run rows, no orchestrator. The agent is pinned to a read-only permission mode and may end by drafting a
+feature/bug suggestion.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/projects/:id/ask` | Ask a question. Body: `{ question, history?, agent? }`. → `{ answer, session_id, suggestion }`. No `repo_path` → `400`; agent failure → `502`. Persists the turn under today's conversation. |
+| `GET` | `/api/projects/:id/ask/history` | Today's persisted conversation (`{ date, messages }`) to reseed the panel. |
+| `DELETE` | `/api/projects/:id/ask/history` | Reset today's conversation ("new conversation"). → `{ ok: true }` |
+
+---
+
+## Issues — `/api/issues` (`http/routes/issues.ts`)
+
+### CRUD & detail
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/issues?project_id=&status=` | List issues; both query params optional filters. |
+| `POST` | `/api/issues` | Create an issue. Body requires `project_id` + `title`. → `201` |
+| `GET` | `/api/issues/:id` | Full detail: the issue plus `tasks`, `runs`, `events` (latest 200), `relations`, `revisions`. `404` if missing. |
+| `PATCH` | `/api/issues/:id` | Update issue fields (status, mode, priority, etc.). Moving to a terminal status mid-run cancels the active run; `cancelled` also cleans up the branch/worktree. |
+| `DELETE` | `/api/issues/:id` | Cancel any active run, clean up resources, delete the issue. → `204` (also `204` if already gone). |
+| `POST` | `/api/issues/:id/follow-ups` | Create a follow-up issue linked to a **completed** source (`409` if source not `done`). Body requires `title`; `include_context` (default true) carries predecessor context. → `201` |
+
+### Activity & review evidence
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/issues/:id/events?since=` | Activity feed since a cursor (polling fallback for SSE; also the initial load). |
+| `GET` | `/api/issues/:id/diff` | The agent branch's diff vs its base (`{ available, base, branch, stat, files, patch, truncated }`); `available:false` when repo/branch info is missing. |
+
+### Run & review-gate actions
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/issues/:id/run` | Manual "Run": dispatch this issue now regardless of `mode`. → `202` on dispatch, `409` if it can't (terminal / already running / no free slots). |
+| `POST` | `/api/issues/:id/approve` | Approve the review gate. Body (all optional): `{ target_branch?, create_branch?, set_default_branch? }`. Direct-merge mode merges the agent branch into base and (per `promotion.push`) pushes; pull-request mode rebases, verifies, pushes, and opens/merges a PR with `gh`. On success the issue → `done`. `409` on a merge conflict / diverged remote (leaves a `merge_conflict` decoration) or non-review status; `400` on missing branch info. |
+| `POST` | `/api/issues/:id/resolve-conflict` | Re-run the merge for a parked issue carrying a `merge_conflict` decoration, reconciling a diverged remote agent-side. Guarded on `status=review` + a recorded conflict (`409` otherwise). On success → `done` and clears the marker. |
+| `POST` | `/api/issues/:id/request-changes` | Start a new revision round. Body requires `feedback`. Records the revision, bumps `round`, clears any stale conflict marker, returns the issue to `todo`, and re-dispatches. → `202 { ok, round, dispatched, reason }`; `409` if not in `review`; `400` if no feedback. |
+
+### Preview server
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/issues/:id/preview` | Current preview status for the issue. |
+| `POST` | `/api/issues/:id/preview` | Launch the project from the issue's worktree (uses `project.preview_command` or a default). `409` if there is no worktree yet. |
+| `DELETE` | `/api/issues/:id/preview` | Stop the preview. → `{ running: false, stopped }` |
+
+---
+
+## Ops — `/api/ops` (`http/routes/ops.ts`)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/ops/snapshot` | Orchestrator runtime snapshot (`Snapshot`): running rows, queued retries, token totals, poll interval, WIP limit, enabled flag, any active suspension. |
+| `GET` | `/api/ops/history?project_id=` | Persisted per-issue run history (`OpsHistoryRow[]`); the durable record behind the Ops History panel. `project_id` optional. |
+| `POST` | `/api/ops/snapshot/kick` | Force an immediate orchestrator poll tick. → `{ ok: true }` |
+| `GET` | `/api/ops/settings` | Effective engine config (defaults merged with the `settings` table → `EngineConfig`). |
+| `PATCH` | `/api/ops/settings` | Update engine settings; returns the new effective config. |
+
+---
+
+## Stream (SSE) — `/api/stream` (`http/routes/stream.ts`)
+
+### `GET /api/stream/issues/:id?since=<cursor>`
+Server-Sent Events for one issue's activity. On connect it **replays** every event after `?since=`
+(cursor), then streams live events from the in-process bus. A ~15 s heartbeat (`event: ping`) keeps
+the connection and any proxies alive. Each data message carries the event (kind + JSON payload) with
+the cursor as the SSE `id`; the browser `EventSource` fires `onmessage` for every event (no custom
+`event:` field on data messages). Reconnect with the last seen cursor as `?since=` to resume without
+gaps.
+
+---
+
+## Filesystem picker — `/api/fs` (`http/routes/fs.ts`)
+
+Supports the project `repo_path` picker on a localhost single-user machine. Exposes directory **names
+only** — never file contents.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/fs/browse?path=` | Subdirectories of `path` (`~`/relative/env expanded), each flagged `isGitRepo`; falls back to the home dir when `path` is missing/invalid. Returns `{ path, parent, isGitRepo, entries }`. |
+| `GET` | `/api/fs/validate?path=` | Validate a typed/selected path. Always `200`; the payload's `ok`/`error`/`warning` describe the result (a non-git directory is a *warning*, not an error). |
+
+---
+
+## Related docs
+
+- Request/response shapes map to the domain types in
+  [`src/shared/types.ts`](../src/shared/types.ts) — see [DATA_MODEL.md](DATA_MODEL.md).
+- The lifecycle behind the run/approve/request-changes endpoints is in
+  [ARCHITECTURE.md](ARCHITECTURE.md).
+- Per-project policy referenced by `approve` (verification/promotion/commit_guard) is the
+  `WORKFLOW.md` / project `config` contract — see [AGENT_GUIDE.md](AGENT_GUIDE.md) and
+  [`WORKFLOW.example.md`](../WORKFLOW.example.md).

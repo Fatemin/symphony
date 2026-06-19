@@ -10,8 +10,21 @@ self-QAs the result, and parks it at a single human-review gate. Bounded concurr
 backoff, stall detection, and restart recovery are all handled by one authoritative scheduler.
 
 > Replaces the messier `agile-with-agent` prototype with a cleanly-layered rebuild: no god files,
-> a 6-table schema, the agent runner behind a dependency-injection seam, and the whole pipeline
+> a 12-table schema, the agent runner behind a dependency-injection seam, and the whole pipeline
 > testable offline.
+
+---
+
+## Documentation
+
+This README is the user-facing "how it works" guide. For the deep reference layer, see
+[`docs/`](docs/):
+
+- [docs/PRD.md](docs/PRD.md) — product vision, the "manage work, not agents" model, scope, success criteria.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layered module map, the issue lifecycle, the orchestrator tick loop + runtime state, design rationale, glossary.
+- [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — every table, the additive-migration convention, and the status / mode / round state machine.
+- [docs/API.md](docs/API.md) — the HTTP + SSE endpoint reference.
+- [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) — the contract for agents/contributors: phases, load-bearing role titles, prompt assembly, policy, and how to extend.
 
 ---
 

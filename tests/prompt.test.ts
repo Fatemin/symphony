@@ -48,6 +48,7 @@ const issue: Issue = {
   branch_name: 'agent/pr-1',
   worktree_path: null,
   round: 1,
+  merge_conflict: null,
   created_at: '2026-06-19T00:00:00Z',
   updated_at: '2026-06-19T00:00:00Z',
 };
