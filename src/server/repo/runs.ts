@@ -239,6 +239,27 @@ export function listIssueHistory(projectId?: string): OpsHistoryRow[] {
   }));
 }
 
+/**
+ * Each issue's most-recent run phase, batched (SYM-32). Powers the board card's live phase chip
+ * without an N+1 lookup. Issues with no runs are simply absent from the Map. The window function
+ * ranks an issue's runs newest-first using the same ORDER BY (started_at DESC, rowid DESC) as the
+ * other "latest" queries here, so same-millisecond runs order deterministically.
+ */
+export function latestPhaseByIssue(issueIds: string[]): Map<string, RunPhase> {
+  if (issueIds.length === 0) return new Map();
+  const placeholders = issueIds.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT issue_id, phase FROM (
+         SELECT issue_id, phase,
+                ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY started_at DESC, rowid DESC) AS rn
+         FROM runs WHERE issue_id IN (${placeholders})
+       ) WHERE rn = 1`,
+    )
+    .all(...issueIds) as unknown as { issue_id: string; phase: string }[];
+  return new Map(rows.map((r) => [r.issue_id, r.phase as RunPhase]));
+}
+
 /** Runs left dangling (status='running') from a previous process — used by restart recovery. */
 export function listDanglingRuns(): Run[] {
   const rows = getDb()

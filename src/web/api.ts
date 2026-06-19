@@ -3,6 +3,7 @@ import type {
   AskHistory,
   AskMessage,
   AskResponse,
+  BoardIssue,
   Event,
   Issue,
   IssueRelation,
@@ -34,7 +35,9 @@ export type EngineConfig = Record<string, unknown> & {
   max_retry_backoff_ms: number;
 };
 
-export type ProjectWithIssues = Project & { issues: Issue[] };
+// SYM-32: the board response carries BoardIssue (Issue + derived current_phase) so cards can show
+// the live phase. BoardIssue extends Issue, so every existing field read stays type-safe.
+export type ProjectWithIssues = Project & { issues: BoardIssue[] };
 export type IssueDetail = Issue & {
   tasks: IssueTask[];
   runs: Run[];

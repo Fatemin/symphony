@@ -8,6 +8,9 @@ const env = setupEnv();
 const { suggestProjectKey } = await import('../src/shared/keys');
 const { deriveProjectKey } = await import('../src/server/core/keys');
 const { projectRoutes } = await import('../src/server/http/routes/projects');
+const { createProject } = await import('../src/server/repo/projects');
+const { createIssue } = await import('../src/server/repo/issues');
+const { createRun, finishRun } = await import('../src/server/repo/runs');
 
 test.after(() => env.cleanup());
 
@@ -58,4 +61,34 @@ test('POST /api/projects translates a duplicate key collision to a friendly 409'
   // A distinct key still succeeds.
   res = await projectRoutes.request('/', json({ name: 'ops-supplier', key: 'OP2' }));
   assert.equal(res.status, 201);
+});
+
+// ── GET /api/projects/:id derives current_phase per issue (SYM-32) ───────────
+
+test('GET /api/projects/:id reports each in-progress issue\'s latest run phase as current_phase', async () => {
+  const project = createProject({ name: 'Phase Board', key: 'PB', repo_path: env.repoPath });
+
+  // In-progress issue with a multi-run history — the latest run (highest rowid) is qa.
+  const active = createIssue({ project_id: project.id, title: 'Active', status: 'in_progress' });
+  for (const phase of ['plan', 'implement', 'qa'] as const) {
+    const run = createRun(active.id, phase, 1);
+    finishRun(run.id, 'succeeded');
+  }
+
+  // A non-in_progress issue that *has* runs must still report null — phase is only board-relevant
+  // while the issue is actively being worked.
+  const reviewing = createIssue({ project_id: project.id, title: 'In review', status: 'review' });
+  finishRun(createRun(reviewing.id, 'qa', 1).id, 'succeeded');
+
+  // A never-run in_progress issue reports null (absent from the phase map).
+  const fresh = createIssue({ project_id: project.id, title: 'Just started', status: 'in_progress' });
+
+  const res = await projectRoutes.request(`/${project.id}`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { issues: { id: string; current_phase: string | null }[] };
+  const phaseOf = (id: string) => body.issues.find((i) => i.id === id)?.current_phase;
+
+  assert.equal(phaseOf(active.id), 'qa', 'in-progress issue surfaces its latest run phase');
+  assert.equal(phaseOf(reviewing.id), null, 'non-in_progress issue reports null even with runs');
+  assert.equal(phaseOf(fresh.id), null, 'never-run in_progress issue reports null');
 });
