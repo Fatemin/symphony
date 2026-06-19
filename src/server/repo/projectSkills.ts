@@ -25,12 +25,18 @@ const mapRow = (r: ProjectSkillRow): ProjectSkill => ({
   description: r.description,
   content: r.content,
   files: parseFiles(r.files),
-  source: r.source === 'github' ? 'github' : 'manual',
+  source: normalizeSource(r.source),
   source_url: r.source_url,
   enabled: r.enabled !== 0,
   created_at: r.created_at,
   updated_at: r.updated_at,
 });
+
+const SOURCES: ProjectSkillSource[] = ['manual', 'github', 'marketplace'];
+
+/** Coerce a stored/free-text source to a known value; anything unrecognized degrades to 'manual'. */
+const normalizeSource = (s: string | null | undefined): ProjectSkillSource =>
+  SOURCES.includes(s as ProjectSkillSource) ? (s as ProjectSkillSource) : 'manual';
 
 function parseFiles(value: string | null): ProjectSkillFile[] {
   if (!value) return [];
@@ -82,7 +88,7 @@ export function createProjectSkill(input: CreateProjectSkillInput): ProjectSkill
       input.description?.trim() || null,
       input.content ?? '',
       serializeFiles(input.files),
-      input.source === 'github' ? 'github' : 'manual',
+      normalizeSource(input.source),
       input.source_url?.trim() || null,
       input.enabled === false ? 0 : 1,
     );

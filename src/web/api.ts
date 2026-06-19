@@ -9,6 +9,7 @@ import type {
   IssueRelationMap,
   IssueRevision,
   IssueTask,
+  MarketplaceInstallResult,
   OpsHistoryRow,
   Project,
   ProjectSkill,
@@ -176,6 +177,11 @@ export const api = {
         req<ProjectSkill>(`/api/projects/${projectId}/skills`, { method: 'POST', ...body(data) }),
       import: (projectId: string, url: string) =>
         req<ProjectSkill>(`/api/projects/${projectId}/skills/import`, { method: 'POST', ...body({ url }) }),
+      install: (projectId: string, command: string) =>
+        req<MarketplaceInstallResult>(`/api/projects/${projectId}/skills/install`, {
+          method: 'POST',
+          ...body({ command }),
+        }),
       update: (projectId: string, skillId: string, data: Partial<ProjectSkill>) =>
         req<ProjectSkill>(`/api/projects/${projectId}/skills/${skillId}`, { method: 'PATCH', ...body(data) }),
       remove: (projectId: string, skillId: string) =>
