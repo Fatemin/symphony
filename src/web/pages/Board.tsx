@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, Plus, Sparkles, Square } from 'lucide-react';
+import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
 import type { Issue, IssueStatus } from '../../shared/types';
 import { api, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
@@ -106,6 +106,18 @@ export function Board() {
     });
   };
 
+  // SYM-25: one-click expand — focus a single column by collapsing every other one. Clicking the
+  // button again (when this column is already the only expanded one) restores all columns. Focus is
+  // just a particular collapsedColumns value, so it rides the same persistence effect and key — no
+  // new state. The existing per-column chevron (SYM-23) still works for granular collapse/expand.
+  const toggleFocus = (status: IssueStatus) => {
+    setCollapsedColumns((prev) => {
+      const expanded = COLUMNS.filter((s) => !prev.has(s));
+      const isFocused = expanded.length === 1 && expanded[0] === status;
+      return isFocused ? new Set() : new Set(COLUMNS.filter((s) => s !== status));
+    });
+  };
+
   if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
   const toggleIssue = (issueId: string) => {
@@ -171,10 +183,15 @@ export function Board() {
       {open && <NewIssueForm projectId={project.id} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ['project', id] }); }} />}
 
       <div className="flex flex-1 gap-3 overflow-x-auto">
-        {COLUMNS.map((status) => {
+        {(() => {
+          // SYM-25: a column is "focused" when it is the *only* expanded one — that's the state
+          // toggleFocus targets, and what flips the header button between Maximize2/Minimize2.
+          const expandedColumns = COLUMNS.filter((s) => !collapsedColumns.has(s));
+          return COLUMNS.map((status) => {
           const items = byStatus(status);
           const meta = STATUS_META[status];
           const isCollapsed = collapsedColumns.has(status);
+          const isFocused = expandedColumns.length === 1 && expandedColumns[0] === status;
           // Collapsed columns shrink to a narrow strip; expanded columns share the freed width via
           // flex-1 so e.g. Done grows when its neighbours are collapsed. transition-all animates the
           // width change (suppressed under prefers-reduced-motion via globals.css).
@@ -203,10 +220,19 @@ export function Board() {
                 <span className="text-xs text-subtle">{items.length}</span>
                 <button
                   type="button"
+                  aria-label={isFocused ? 'Restore all columns' : `Expand ${meta.label}`}
+                  aria-pressed={isFocused}
+                  onClick={() => toggleFocus(status)}
+                  className="ml-auto grid h-5 w-5 place-items-center rounded text-muted hover:bg-hover hover:text-fg"
+                >
+                  {isFocused ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
                   aria-label={`Collapse ${meta.label}`}
                   aria-expanded={true}
                   onClick={() => toggleColumn(status)}
-                  className="ml-auto grid h-5 w-5 place-items-center rounded text-muted hover:bg-hover hover:text-fg"
+                  className="grid h-5 w-5 place-items-center rounded text-muted hover:bg-hover hover:text-fg"
                 >
                   <ChevronDown className="h-4 w-4" />
                 </button>
@@ -225,7 +251,8 @@ export function Board() {
               </div>
             </div>
           );
-        })}
+          });
+        })()}
       </div>
       {showCancelled && cancelledIssues.length > 0 && (
         <div className="anim-card-in mt-4 border-t border-border pt-4">
