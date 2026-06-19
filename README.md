@@ -312,6 +312,24 @@ prompts, so agents act freely **inside their isolated worktree** — a real chec
 not a sandbox. Human control lives at the **review gate**, not per command. Switch `permission_mode`
 to `acceptEdits` to keep agents on the file-edit rail (at the cost of stalling on shell/`git` steps).
 
+## Data & privacy
+
+Only Symphony's framework code is version-controlled. Everything Symphony *manages* stays outside git:
+
+| Lives outside git | Where | Why |
+|-------------------|-------|-----|
+| SQLite DB — issues, ask transcripts, settings | [`data/symphony.db`](#configuration) (`DATA_DIR`) | Your tracker contents are private project data, not framework code |
+| Uploaded attachments | `data/attachments/` (`ATTACHMENTS_DIR`) | Same — durable blob store, never the ephemeral worktree |
+| Per-issue git worktrees | `workspace_root` (a tmpdir, default `<tmp>/symphony_workspaces`) | Checkouts of *your* repos, not this one |
+| Local agent / editor config | `.claude/settings.local.json`, `WORKFLOW.md`, `.vscode/`, `.idea/` | Per-machine, not shared project config |
+| Secrets | `.env`, `*.local` | Credentials |
+
+Agent **conversation transcripts** live in the user's home directory (`~/.claude/projects/...`), never
+inside this repository, so they can't enter git. The repo's own [`.gitignore`](.gitignore) — not a
+machine-global `core.excludesFile` — encodes every rule above, so the boundary holds for any clone,
+CI run, or collaborator. The full git history has never contained DB files, attachments, secrets, or
+transcripts; this is the framework, not your data.
+
 ## Known limitations
 
 - Single-user; no auth or multi-tenancy.

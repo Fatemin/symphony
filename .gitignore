@@ -1,7 +1,49 @@
+# Git tracks only Symphony's framework code. Everything below is runtime, private,
+# or machine-local data that must NEVER be committed — these rules live in the repo
+# itself so the boundary holds for every clone, CI run, and collaborator, not just
+# whoever set a machine-global core.excludesFile.
+
+# Dependencies
 node_modules/
+
+# Build output & caches
 dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Symphony runtime & private data
+# The SQLite DB (issues + ask transcripts) and uploaded attachments live under data/
+# (DATA_DIR); per-issue worktrees live under workspace_root (a tmpdir). The *.db / *.sqlite
+# rules are defense-in-depth in case SYMPHONY_DATA_DIR / SYMPHONY_DB_PATH points inside the repo.
 data/
-*.local
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Secrets & env
 .env
+.env.*
+!.env.example
+*.local
+
+# Local agent / editor / OS config (machine-local, not shared project config)
+# Only the per-user Claude local settings are ignored — a managed repo may legitimately
+# commit .claude/skills/ or a shared .claude/settings.json, so do NOT blanket-ignore .claude/.
+# Agent conversation transcripts live in the user's home (~/.claude/projects/...), never in this repo.
+.claude/settings.local.json
+WORKFLOW.md
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
 npm-debug.log*

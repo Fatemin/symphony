@@ -75,3 +75,9 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   per-repo `WORKFLOW.md`. New settings need a default + (if numeric) an entry in `NUMERIC_KEYS`.
   Attachment limits live here too: `max_attachment_bytes` (default 10 MB) and
   `max_attachments_per_item` (default 10), both numeric and UI-editable via the `settings` table.
+- Privacy boundary: only framework code is tracked. Runtime/private data — `data/` (the SQLite DB +
+  attachment blobs), per-issue worktrees under `workspace_root`, `.env`, and machine-local agent/editor
+  config (`.claude/settings.local.json`, live `WORKFLOW.md`) — is gitignored and must never be
+  committed. Conversation transcripts live in `~/.claude`, not the repo. When adding a feature that
+  writes new runtime/private paths, add a matching rule to the repo's own `.gitignore` (grouped,
+  commented) in the same change — don't rely on a machine-global ignore.
