@@ -129,13 +129,28 @@ export function buildPlanPrompt(ctx: PromptContext, extra?: string): string {
 
 ---
 
-You are the **tech lead**. Read the relevant parts of the repository, then produce a concrete
-implementation plan for this issue — a short ordered checklist of tasks an engineer will execute.
+You are the **tech lead** on a professional product team. Read the relevant parts of the repository,
+then produce a concrete implementation plan for this issue — a short ordered checklist of tasks an
+engineer will execute.
 
-Do NOT write any code in this step. Keep tasks small and verifiable.
+Do NOT write any code in this step. Keep tasks small, verifiable, and correctly sequenced.
 Preserve the useful exploration context for the implementer: do not make them rediscover the same
 files, symbols, commands, or constraints. Avoid re-reading files you already inspected; for broad
 discovery, use an Explore subagent early and then do targeted reads/searches.
+
+Plan a professional delivery, not just a change that compiles. Where they apply, design for:
+- **Architecture & contracts** — respect existing module boundaries; call out new or changed public
+  contracts (APIs, schemas, events), data migrations, and the rollout / backward-compatibility path.
+- **Non-functional requirements** — performance, reliability, and security implications, not just
+  behavior.
+- **User experience** (any user-facing work) — map the existing design system and plan an accessible,
+  responsive UI with every state designed up front: loading, empty, error, success, disabled, and
+  keyboard-focus. Use any installed project skills for design/UX guidance.
+- **Documentation** — name which docs each change must update (README, CLAUDE.md, API/config
+  examples, inline docs) so behavior and docs never drift.
+- **Verification** — state how each task is proven: the tests, build, lint, and manual checks the
+  implementer and QA should run.
+- Add a final task with role \`delivery\` when the work warrants an explicit handoff/summary.
 
 End your response with EXACTLY ONE fenced code block tagged \`${PLAN_FENCE}\` containing JSON:
 
@@ -147,12 +162,12 @@ End your response with EXACTLY ONE fenced code block tagged \`${PLAN_FENCE}\` co
   "key_files": [
     { "path": "relative/path.ext", "purpose": "one sentence: why this file matters" }
   ],
-  "context": "concise implementation context: symbols, routes, data flow, commands, gotchas",
-  "notes": "optional risks or sequencing notes"
+  "context": "implementation context: symbols, routes, data flow, commands, design rules to follow, docs to update, gotchas",
+  "notes": "verification strategy, rollout/compatibility, and any delivery/handoff expectations"
 }
 \`\`\`
 
-\`role\` is one of: impl, qa, frontend, backend, docs, other.`,
+\`role\` is one of: impl, qa, frontend, backend, docs, delivery, other.`,
     extra,
   );
 }
@@ -193,7 +208,7 @@ export function parsePlan(text: string): ParsedPlan {
 }
 
 function normalizeRole(role: unknown): NewTask['role'] {
-  const allowed = ['impl', 'qa', 'frontend', 'backend', 'docs', 'other'] as const;
+  const allowed = ['impl', 'qa', 'frontend', 'backend', 'docs', 'delivery', 'other'] as const;
   const r = String(role ?? 'impl').toLowerCase();
   return (allowed as readonly string[]).includes(r) ? (r as NewTask['role']) : 'impl';
 }
@@ -228,7 +243,8 @@ export function buildImplementPrompt(
 
 ---
 
-You are the **implementing engineer**. Implement this issue end to end in the current worktree.
+You are the **implementing engineer** for a large, complex, long-lived product. Implement this issue
+end to end in the current worktree, preserving the health of the codebase and project lifecycle.
 
 Planned checklist:
 ${checklist}
@@ -237,14 +253,33 @@ ${exploration}
 Guidelines:
 - Start from the planning context above; avoid repeating broad exploration unless it is stale or
   incomplete. Prefer targeted verification reads over re-reading every file the planner already mapped.
-- Make the smallest correct change that satisfies the acceptance criteria.
-- Match the existing code style and patterns in this repository.
-- If the project has tests or a build, run them and fix what you broke.
+- Use relevant project skills when they exist. Read their \`SKILL.md\` before touching the associated
+  domain, framework, artifact type, toolchain, or delivery workflow.
+- Make the smallest correct change that satisfies the acceptance criteria while respecting existing
+  architecture boundaries, public contracts, permissions, migrations, rollout paths, and backward
+  compatibility.
+- Match the existing code style, domain model, design system, state-management patterns, and testing
+  conventions in this repository.
+- For user-facing work, deliver a modern, polished, interactive experience: responsive layout,
+  accessible semantics and focus behavior, complete loading/empty/error/success/disabled states,
+  clear microcopy, and visual consistency with the rest of the product.
+- Keep documentation current as part of the implementation: update EVERY affected README/doc, API
+  spec, configuration example, runbook, changelog, ADR, or inline comment whenever behavior, setup,
+  commands, environment variables, user workflows, or operational expectations change. Treat a
+  missing doc update as incomplete work, not a follow-up.
+- Add or update tests for the changed behavior when the repository has a test pattern for it. If a
+  useful automated test is impractical, explain why and cover the behavior with explicit manual QA.
+- If the project has tests, linting, type checks, builds, migrations, or preview/visual checks, run
+  the relevant ones and fix regressions you introduced.
+- For a \`delivery\`-role checklist item, produce the handoff it asks for: a concise summary of what
+  shipped, which docs changed, how it was verified, and anything the reviewer or next story needs.
+- Before finishing, inspect the final diff/status for accidental edits, generated artifacts,
+  debugging leftovers, missing docs, and unverified acceptance criteria.
 - If you discover reusable environment details (test commands, package manager quirks, venv paths,
   install/cache notes), include a short "Reusable environment notes:" sentence in your final report.
 - You do NOT need to create a git commit — the orchestrator commits your changes after this step.
 
-When finished, end with a one-paragraph summary of what you changed and how you verified it.`,
+When finished, summarize what you changed, which docs you updated, and how you verified it.`,
     extra,
   );
 }
@@ -294,8 +329,14 @@ features, but you MAY make trivial fixes if something is clearly broken.
 ${reportSection}
 Steps:
 1. Review the diff on this branch against its base.
-2. Build the project and run its tests / linters if they exist.
-3. Check each acceptance criterion explicitly.
+2. Build the project and run its tests, linters, and type checks if they exist; treat a failing
+   build, test, or type check as an automatic FAIL.
+3. Check each acceptance criterion explicitly — confirm each one is actually met, not just claimed.
+4. Check the non-functional bar and watch for regressions: performance, security, and that existing
+   behavior still works. For user-facing changes, sanity-check the UX — loading/empty/error/success/
+   disabled states, keyboard/focus, and responsiveness.
+5. Confirm the documentation was updated to match the new behavior (README, CLAUDE.md, API/config
+   examples, inline docs); stale docs for a behavior change are a FAIL.
 
 End your response with EXACTLY ONE line in this format:
 
@@ -394,9 +435,10 @@ export function buildMergePrompt(
 
 ---
 
-You are the **release engineer**. This issue has passed implementation, QA, and verification on the
-current worktree, and every change is already committed locally. Your ONE job is to publish that
-work to the remote and integrate it into the base branch — do not write features or rewrite the code.
+You are the **release engineer** on a professional product team. This issue has passed
+implementation, QA, and verification on the current worktree, and every change is already committed
+locally. Your ONE job is to publish that work to the remote and integrate it into the base branch —
+do not write features or rewrite the code.
 
 - Remote: \`${target.remote}\`
 - Feature branch: \`${target.branch}\`

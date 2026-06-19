@@ -26,7 +26,12 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `claude --print --output-format stream-json`. Orchestrator/phases never import the CLI directly;
   tests inject a fake runner instead.
 - `src/server/core/prompt.ts` — all agent prompt assembly (issue brief, per-phase prompts, retry
-  failure context, project learnings, fence parsing).
+  failure context, project learnings, fence parsing). Each phase prompt holds its role (tech lead /
+  implementing engineer / QA engineer / release engineer) to a shared professional-team quality floor
+  — non-functional + UX design, a mandatory doc-update step, per-criterion QA — that `WORKFLOW.md` /
+  per-project `prompts.*` only append to. The role-title substrings are load-bearing: `fakeRunner.ts`
+  detects the phase by them, so keep them verbatim. `TaskRole` (`src/shared/types.ts`) includes
+  `delivery`, a plan-emitted handoff task executed inside the implement phase (no separate phase).
 - `src/server/repo/` — one file per table, all SQL lives here. `db/schema.ts` is idempotent
   (`CREATE TABLE IF NOT EXISTS`, runs every boot); additive `ALTER TABLE` backfills go in
   `db/migrate.ts`. There is no migration tool.

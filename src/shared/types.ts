@@ -21,7 +21,9 @@ export type AgentType = 'claude' | 'codex';
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 = none, 1 = urgent … 4 = low
 
 export type TaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
-export type TaskRole = 'impl' | 'qa' | 'frontend' | 'backend' | 'docs' | 'other';
+// `delivery` is a plan-emitted role executed inside the implement phase (there is no separate
+// delivery phase) — it asks the engineer for a handoff/summary of what shipped (SYM-24).
+export type TaskRole = 'impl' | 'qa' | 'frontend' | 'backend' | 'docs' | 'delivery' | 'other';
 
 export type RunPhase = 'plan' | 'implement' | 'qa' | 'delivery' | 'merge';
 export type RunStatus =
