@@ -15,6 +15,7 @@ import {
   Sun,
 } from 'lucide-react';
 import { api } from '../api';
+import { STATUS_META } from '../lib/format';
 import { useTheme } from '../theme';
 
 const links = [
@@ -29,6 +30,21 @@ export function Layout() {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: api.projects.list });
+  const { data: issues = [] } = useQuery({
+    queryKey: ['issues'],
+    queryFn: () => api.issues.list(),
+    refetchInterval: 3000,
+  });
+  const counts = useMemo(() => {
+    const map = new Map<string, { in_progress: number; review: number }>();
+    for (const issue of issues) {
+      if (issue.status !== 'in_progress' && issue.status !== 'review') continue;
+      const entry = map.get(issue.project_id) ?? { in_progress: 0, review: 0 };
+      entry[issue.status] += 1;
+      map.set(issue.project_id, entry);
+    }
+    return map;
+  }, [issues]);
   const currentProjectId = useMemo(() => location.pathname.match(/^\/projects\/([^/]+)/)?.[1], [location.pathname]);
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded());
 
@@ -93,6 +109,7 @@ export function Layout() {
             {projects.map((project) => {
               const isOpen = expanded.has(project.id);
               const isCurrent = currentProjectId === project.id;
+              const count = counts.get(project.id);
               return (
                 <div key={project.id} className="mb-0.5">
                   <div className={`group flex items-center rounded-md ${isCurrent ? 'bg-panel' : 'hover:bg-hover'}`}>
@@ -115,6 +132,25 @@ export function Layout() {
                     >
                       <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: project.color }} />
                       <span className="truncate">{project.name}</span>
+                      {count && (count.in_progress > 0 || count.review > 0) && (
+                        <span
+                          className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] text-muted"
+                          title={`${count.in_progress} in progress, ${count.review} in review`}
+                        >
+                          {count.in_progress > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META.in_progress.dot}`} />
+                              {count.in_progress}
+                            </span>
+                          )}
+                          {count.review > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META.review.dot}`} />
+                              {count.review}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </NavLink>
                   </div>
                   {isOpen && (
