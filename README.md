@@ -52,8 +52,8 @@ backoff, stall detection, and restart recovery are all handled by one authoritat
 - **The pipeline** ([src/server/phases/](src/server/phases/)) is the whole execution layer for one
   issue: `plan → implement → qa → delivery`, one small module per phase plus a sequencer that persists
   a run row and activity events per phase. The final `delivery` phase writes a user-facing summary of
-  the round (what shipped, how to use it, which files/docs changed); it is best-effort, so a failed
-  summary never blocks the review gate.
+  the round (what shipped, how to use it, which files/docs changed) in the same language the requester
+  used to write the issue; it is best-effort, so a failed summary never blocks the review gate.
 - **Planning context is carried forward.** The plan phase saves a compact file map and implementation
   context for the issue, so the implement phase can start from the planner's exploration instead of
   rediscovering the same files.
