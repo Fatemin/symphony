@@ -27,7 +27,8 @@ src/server/
   env.ts            Paths + port + prod flag (DATA_DIR, DB_PATH, DEFAULT_WORKSPACE_ROOT, PORT)
 
   http/routes/      One file per route group → see API.md
-                      projects.ts · ask.ts · issues.ts · ops.ts · usage.ts · stream.ts · fs.ts
+                      projects.ts · ask.ts · reviews.ts · issues.ts · attachments.ts ·
+                      ops.ts · usage.ts · stream.ts · fs.ts
 
   orchestrator/     COORDINATION LAYER — the only mutator of RuntimeState
     orchestrator.ts   dispatch / retry / give-up / quota-suspend / restart recovery; the poll loop
@@ -55,8 +56,8 @@ src/server/
     keys.ts, githubSkill.ts, marketplaceSkill.ts, …
 
   repo/             DATA-ACCESS LAYER — one file per table, all SQL lives here
-                      projects · issues · tasks · runs · revisions · planContext ·
-                      notes · projectSkills · events · ask · settings · issueRelations
+                      projects · issues · tasks · runs · revisions · planContext · notes ·
+                      projectSkills · events · ask · attachments · reviews · settings · issueRelations
   db/               schema.ts (idempotent CREATE TABLE) · migrate.ts (additive backfills) · client.ts
   tracker/          localTracker.ts — the Tracker interface backed by the local DB
   workspace/        per-issue git worktrees + git/promotion/verification/skills helpers;
@@ -264,6 +265,13 @@ the built-in professional-team prompt, never replacing it. Default values are ta
 - **Settings.tsx** — the engine `settings` table editor.
 - **ProjectAgent.tsx / ProjectSkills.tsx** — per-project policy (`config` JSON) and project skills.
 - **StoryTree.tsx** — the per-project story forest folded from `issue_relations` (SYM-30).
+- **Review.tsx** — the Review tab (SYM-51): runs a standalone, read-only agent **audit** of a chosen
+  scope (`docs` / `code` / `ui_ux` / `all`) and lists each completed batch with its graded findings as
+  draft issue cards (grouped by severity), each convertible to a Todo/Backlog issue or dismissible. It
+  polls `GET /:id/reviews` while a batch is `running`. The agent path is `http/routes/reviews.ts` —
+  modeled on Ask (live repo, `plan` mode, `disableWorkflows`, no worktree, no `AbortSignal`) but
+  **asynchronous**: POST returns `202` and the run finishes in the background; a restart fails any
+  orphaned `running` batch at boot.
 - **Documentation.tsx** — the Docs tab (SYM-36): a master/detail reader over the repo's docs. The
   file sidebar + reading pane are backed by `GET /:id/docs` and `GET /:id/docs/content`, which read the
   allow-listed text/markdown files under `config.docs.directories` (default `['docs']`) via

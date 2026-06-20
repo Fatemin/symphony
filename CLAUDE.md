@@ -64,6 +64,22 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   sanitized to one safe segment on write, and every read asserts the path stays inside
   `ATTACHMENTS_DIR`. Agents read the absolute paths in place (pipeline = bypassPermissions, ask =
   plan mode), so nothing is copied into the worktree.
+- `src/server/repo/reviews.ts` + `http/routes/reviews.ts` (SYM-51) — the project "Review" tab: a
+  standalone, READ-ONLY, agent-driven audit of a scope (`docs`/`code`/`ui_ux`/`all`), modeled on Ask
+  (live repo, `permissionMode 'plan'`, `disableWorkflows`, NO worktree, NO `AbortSignal`), NOT the
+  orchestrator pipeline. Unlike Ask it is **asynchronous**: `POST /api/projects/:id/reviews` validates
+  scope + repo, enforces one-in-flight-per-project (`countRunningReviews`), inserts a `running`
+  `review_runs` row, then `void executeReviewRun(...)` (fire-and-forget) and returns `202`.
+  `executeReviewRun` is the awaitable, NEVER-throwing core (tests call it directly): runs the agent →
+  `parseReview` → persists graded `review_findings` → flips the run `completed` (or `failed`). The
+  agent emits a single `symphony-review` fence (`buildReviewPrompt`/`parseReview` in `core/prompt.ts`,
+  next to the Ask fence; whitelist + bound + `MAX_REVIEW_FINDINGS` cap, malformed ⇒ `findings: []`,
+  non-fatal). Findings surface as draft "issue cards": convert (severity→priority via `createIssue`,
+  idempotent — re-convert is `409`) or dismiss (reversible). Two tables (`review_runs`,
+  `review_findings`) via idempotent `schema.ts` — no `migrate.ts` ALTER. `index.ts` mounts
+  `reviewRoutes` and calls `failInterruptedReviewRuns()` at boot so a restart never leaves a run stuck
+  `running`. The route reads a `__setReviewBackgroundRunner` test seam (undefined in prod ⇒ real
+  `runAgent`) so the offline 202 test never spawns a CLI.
 - `src/server/workspace/` — per-issue git worktrees. Safety invariants: agent `cwd` must be the
   worktree, and the worktree must resolve inside `workspace_root`. `docs.ts` is a separate read-only
   reader (no worktree) that lists/reads the project repo's documentation for the Docs tab — every read
@@ -113,9 +129,13 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   rule is needed.
 - `src/web/` — React 19 + Vite + Tailwind v4 + TanStack Query. `src/shared/types.ts` holds domain
   types shared by both sides. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
-  Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
+  Review / Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
   `issue_relations` into a forest via the pure `lib/storyTree.ts#buildStoryTrees` (follow_up edges
   nest, relates_to surface as cross-links), backed by read-only `GET /api/projects/:id/relations`.
+  The Review tab (`pages/Review.tsx`, SYM-51) runs the standalone read-only project audit and lists
+  each batch's graded findings as draft issue cards (grouped by severity), backed by
+  `GET /api/projects/:id/reviews` (polled while a batch is `running`); `lib/format.ts` holds the
+  `REVIEW_SEVERITY_META` / scope / category / status display metadata.
   The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
   `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The sidebar

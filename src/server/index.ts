@@ -10,14 +10,23 @@ import { getOrchestrator } from './orchestrator/orchestrator';
 import { stopAllPreviews } from './preview/manager';
 import { projectRoutes } from './http/routes/projects';
 import { askRoutes } from './http/routes/ask';
+import { reviewRoutes } from './http/routes/reviews';
 import { attachmentRoutes } from './http/routes/attachments';
 import { issueRoutes } from './http/routes/issues';
 import { opsRoutes } from './http/routes/ops';
 import { streamRoutes } from './http/routes/stream';
 import { fsRoutes } from './http/routes/fs';
 import { usageRoutes } from './http/routes/usage';
+import { failInterruptedReviewRuns } from './repo/reviews';
 
 getDb(); // open + bootstrap the database before anything else
+
+// SYM-51: a review run is a background promise with no orchestrator backing it, so a restart while
+// one was in flight would leave its row stuck 'running' (and block new runs). Fail those once at boot.
+const interruptedReviews = failInterruptedReviewRuns();
+if (interruptedReviews > 0) {
+  log.info('failed interrupted review runs at startup', { count: interruptedReviews });
+}
 
 const app = new Hono();
 
@@ -31,6 +40,7 @@ const api = new Hono();
 api.get('/health', (c) => c.json({ status: 'ok' }));
 api.route('/projects', projectRoutes);
 api.route('/projects', askRoutes); // project-scoped conversational Q&A (POST /projects/:id/ask)
+api.route('/projects', reviewRoutes); // SYM-51: standalone read-only project review (POST /projects/:id/reviews)
 api.route('/issues', issueRoutes);
 api.route('/attachments', attachmentRoutes);
 api.route('/ops', opsRoutes);

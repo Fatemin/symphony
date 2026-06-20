@@ -469,6 +469,77 @@ export interface Snapshot {
   suspended: { until: number; reason: string | null } | null;
 }
 
+// ── Project review (SYM-51) ────────────────────────────────────────────────
+
+/**
+ * Which slice of the project a review run inspects. `all` runs docs + code + ui_ux in one pass and
+ * tags each finding with its category. This is a standalone, READ-ONLY agent operation (modeled on
+ * Ask, NOT the orchestrator pipeline).
+ */
+export type ReviewScope = 'docs' | 'code' | 'ui_ux' | 'all';
+export const REVIEW_SCOPES: ReviewScope[] = ['docs', 'code', 'ui_ux', 'all'];
+
+/** Lifecycle of one review batch (run): in-flight → done, or failed (agent error / crash). */
+export type ReviewStatus = 'running' | 'completed' | 'failed';
+export const REVIEW_STATUSES: ReviewStatus[] = ['running', 'completed', 'failed'];
+
+/** How important a finding is — drives ordering within a batch and the priority on a converted issue. */
+export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low';
+export const REVIEW_SEVERITIES: ReviewSeverity[] = ['critical', 'high', 'medium', 'low'];
+
+/** Which slice a single finding belongs to (the ReviewScope set minus `all`, since `all` is a request). */
+export type ReviewCategory = 'docs' | 'code' | 'ui_ux';
+export const REVIEW_CATEGORIES: ReviewCategory[] = ['docs', 'code', 'ui_ux'];
+
+/** Lifecycle of one finding's draft card: a fresh draft, converted into a real issue, or dismissed. */
+export type ReviewFindingStatus = 'draft' | 'converted' | 'dismissed';
+
+/** One review batch — a single read-only agent session over the requested scope. */
+export interface ReviewRun {
+  id: string;
+  project_id: string;
+  scope: ReviewScope;
+  status: ReviewStatus;
+  /** Concrete agent that ran the review (resolved at start: request ?? WORKFLOW.md ?? project ?? engine). */
+  agent: AgentType | null;
+  /** The agent's one-paragraph overview of the review; null until the run completes. */
+  summary: string | null;
+  /** Present only when `status === 'failed'` — a short human-readable reason. */
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/**
+ * One graded finding from a review — surfaced as a draft "issue card" the user can convert into a
+ * real feature/bug or dismiss. `issue_id`/`issue_key` are set once converted (key via a LEFT JOIN so
+ * "Created KEY" survives a reload; key is null if the linked issue was later deleted).
+ */
+export interface ReviewFinding {
+  id: string;
+  review_run_id: string;
+  project_id: string;
+  /** Per-run running number, for stable ordering within a batch. */
+  seq: number;
+  category: ReviewCategory;
+  type: Extract<IssueType, 'feature' | 'bug'>;
+  title: string;
+  description: string | null;
+  acceptance_criteria: string | null;
+  severity: ReviewSeverity;
+  status: ReviewFindingStatus;
+  issue_id: string | null;
+  /** Key of the converted issue (e.g. "WEB-12"); null when not converted or the issue was deleted. */
+  issue_key: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A review batch plus its findings — the shape the Review tab renders. */
+export interface ReviewRunWithFindings extends ReviewRun {
+  findings: ReviewFinding[];
+}
+
 /**
  * One row per issue that has been run at least once — the persisted history behind the Ops
  * page (the live Snapshot only holds in-flight work). Token/turn totals are summed across all

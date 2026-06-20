@@ -114,9 +114,18 @@ is the central design principle: *quality is the prompt floor, and policy can on
 | `QA_RESULT: PASS\|FAIL — reason` | qa | `parseQa` | last-match-wins (so quoted policy can't shadow the verdict); absent ⇒ FAIL |
 | `MERGE_RESULT: PASS\|FAIL — reason` | merge | `parseMerge` | last-match-wins; absent ⇒ FAIL |
 | ```` ```symphony-ask ```` | ask | `parseAsk` | `{ convertible, type, title, description, acceptance_criteria }` |
+| ```` ```symphony-review ```` | review | `parseReview` | `{ summary, findings:[{category,type,severity,title,description,acceptance_criteria}] }` |
 
 Parsing is deliberately tolerant (loose/missing fences fall back), but the emitting prompt text and
 the parser must change together.
+
+`symphony-ask` and `symphony-review` are **not** pipeline phases — both are standalone, read-only
+agent operations (`http/routes/ask.ts`, `http/routes/reviews.ts`) that run against the live repo in
+`plan` mode, not the orchestrator. `buildReviewPrompt(project, scope)` (`core/prompt.ts`) is
+scope-aware (`docs` / `code` / `ui_ux` / `all`); `parseReview` whitelists every enum, drops a finding
+with no title, bounds string lengths, and caps the list (`MAX_REVIEW_FINDINGS`). A missing/malformed
+fence is non-fatal — the run still completes with `findings: []`. Each finding is surfaced as a draft
+issue card the user converts (severity→priority) or dismisses.
 
 ## 4. Task roles
 

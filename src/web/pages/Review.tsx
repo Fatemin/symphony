@@ -1,0 +1,503 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bug,
+  CheckCircle2,
+  ChevronDown,
+  RotateCcw,
+  ScanSearch,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import type {
+  AgentType,
+  ReviewFinding,
+  ReviewRunWithFindings,
+  ReviewScope,
+} from '../../shared/types';
+import { REVIEW_SCOPES } from '../../shared/types';
+import { AGENT_OPTIONS } from '../../shared/models';
+import { api } from '../api';
+import { ProjectTabs } from '../components/ProjectTabs';
+import { Markdown } from '../components/Markdown';
+import { Button, Panel, Select, Spinner } from '../components/ui';
+import {
+  REVIEW_CATEGORY_META,
+  REVIEW_SCOPE_META,
+  REVIEW_SEVERITY_META,
+  REVIEW_SEVERITY_ORDER,
+  REVIEW_STATUS_META,
+  relativeTime,
+} from '../lib/format';
+
+// SYM-51: the Review tab runs a standalone, read-only agent audit of the project (docs / code /
+// ui_ux / all) and surfaces its graded findings as draft "issue cards" the user can convert into
+// real issues or dismiss. The run is async and one-at-a-time per project, so the page polls while a
+// batch is in flight to flip it running → completed without a manual refresh.
+
+export function Review() {
+  const { id } = useParams<{ id: string }>();
+  const projectId = id!;
+  const qc = useQueryClient();
+
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => api.projects.get(projectId),
+  });
+
+  const {
+    data: runs,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ['project-reviews', projectId],
+    queryFn: () => api.projects.reviews(projectId),
+    enabled: !!project?.repo_path,
+    // Reviews complete in the background — poll only while a batch is still running, then idle.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.status === 'running') ? 3000 : false,
+  });
+
+  const [scope, setScope] = useState<ReviewScope>('all');
+  // '' = inherit the project's configured agent (the server resolves req ?? WORKFLOW ?? project ?? engine).
+  const [agent, setAgent] = useState<AgentType | ''>('');
+
+  const runningRun = runs?.find((r) => r.status === 'running') ?? null;
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['project-reviews', projectId] });
+
+  const start = useMutation({
+    mutationFn: () => api.projects.startReview(projectId, { scope, agent: agent || undefined }),
+    onSuccess: () => invalidate(),
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const convert = useMutation({
+    mutationFn: (vars: { findingId: string; status: 'todo' | 'backlog' }) =>
+      api.projects.convertFinding(projectId, vars.findingId, { status: vars.status }),
+    onSuccess: ({ issue }) => {
+      toast.success(`Created ${issue.key} — ${issue.title}`);
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['project', projectId] }); // the new issue shows on the Board
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const setStatus = useMutation({
+    mutationFn: (vars: { findingId: string; dismissed: boolean }) =>
+      vars.dismissed
+        ? api.projects.dismissFinding(projectId, vars.findingId)
+        : api.projects.restoreFinding(projectId, vars.findingId),
+    onSuccess: () => invalidate(),
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const removeRun = useMutation({
+    mutationFn: (runId: string) => api.projects.deleteReview(projectId, runId),
+    onSuccess: () => invalidate(),
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const busy = convert.isPending || setStatus.isPending;
+
+  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
+
+  return (
+    <div className="flex h-full flex-col p-6">
+      <header className="mb-5 flex items-center gap-3">
+        <Link to="/" className="text-muted hover:text-fg">
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <span
+          className="grid h-7 w-7 place-items-center rounded text-xs font-bold"
+          style={{ background: project.color + '33', color: project.color }}
+        >
+          {project.key}
+        </span>
+        <h1 className="text-lg font-semibold">{project.name}</h1>
+      </header>
+
+      <ProjectTabs projectId={project.id} />
+
+      {!project.repo_path ? (
+        <NoRepo />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl space-y-5 pb-12">
+            <RunControl
+              scope={scope}
+              onScope={setScope}
+              agent={agent}
+              onAgent={setAgent}
+              running={!!runningRun}
+              starting={start.isPending}
+              onRun={() => start.mutate()}
+            />
+
+            {isLoading ? (
+              <div className="flex items-center gap-2 p-6 text-sm text-muted">
+                <Spinner /> Loading reviews…
+              </div>
+            ) : isError ? (
+              <Panel className="p-6 text-sm text-red-400">
+                Couldn't load reviews{error instanceof Error ? `: ${error.message}` : ''}.
+              </Panel>
+            ) : !runs || runs.length === 0 ? (
+              <EmptyReviews />
+            ) : (
+              <div className="space-y-4">
+                {runs.map((run) => (
+                  <ReviewBatch
+                    key={run.id}
+                    run={run}
+                    busy={busy}
+                    onConvert={(findingId, status) => convert.mutate({ findingId, status })}
+                    onDismiss={(findingId) => setStatus.mutate({ findingId, dismissed: true })}
+                    onRestore={(findingId) => setStatus.mutate({ findingId, dismissed: false })}
+                    onDelete={() => removeRun.mutate(run.id)}
+                    deleting={removeRun.isPending && removeRun.variables === run.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RunControl({
+  scope,
+  onScope,
+  agent,
+  onAgent,
+  running,
+  starting,
+  onRun,
+}: {
+  scope: ReviewScope;
+  onScope: (s: ReviewScope) => void;
+  agent: AgentType | '';
+  onAgent: (a: AgentType | '') => void;
+  running: boolean;
+  starting: boolean;
+  onRun: () => void;
+}) {
+  return (
+    <Panel className="p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-fg">
+        <ScanSearch className="h-4 w-4 text-indigo-300" />
+        Run a review
+      </div>
+      <p className="mb-3 text-xs text-muted">
+        A read-only agent inspects this project and reports graded findings you can turn into issues.
+      </p>
+
+      <div role="group" aria-label="Review scope" className="mb-2 flex flex-wrap gap-1.5">
+        {REVIEW_SCOPES.map((s) => {
+          const active = s === scope;
+          return (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onScope(s)}
+              className={`rounded-md border px-3 py-1.5 text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                active
+                  ? 'border-indigo-400 bg-indigo-500/15 text-fg'
+                  : 'border-border text-muted hover:bg-panel-2 hover:text-fg'
+              }`}
+            >
+              {REVIEW_SCOPE_META[s].label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mb-3 text-xs text-muted">{REVIEW_SCOPE_META[scope].hint}</p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          aria-label="Agent"
+          className="w-auto py-1.5 text-xs"
+          value={agent}
+          onChange={(e) => onAgent(e.target.value as AgentType | '')}
+        >
+          <option value="">default agent</option>
+          {AGENT_OPTIONS.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.label}
+            </option>
+          ))}
+        </Select>
+        <Button variant="primary" disabled={running || starting} onClick={onRun}>
+          {starting ? <Spinner /> : <ScanSearch className="h-4 w-4" />}
+          {running ? 'Review running…' : 'Run review'}
+        </Button>
+        {running && (
+          <span className="text-xs text-muted">
+            One review runs at a time per project — it finishes in the background.
+          </span>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function ReviewBatch({
+  run,
+  busy,
+  onConvert,
+  onDismiss,
+  onRestore,
+  onDelete,
+  deleting,
+}: {
+  run: ReviewRunWithFindings;
+  busy: boolean;
+  onConvert: (findingId: string, status: 'todo' | 'backlog') => void;
+  onDismiss: (findingId: string) => void;
+  onRestore: (findingId: string) => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  const [showDismissed, setShowDismissed] = useState(false);
+  const status = REVIEW_STATUS_META[run.status];
+  const active = run.findings.filter((f) => f.status !== 'dismissed');
+  const dismissed = run.findings.filter((f) => f.status === 'dismissed');
+  const groups = groupBySeverity(active);
+
+  return (
+    <Panel className="overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="font-medium text-fg">{REVIEW_SCOPE_META[run.scope].label}</span>
+          <span className={`inline-flex items-center gap-1.5 text-xs ${status.color}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+            {status.label}
+          </span>
+          {run.agent && <span className="text-xs text-muted">{run.agent}</span>}
+          <span className="text-xs text-muted">{relativeTime(run.created_at)}</span>
+          {run.status === 'completed' && (
+            <span className="text-xs text-muted">
+              {active.length} {active.length === 1 ? 'finding' : 'findings'}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Delete this review"
+          title="Delete this review"
+          onClick={onDelete}
+          disabled={deleting}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-hover hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+        >
+          {deleting ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+
+      <div className="p-4">
+        {run.status === 'running' ? (
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <Spinner /> Reviewing… this runs in the background, so you can leave this page.
+          </div>
+        ) : run.status === 'failed' ? (
+          <div className="flex items-start gap-2 text-sm text-red-400">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{run.error || 'The review failed.'}</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {run.summary && (
+              <div className="rounded-md border border-border bg-bg-2 px-3 py-2 text-sm leading-relaxed text-muted">
+                <Markdown source={run.summary} />
+              </div>
+            )}
+
+            {active.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" />
+                No issues found — this scope looks healthy.
+              </div>
+            ) : (
+              groups.map((group) => (
+                <div key={group.severity} className="space-y-2">
+                  <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${REVIEW_SEVERITY_META[group.severity].dot}`}
+                    />
+                    {REVIEW_SEVERITY_META[group.severity].label} · {group.findings.length}
+                  </div>
+                  {group.findings.map((f) => (
+                    <FindingCard
+                      key={f.id}
+                      finding={f}
+                      showCategory={run.scope === 'all'}
+                      busy={busy}
+                      onConvert={(s) => onConvert(f.id, s)}
+                      onDismiss={() => onDismiss(f.id)}
+                    />
+                  ))}
+                </div>
+              ))
+            )}
+
+            {dismissed.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowDismissed((v) => !v)}
+                  className="inline-flex items-center gap-1 text-xs text-muted transition hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${showDismissed ? '' : '-rotate-90'}`}
+                  />
+                  Dismissed ({dismissed.length})
+                </button>
+                {showDismissed && (
+                  <div className="mt-2 space-y-1.5">
+                    {dismissed.map((f) => (
+                      <div
+                        key={f.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-1.5 text-sm"
+                      >
+                        <span className="truncate text-muted line-through">{f.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => onRestore(f.id)}
+                          disabled={busy}
+                          className="inline-flex shrink-0 items-center gap-1 text-xs text-muted transition hover:text-fg disabled:opacity-50"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function FindingCard({
+  finding,
+  showCategory,
+  busy,
+  onConvert,
+  onDismiss,
+}: {
+  finding: ReviewFinding;
+  showCategory: boolean;
+  busy: boolean;
+  onConvert: (status: 'todo' | 'backlog') => void;
+  onDismiss: () => void;
+}) {
+  const severity = REVIEW_SEVERITY_META[finding.severity];
+  const Icon = finding.type === 'bug' ? Bug : Sparkles;
+  const converted = finding.status === 'converted';
+  return (
+    <div className="rounded-lg border border-border bg-bg-2 p-3">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${severity.badge}`}>
+          {severity.label}
+        </span>
+        {showCategory && (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${REVIEW_CATEGORY_META[finding.category].badge}`}
+          >
+            {REVIEW_CATEGORY_META[finding.category].label}
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1 text-[11px] text-muted">
+          <Icon className="h-3 w-3" />
+          {finding.type}
+        </span>
+      </div>
+
+      <div className="text-sm font-medium text-fg">{finding.title}</div>
+      {finding.description && (
+        <div className="mt-1 text-xs text-muted">
+          <Markdown source={finding.description} />
+        </div>
+      )}
+      {finding.acceptance_criteria && (
+        <pre className="mt-2 whitespace-pre-wrap rounded bg-panel px-2 py-1.5 text-[11px] text-muted">
+          {finding.acceptance_criteria}
+        </pre>
+      )}
+
+      <div className="mt-2.5 flex items-center gap-2">
+        {converted ? (
+          <Link
+            to={`/issues/${finding.issue_id}`}
+            className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:underline"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> Created {finding.issue_key ?? 'issue'}
+          </Link>
+        ) : (
+          <>
+            <Button variant="primary" disabled={busy} onClick={() => onConvert('todo')}>
+              Create {finding.type} (Todo)
+            </Button>
+            <Button disabled={busy} onClick={() => onConvert('backlog')}>
+              Add to Backlog
+            </Button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={busy}
+              className="ml-auto text-xs text-muted transition hover:text-fg disabled:opacity-50"
+            >
+              Dismiss
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyReviews() {
+  return (
+    <Panel className="p-8 text-center text-sm text-muted">
+      <ScanSearch className="mx-auto mb-2 h-5 w-5 text-muted" />
+      No reviews yet. Pick a scope above and run one — findings show up here graded by severity, ready
+      to convert into issues.
+    </Panel>
+  );
+}
+
+function NoRepo() {
+  return (
+    <div className="mx-auto mt-10 w-full max-w-md">
+      <Panel className="p-8 text-center text-sm text-muted">
+        <ScanSearch className="mx-auto mb-2 h-5 w-5 text-muted" />
+        This project has no linked repo, so there is nothing to review. Link a repository in the Agent
+        settings first.
+      </Panel>
+    </div>
+  );
+}
+
+interface SeverityGroup {
+  severity: ReviewFinding['severity'];
+  findings: ReviewFinding[];
+}
+
+/** Group active findings by severity (most important first), stable on seq within each grade. */
+function groupBySeverity(findings: ReviewFinding[]): SeverityGroup[] {
+  return REVIEW_SEVERITY_ORDER.map((severity) => ({
+    severity,
+    findings: findings
+      .filter((f) => f.severity === severity)
+      .sort((a, b) => a.seq - b.seq),
+  })).filter((g) => g.findings.length > 0);
+}

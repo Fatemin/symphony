@@ -200,4 +200,43 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS idx_attachments_issue ON attachments(issue_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_ask ON attachments(ask_message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_project ON attachments(project_id);
+
+-- Project review (SYM-51). A review is a standalone, READ-ONLY agent run (modeled on Ask, NOT the
+-- orchestrator pipeline) that inspects a scope (docs / code / ui_ux / all) and emits graded findings.
+-- One review_runs row per batch; review_findings rows are the draft "issue cards" within it. Two
+-- new additive tables — no migrate.ts ALTER needed. project ON DELETE CASCADE reclaims everything;
+-- a finding's issue_id is SET NULL if the converted issue is later deleted (the card just loses its key).
+CREATE TABLE IF NOT EXISTS review_runs (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  scope         TEXT NOT NULL,                         -- 'docs' | 'code' | 'ui_ux' | 'all'
+  status        TEXT NOT NULL DEFAULT 'running',       -- 'running' | 'completed' | 'failed'
+  agent         TEXT,                                  -- concrete agent that ran the review
+  summary       TEXT,                                  -- the agent's overview; NULL until completed
+  error         TEXT,                                  -- failure reason when status = 'failed'
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_review_runs_project ON review_runs(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_review_runs_status ON review_runs(status);
+
+CREATE TABLE IF NOT EXISTS review_findings (
+  id                  TEXT PRIMARY KEY,
+  review_run_id       TEXT NOT NULL REFERENCES review_runs(id) ON DELETE CASCADE,
+  project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  seq                 INTEGER NOT NULL,                -- per-run running number for stable ordering
+  category            TEXT NOT NULL DEFAULT 'code',    -- 'docs' | 'code' | 'ui_ux'
+  type                TEXT NOT NULL DEFAULT 'feature', -- 'feature' | 'bug' (what a converted issue becomes)
+  title               TEXT NOT NULL,
+  description         TEXT,
+  acceptance_criteria TEXT,
+  severity            TEXT NOT NULL DEFAULT 'medium',  -- 'critical' | 'high' | 'medium' | 'low'
+  status              TEXT NOT NULL DEFAULT 'draft',   -- 'draft' | 'converted' | 'dismissed'
+  issue_id            TEXT REFERENCES issues(id) ON DELETE SET NULL,  -- set on convert
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_review_findings_run ON review_findings(review_run_id);
+CREATE INDEX IF NOT EXISTS idx_review_findings_project ON review_findings(project_id);
+CREATE INDEX IF NOT EXISTS idx_review_findings_status ON review_findings(status);
 `;
