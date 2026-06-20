@@ -306,7 +306,35 @@ queries — there is no scheduler.
 
 Indexed `(project_id, convo_date, id)`. Mapped to `AskMessage` / `AskHistory`. Repo: `repo/ask.ts`.
 
-### 13. `review_runs`
+### 13. `attachments`
+
+User-supplied file attachments for an issue or an ask turn (SYM-35). A row links to an issue **or** an
+ask turn **or** neither yet (uploaded but the form was abandoned). The bytes live on disk — this table
+is the metadata + the relative `storage_path`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | TEXT PK | |
+| `project_id` | TEXT FK→projects | `ON DELETE CASCADE`; **required** so the cascade reclaims orphan rows when a project is deleted |
+| `issue_id` | TEXT FK→issues | nullable; `ON DELETE CASCADE` — set when linked to an issue |
+| `ask_message_id` | TEXT FK→ask_messages | nullable; `ON DELETE CASCADE` — set when linked to an ask turn |
+| `filename` | TEXT | original display name (sanitized to one safe segment on disk) |
+| `mime` | TEXT | default `application/octet-stream` |
+| `size_bytes` | INTEGER | default `0` |
+| `storage_path` | TEXT | relative to `ATTACHMENTS_DIR`: `<id>/<safe-name>`; **not** exposed in the mapped domain type |
+| `created_at` | TEXT | |
+
+Indexes: `idx_attachments_issue`, `idx_attachments_ask`, `idx_attachments_project`. Mapped to
+`Attachment` (`src/shared/types.ts`) — which intentionally omits `storage_path`. Repo: `repo/attachments.ts`.
+
+**Blob layout & safety.** Blobs live under `ATTACHMENTS_DIR` (= `DATA_DIR/attachments`, durable — **not**
+the ephemeral workspace root; `env.ts`) at `<id>/<sanitized-filename>`. Two invariants mirror the worktree
+§9.5 rule: (1) filenames are sanitized to one safe segment on write; (2) every read resolves `storage_path`
+and asserts it stays inside `ATTACHMENTS_DIR`. The FK cascade removes rows but never the on-disk files, so
+deletes reclaim blobs explicitly (`deleteAttachment` / `deleteAttachmentsByIssue`). Per-item size/count caps
+live in `settings` (`max_attachment_bytes`, `max_attachments_per_item`; see §11).
+
+### 14. `review_runs`
 
 One **review batch** (SYM-51) — a standalone, read-only agent audit of a project scope. Modeled on
 Ask (live repo, `plan` mode, `disableWorkflows`), NOT the orchestrator pipeline, and run
@@ -329,7 +357,7 @@ fails any orphaned `running` rows at boot (`failInterruptedReviewRuns`).
 Indexed `(project_id, created_at)` and `(status)`. Mapped to `ReviewRun` /
 `ReviewRunWithFindings`. Repo: `repo/reviews.ts`.
 
-### 14. `review_findings`
+### 15. `review_findings`
 
 The graded **draft "issue cards"** within a review batch (SYM-51). Each is a candidate feature/bug
 the user can convert into a real issue or dismiss. Severity drives both the ordering within a batch
