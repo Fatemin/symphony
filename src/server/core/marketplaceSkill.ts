@@ -1,7 +1,9 @@
 import {
   fetchGithubSkill,
+  SkillNotFoundError,
   type FetchedSkill,
   API,
+  RAW,
   ghFetch,
   seg,
   encodePath,
@@ -106,7 +108,6 @@ const stripGitSuffix = (repo: string) => repo.replace(/\.git$/i, '');
 
 // ── network resolution (NOT exercised by the offline test suite) ─────────────
 
-const RAW = 'https://raw.githubusercontent.com';
 // GitHub repos default to one of these; we try in order when the default branch is unknown.
 const BRANCHES = ['main', 'master'];
 
@@ -128,21 +129,25 @@ interface PluginRoot {
 /**
  * Resolve a MarketplaceSpec to its plugins' skills. Reads `.claude-plugin/marketplace.json`, picks
  * the requested plugin (or all/sole plugins), and lists each plugin root's `skills/` directory via
- * the GitHub contents API. Falls back to the repo's own `skills/` when there is no marketplace.json.
- * Honors a GITHUB_TOKEN auth header (the unauthenticated contents API is rate-limited to ~60/hour).
+ * the GitHub contents API. Falls back to the repo's own `skills/` when there is no marketplace.json,
+ * and (SYM-52) to a flat single-skill layout — a SKILL.md at the plugin/repo root or directly under
+ * skills/ (no `<name>/` subdir) — when the `skills/<name>/` listing yields nothing, so a single-skill
+ * repo installs. Honors a GITHUB_TOKEN auth header (the unauthenticated contents API is rate-limited
+ * to ~60/hour).
  */
 export async function fetchMarketplaceSkills(spec: MarketplaceSpec): Promise<FetchedSkill[]> {
   const marketplace = await fetchMarketplaceJson(spec.owner, spec.repo);
 
   if (!marketplace) {
-    // No marketplace.json — treat the repo itself as the skills source (repo-root skills/).
+    // No marketplace.json — treat the repo itself as the skills source: first the skills/<name>/
+    // subdir layout, then (SYM-52) a flat SKILL.md at the repo root or directly under skills/.
     const skills = await collectSkills(spec.owner, spec.repo, 'skills', BRANCHES);
-    if (!skills.length) {
-      throw new Error(
-        `no .claude-plugin/marketplace.json and no skills/ directory found in ${spec.owner}/${spec.repo}`,
-      );
-    }
-    return skills;
+    if (skills.length) return skills;
+    const flat = await collectFlatSkills(spec.owner, spec.repo, '', BRANCHES);
+    if (flat.length) return flat;
+    throw new Error(
+      `no skills found in ${spec.owner}/${spec.repo} — expected a SKILL.md at the repo root, directly under skills/, or in skills/<name>/ subdirectories`,
+    );
   }
 
   const plugins = Array.isArray(marketplace.json.plugins) ? marketplace.json.plugins : [];
@@ -163,10 +168,19 @@ export async function fetchMarketplaceSkills(spec: MarketplaceSpec): Promise<Fet
     const branches = sameRepo
       ? [marketplace.branch, ...BRANCHES.filter((b) => b !== marketplace.branch)]
       : BRANCHES;
-    all.push(...(await collectSkills(root.owner, root.repo, joinPath(root.path, 'skills'), branches)));
+    const nested = await collectSkills(root.owner, root.repo, joinPath(root.path, 'skills'), branches);
+    if (nested.length) {
+      all.push(...nested);
+    } else {
+      // SYM-52: a single-skill plugin keeps its SKILL.md at the plugin root or directly under skills/
+      // (no <name>/ subdir) — fall back to a flat probe before giving up.
+      all.push(...(await collectFlatSkills(root.owner, root.repo, root.path, branches)));
+    }
   }
   if (!all.length) {
-    throw new Error(`no skills found under the selected plugin(s) in ${spec.owner}/${spec.repo}`);
+    throw new Error(
+      `no skills found under the selected plugin(s) in ${spec.owner}/${spec.repo} — expected SKILL.md files under skills/<name>/, directly under skills/, or at the plugin root`,
+    );
   }
   return dedupeByName(all);
 }
@@ -237,6 +251,36 @@ async function collectSkills(
     }
   }
   return skills;
+}
+
+/**
+ * SYM-52 flat/root fallback: probe `<base>/SKILL.md` then `<base>/skills/SKILL.md` (across `branches`)
+ * for a single-skill layout that `collectSkills` — which only lists `skills/<name>/` subdirs — misses.
+ * Returns the first hit as a one-element list (with its sibling files), or [] if none found. A real
+ * error (rate limit, non-404 failure) propagates rather than being read as "absent". The whole probed
+ * directory is recursed for sibling files, bounded by `fetchGithubSkill`'s file/byte/depth caps.
+ */
+async function collectFlatSkills(
+  owner: string,
+  repo: string,
+  base: string,
+  branches: string[],
+): Promise<FetchedSkill[]> {
+  for (const branch of branches) {
+    for (const sub of ['', 'skills']) {
+      const dir = joinPath(base, sub);
+      const treeUrl =
+        `https://github.com/${seg(owner)}/${seg(repo)}/tree/${seg(branch)}` +
+        (dir ? `/${encodePath(dir)}` : '');
+      try {
+        return [await fetchGithubSkill(treeUrl)];
+      } catch (e) {
+        if (e instanceof SkillNotFoundError) continue; // not here — try the next location
+        throw e;
+      }
+    }
+  }
+  return [];
 }
 
 /** Contents-API listing of `dir`; returns each subdirectory's github.com tree URL (encodes the ref). */

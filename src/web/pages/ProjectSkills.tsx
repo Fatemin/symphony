@@ -127,7 +127,9 @@ export function ProjectSkills() {
           </div>
           <p className="mb-3 text-xs text-muted">
             Paste a link to a skill's <code>SKILL.md</code> (or its folder) on GitHub — a <code>blob</code>,{' '}
-            <code>tree</code>, or <code>raw</code> URL.
+            <code>tree</code>, or <code>raw</code> URL. A bare repo URL like{' '}
+            <code>github.com/owner/repo</code> works too: its default branch is resolved and a{' '}
+            <code>SKILL.md</code> at the repo root or under <code>skills/</code> is imported.
           </p>
           <div className="flex items-start gap-2">
             <div className="flex-1">
