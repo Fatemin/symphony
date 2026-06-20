@@ -214,25 +214,24 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
       <Link to={`/projects/${issue.project_id}`} className="mb-3 inline-flex items-center gap-1.5 text-xs text-muted hover:text-fg">
         <ArrowLeft className="h-3.5 w-3.5" /> Board
       </Link>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="mb-1 flex items-center gap-2 text-xs">
-            <span className="font-mono text-muted">{issue.key}</span>
-            <span className={`inline-flex items-center gap-1 ${meta.color}`}>
-              <span className={`h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
-            </span>
-            <span className={PRIORITY_META[issue.priority].color}>{PRIORITY_META[issue.priority].label}</span>
-            {issue.round > 1 && (
-              <Badge className="bg-indigo-500/10 text-indigo-300">Round {issue.round}</Badge>
-            )}
-          </div>
-          <h1 className="text-xl font-semibold leading-tight">{issue.title}</h1>
+      {/* SYM-45: toolbar row (metadata + controls) sits above so the title can own a full line below. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-mono text-muted">{issue.key}</span>
+          <span className={`inline-flex items-center gap-1 ${meta.color}`}>
+            <span className={`h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
+          </span>
+          <span className={PRIORITY_META[issue.priority].color}>{PRIORITY_META[issue.priority].label}</span>
+          {issue.round > 1 && (
+            <Badge className="bg-indigo-500/10 text-indigo-300">Round {issue.round}</Badge>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Select
             value={issue.mode}
             onChange={(e) => update.mutate({ mode: e.target.value as Detail['mode'] })}
             className="w-auto"
+            aria-label="Dispatch mode"
             title="auto = orchestrator auto-dispatches"
           >
             <option value="manual">manual</option>
@@ -262,12 +261,13 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             </Button>
           ) : null}
           {issue.status !== 'cancelled' && issue.status !== 'done' && (
-            <Button variant="ghost" title="Cancel" onClick={() => update.mutate({ status: 'cancelled' })}>
+            <Button variant="ghost" aria-label="Cancel issue" title="Cancel" onClick={() => update.mutate({ status: 'cancelled' })}>
               <CircleSlash className="h-4 w-4" />
             </Button>
           )}
         </div>
       </div>
+      <h1 className="mt-2 text-xl font-semibold leading-tight break-words">{issue.title}</h1>
       {approveOpen && (
         <ApproveDialog
           projectId={issue.project_id}
