@@ -7,7 +7,7 @@ import { setupEnv } from './helpers/env';
 const env = setupEnv();
 
 // Read env at call time → safe to import once and override CLAUDE_CONFIG_DIR / CODEX_HOME per test.
-const { readLocalUsage } = await import('../src/server/usage/localUsage');
+const { readLocalUsage, __resetClaudeUsageCache } = await import('../src/server/usage/localUsage');
 const { usageRoutes } = await import('../src/server/http/routes/usage');
 
 test.after(() => env.cleanup());
@@ -34,6 +34,34 @@ function claudeFixture(lines: unknown[]): string {
   const dir = fs.mkdtempSync(path.join(env.root, 'claude-'));
   writeJsonl(path.join(dir, 'projects', 'proj', 'session.jsonl'), lines);
   return dir;
+}
+
+/** A Claude fixture dir that also carries a `.credentials.json` so the live-fetch path can resolve a token. */
+function claudeFixtureWithCreds(lines: unknown[], oauth: { accessToken: string; expiresAt: number }): string {
+  const dir = claudeFixture(lines);
+  fs.writeFileSync(path.join(dir, '.credentials.json'), JSON.stringify({ claudeAiOauth: oauth }));
+  return dir;
+}
+
+/** The shape captured live from `GET /api/oauth/usage` (only the fields the mapper reads). */
+const claudeUsageResponse = (fiveHourUtil: number, sevenDayUtil: number) => ({
+  five_hour: { utilization: fiveHourUtil, resets_at: new Date(Date.now() + 3 * 3600_000).toISOString() },
+  seven_day: { utilization: sevenDayUtil, resets_at: new Date(Date.now() + 6 * 86_400_000).toISOString() },
+  seven_day_opus: null,
+  seven_day_sonnet: { utilization: 5, resets_at: new Date(Date.now() + 6 * 86_400_000).toISOString() },
+});
+
+/** Run `fn` with `globalThis.fetch` replaced by `stub`, restoring it (and the live-fetch cache) after. */
+async function withFetch(stub: typeof globalThis.fetch, fn: () => Promise<void>): Promise<void> {
+  const real = globalThis.fetch;
+  __resetClaudeUsageCache();
+  globalThis.fetch = stub;
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = real;
+    __resetClaudeUsageCache();
+  }
 }
 
 function codexFixture(lines: unknown[]): string {
@@ -81,8 +109,9 @@ const windowFor = (agents: Awaited<ReturnType<typeof readLocalUsage>>, key: 'pri
   return w;
 };
 
-test('Claude: dedups repeated flushes, sums today only — status unsupported, usage kept for tooltip', async () => {
-  // Remaining isn't available for Claude locally → status 'unsupported'. The same message flushed 3×
+test('Claude: dedups repeated flushes, sums today only — no creds → unsupported, usage kept for tooltip', async () => {
+  // No local OAuth token here (env cleared + keychain disabled by setupEnv, no .credentials.json), so
+  // the live remaining fetch is skipped → status 'unsupported' fallback. The same message flushed 3×
   // counts once; a second message counts; yesterday/malformed/non-assistant lines are excluded — so
   // today's usage is still aggregated for the tooltip even though no remaining is reported.
   const dup = claudeAssistant('msg1', 'req1', TODAY, {
@@ -105,7 +134,7 @@ test('Claude: dedups repeated flushes, sums today only — status unsupported, u
   const agents = await readLocalUsage();
   const claude = usageFor(agents, 'claude');
   assert.equal(claude.status, 'unsupported');
-  assert.equal(claude.windows, undefined); // Claude never carries remaining windows
+  assert.equal(claude.windows, undefined); // no token → no live windows
   assert.deepEqual(claude.usage, {
     input_tokens: 300, // 100 (deduped) + 200
     output_tokens: 130, // 50 + 80
@@ -118,7 +147,7 @@ test('Claude: dedups repeated flushes, sums today only — status unsupported, u
   assert.equal(usageFor(agents, 'codex').status, 'not_found');
 });
 
-test('Claude: dir found but no usage today is still unsupported (not empty)', async () => {
+test('Claude: dir found, no creds, no usage today is still unsupported (not empty)', async () => {
   process.env.CLAUDE_CONFIG_DIR = claudeFixture([
     claudeAssistant('old', 'reqOld', YESTERDAY, { input_tokens: 500, output_tokens: 100 }),
   ]);
@@ -129,6 +158,107 @@ test('Claude: dir found but no usage today is still unsupported (not empty)', as
   assert.equal(claude.status, 'unsupported');
   assert.equal(claude.usage.total_tokens, 0);
   assert.equal(usageFor(agents, 'codex').status, 'not_found');
+});
+
+test('Claude live: a valid token → ok with remaining windows mapped from five_hour/seven_day', async () => {
+  // five_hour util 12 → primary remaining 88 (5h window); seven_day util 40 → secondary remaining 60
+  // (weekly window). The endpoint, bearer token, and oauth-beta header are asserted; the token never
+  // leaves this request (it is not in the report). Today's usage is still summed for the tooltip.
+  let calledUrl = '';
+  let calledHeaders: Record<string, string> = {};
+  const stub = (async (url: string | URL | Request, init?: RequestInit) => {
+    calledUrl = String(url);
+    calledHeaders = (init?.headers ?? {}) as Record<string, string>;
+    return new Response(JSON.stringify(claudeUsageResponse(12, 40)), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    process.env.CLAUDE_CONFIG_DIR = claudeFixtureWithCreds(
+      [claudeAssistant('m', 'r', TODAY, { input_tokens: 10, output_tokens: 5 })],
+      { accessToken: 'tok-123', expiresAt: Date.now() + 3600_000 },
+    );
+    process.env.CODEX_HOME = path.join(env.root, 'no-codex');
+
+    const agents = await readLocalUsage();
+    const claude = usageFor(agents, 'claude');
+    assert.equal(claude.status, 'ok');
+
+    const primary = claude.windows?.find((w) => w.key === 'primary');
+    assert.ok(primary, 'primary window present');
+    assert.equal(primary.used_percent, 12);
+    assert.equal(primary.remaining_percent, 88);
+    assert.equal(primary.window_minutes, 300);
+    assert.ok(primary.resets_at > Date.now(), 'reset parsed from ISO into a future epoch-ms');
+
+    const secondary = claude.windows?.find((w) => w.key === 'secondary');
+    assert.equal(secondary?.remaining_percent, 60); // 100 − 40
+    assert.equal(secondary?.window_minutes, 10080);
+
+    assert.equal(claude.usage.total_tokens, 15); // today's usage still aggregated for the tooltip
+
+    assert.match(calledUrl, /\/api\/oauth\/usage$/);
+    assert.equal(calledHeaders.Authorization, 'Bearer tok-123');
+    assert.equal(calledHeaders['anthropic-beta'], 'oauth-2025-04-20');
+  });
+});
+
+test('Claude live: an expired token skips the fetch → unsupported (today usage kept)', async () => {
+  let called = false;
+  const stub = (async () => {
+    called = true;
+    return new Response('{}', { status: 200 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    process.env.CLAUDE_CONFIG_DIR = claudeFixtureWithCreds(
+      [claudeAssistant('m', 'r', TODAY, { input_tokens: 7, output_tokens: 3 })],
+      { accessToken: 'expired', expiresAt: Date.now() - 1000 },
+    );
+    process.env.CODEX_HOME = path.join(env.root, 'no-codex');
+
+    const claude = usageFor(await readLocalUsage(), 'claude');
+    assert.equal(called, false, 'an expired token must not trigger a network call');
+    assert.equal(claude.status, 'unsupported');
+    assert.equal(claude.windows, undefined);
+    assert.equal(claude.usage.total_tokens, 10);
+  });
+});
+
+test('Claude live: a thrown fetch degrades to unsupported (NOT error), today usage kept', async () => {
+  const stub = (async () => {
+    throw new Error('network down');
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    process.env.CLAUDE_CONFIG_DIR = claudeFixtureWithCreds(
+      [claudeAssistant('m', 'r', TODAY, { input_tokens: 4, output_tokens: 1 })],
+      { accessToken: 'tok', expiresAt: Date.now() + 3600_000 },
+    );
+    process.env.CODEX_HOME = path.join(env.root, 'no-codex');
+
+    const claude = usageFor(await readLocalUsage(), 'claude');
+    assert.equal(claude.status, 'unsupported'); // best-effort: a failed fetch is NOT a local 'error'
+    assert.equal(claude.usage.total_tokens, 5);
+  });
+});
+
+test('Claude live: a non-200 response degrades to unsupported', async () => {
+  const stub = (async () => new Response('nope', { status: 401 })) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    process.env.CLAUDE_CONFIG_DIR = claudeFixtureWithCreds([], {
+      accessToken: 'tok',
+      expiresAt: Date.now() + 3600_000,
+    });
+    process.env.CODEX_HOME = path.join(env.root, 'no-codex');
+
+    const claude = usageFor(await readLocalUsage(), 'claude');
+    assert.equal(claude.status, 'unsupported');
+    assert.equal(claude.windows, undefined);
+  });
 });
 
 test('Codex: today usage + remaining windows, remaining = 100 − used, latest snapshot wins', async () => {
@@ -240,6 +370,6 @@ test('GET /local returns 200 with generated_at + both agent rows', async () => {
   assert.match(report.generated_at, /^\d{4}-\d{2}-\d{2}T/);
   const statuses = new Map(report.agents.map((a) => [a.agent, a.status]));
   assert.deepEqual([...statuses.keys()], ['claude', 'codex']);
-  assert.equal(statuses.get('claude'), 'unsupported');
+  assert.equal(statuses.get('claude'), 'unsupported'); // no local creds in this fixture → live-fetch fallback
   assert.equal(statuses.get('codex'), 'not_found');
 });

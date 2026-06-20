@@ -5,21 +5,30 @@ import { formatPercent, formatTokens } from '../lib/format';
 import type { AgentType, AgentUsage, AgentUsageReport, Issue, RateWindow } from '../../shared/types';
 
 /**
- * SYM-38 / SYM-39: sidebar footer widget. SYM-39 repurposed it from today's token *usage* to
+ * SYM-38 / SYM-39 / SYM-40: sidebar footer widget. SYM-39 repurposed it from today's token *usage* to
  * **remaining** rate-limit quota — the user wants to see what's left, not what's spent.
  *
- * Codex logs its live rate limits locally, so its row headlines the lowest remaining window
- * ("NN% left") with a threshold-colored dot and a per-window/reset tooltip. Claude exposes NO local
- * quota state, so it renders an honest `unsupported` row ("本地不可用") rather than a fabricated budget.
+ * Both agents render the SAME `ok` shape: the lowest remaining window ("NN% left") with a
+ * threshold-colored dot and a per-window/reset tooltip (5h / Week). Codex reads its remaining from its
+ * local rate-limit logs; Claude (SYM-40 round 3: "show Claude's remaining like Codex") has the server
+ * fetch it LIVE from Anthropic with the user's own local OAuth token, so a logged-in user sees real
+ * remaining here just like Codex.
+ *
+ * When that live read can't run — not logged in locally, token expired, or offline — the server returns
+ * `unsupported` and the Claude row honestly falls back to today's token usage ("N 今日", self-qualified
+ * so it isn't mistaken for a remaining %) with a neutral dot, or "无今日用量" when nothing ran today, plus
+ * an always-visible "剩余量见 /usage" sub-line naming the command that shows remaining. (Earlier SYM-40
+ * rounds showed a flat "本地不可用" that misread as "Claude Code is unavailable"; the visible sub-line +
+ * tooltip now explain the fallback instead.)
  *
  * Refreshes on two triggers (AC#2 from SYM-38): a 60s interval, and whenever any issue takes an
  * action — the latter by reading the SAME `['issues']` query Layout already polls every 3s (TanStack
  * dedupes) and invalidating the usage query when the issues' status/updated_at signature changes.
  *
  * Every state is rendered (AC#1/#3): loading, ok (remaining %), empty (no recent activity),
- * unsupported (Claude), not_found (not detected), and error → "检测失败 / detection failed". Each agent
- * is read independently server-side, so one missing CLI never blanks the other; a whole-query failure
- * shows 检测失败 on both.
+ * unsupported (Claude live-read unavailable → today's usage / idle), not_found (not detected), and
+ * error → "检测失败 / detection failed". Each agent is read independently server-side, so one missing CLI
+ * never blanks the other; a whole-query failure shows 检测失败 on both.
  */
 export function SidebarUsage() {
   const qc = useQueryClient();
@@ -84,6 +93,11 @@ interface RowDisplay {
   dot: string; // tailwind bg-* class
   strong: boolean; // emphasize the value (ok / error) vs. dim it (idle states)
   title?: string;
+  /**
+   * An always-visible muted sub-line under the value (SYM-40: the Claude "剩余量见 /usage" hint). Split
+   * into a `prefix` + `command` so the slash-command renders a notch brighter than the caption.
+   */
+  hint?: { prefix: string; command: string };
 }
 
 function UsageRow({
@@ -101,12 +115,24 @@ function UsageRow({
 }) {
   const d = rowDisplay(report, loading, queryFailed, generatedAt);
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="truncate text-muted">{label}</span>
-      <span className="flex shrink-0 items-center gap-1.5" title={d.title}>
-        <span className={d.strong ? 'text-fg' : 'text-subtle'}>{d.text}</span>
-        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${d.dot}`} />
-      </span>
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-muted">{label}</span>
+        <span className="flex shrink-0 items-center gap-1.5" title={d.title}>
+          <span className={d.strong ? 'text-fg' : 'text-subtle'}>{d.text}</span>
+          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${d.dot}`} />
+        </span>
+      </div>
+      {d.hint && (
+        // Always-visible secondary affordance (SYM-40): plain text, so it's discoverable + accessible
+        // without focus/hover. The `/usage` command is set a notch brighter to read as a command, and
+        // the row's full explanation rides along in the same `title` tooltip.
+        <div className="mt-px flex justify-end pr-3" title={d.title}>
+          <span className="text-[10px] leading-tight text-subtle">
+            {d.hint.prefix} <span className="text-muted">{d.hint.command}</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -138,8 +164,18 @@ function rowDisplay(
         strong: false,
         title: 'Detected, but no recent rate-limit data logged',
       };
-    case 'unsupported':
-      return { text: '本地不可用', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt) };
+    case 'unsupported': {
+      // SYM-40: the server couldn't read Claude's LIVE remaining (not logged in locally / token expired
+      // / offline), so we honestly fall back to today's token usage (self-qualified with 今日 so it isn't
+      // mistaken for a remaining %) and a neutral dot — never a fabricated quota signal. An
+      // always-visible "剩余量见 /usage" sub-line names the command that shows remaining; the tooltip
+      // explains the fallback (and points at /login when it's a sign-in issue).
+      const hint = { prefix: '剩余量见', command: '/usage' };
+      const today = report.usage.total_tokens;
+      return today > 0
+        ? { text: `${formatTokens(today)} 今日`, dot: 'bg-slate-600', strong: true, title: unsupportedTitle(report, generatedAt), hint }
+        : { text: '无今日用量', dot: 'bg-slate-600', strong: false, title: unsupportedTitle(report, generatedAt), hint };
+    }
     case 'not_found':
       return { text: 'not detected', dot: 'bg-slate-600', strong: false, title: 'CLI data directory not found on this machine' };
     case 'error':
@@ -167,9 +203,12 @@ function remainingTitle(report: AgentUsageReport, windows: RateWindow[], generat
   return lines.join('\n');
 }
 
-/** Claude tooltip: an honest explanation that remaining isn't available locally, plus today's tokens. */
+/** Claude fallback tooltip: why the live remaining couldn't be read + today's tokens shown instead. */
 function unsupportedTitle(report: AgentUsageReport, generatedAt?: string): string {
-  const lines = ['本地无法获取 Claude 剩余量,请在 Claude CLI 运行 /usage'];
+  const lines = [
+    '无法读取 Claude 实时剩余量(未登录 / 令牌过期 / 离线)。',
+    '此处暂显示今日本地用量;请在 Claude CLI 运行 /login 登录后,/usage 查看剩余量。',
+  ];
   if (report.usage.total_tokens > 0) lines.push(todayUsageLine(report.usage));
   if (generatedAt) lines.push(`Updated ${new Date(generatedAt).toLocaleTimeString()}`);
   return lines.join('\n');

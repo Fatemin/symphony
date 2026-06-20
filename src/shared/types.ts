@@ -343,18 +343,23 @@ export interface AskHistory {
   messages: AskMessage[];
 }
 
-// ── Local CLI usage / remaining quota (SYM-38, SYM-39) ─────────────────────
+// ── Local CLI usage / remaining quota (SYM-38, SYM-39, SYM-40) ─────────────
 
 /**
  * Per-agent detection result for the sidebar "Remaining" widget. SYM-39 repurposed this widget from
- * token *usage* to remaining rate-limit quota, since the user wants to see what's left, not what's
- * spent. Codex logs its live rate limits locally; Claude does not (its logs carry no quota state).
- * - `ok`          — Codex: a rate-limit snapshot was found, so `windows` carry remaining quota.
+ * token *usage* to remaining rate-limit quota (the user wants to see what's left, not what's spent);
+ * SYM-40 made Claude report remaining too, like Codex. Codex reads its remaining from local rate-limit
+ * logs; Claude has the server fetch it LIVE from Anthropic with the user's own local OAuth token.
+ * - `ok`          — a rate-limit reading succeeded, so `windows` carry remaining quota (BOTH agents:
+ *                   Codex from its latest local snapshot; Claude from the live `/api/oauth/usage` fetch).
  * - `empty`       — Codex: the data dir was found but no recent rate-limit snapshot exists.
- * - `unsupported` — Claude: the data dir was found, but remaining quota is NOT available locally
- *                   (run `/usage` in the Claude CLI). `usage` still holds today's totals for the tooltip.
+ * - `unsupported` — Claude: the live remaining read could not run (no local OAuth token / token expired /
+ *                   offline / endpoint error), so remaining is unavailable. `usage` holds today's totals,
+ *                   which the row headlines ("N 今日") as an honest fallback so the agent never reads as
+ *                   unavailable; an always-visible "剩余量见 /usage" hint + the tooltip explain the fallback.
  * - `not_found`   — the data dir does not exist (the CLI isn't installed, or has never run).
- * - `error`       — an unexpected failure reading the dir (e.g. EACCES); `error` carries the reason.
+ * - `error`       — an unexpected failure reading the LOCAL data dir (e.g. EACCES); `error` carries the
+ *                   reason. (A failed Claude live fetch is NOT an error — it degrades to `unsupported`.)
  */
 export type UsageStatus = 'ok' | 'empty' | 'unsupported' | 'not_found' | 'error';
 
@@ -370,13 +375,13 @@ export interface AgentUsage {
 }
 
 /**
- * One remaining-quota window for an agent (Codex exposes two: a short rolling window + a weekly one).
- * `remaining_percent = clamp(0, 100, 100 - used_percent)`. A window whose `resets_at` has already
- * passed has rolled over since the snapshot, so it is reported as fully remaining (used 0 / left 100)
- * with `resets_at` projected forward to the next boundary.
+ * One remaining-quota window for an agent — each exposes two: a short rolling window + a weekly one
+ * (Codex `primary`/`secondary`; Claude `five_hour`/`seven_day`). `remaining_percent = clamp(0, 100,
+ * 100 - used_percent)`. A window whose `resets_at` has already passed has rolled over since the reading,
+ * so it is reported as fully remaining (used 0 / left 100) with `resets_at` projected forward.
  */
 export interface RateWindow {
-  /** Which slot in the source rate-limit object: the short rolling window vs. the weekly one. */
+  /** Which slot: the short rolling window (Codex primary / Claude five_hour) vs. the weekly one. */
   key: 'primary' | 'secondary';
   /** 0..100 — how much of this window's quota is consumed. */
   used_percent: number;
@@ -395,7 +400,7 @@ export interface AgentUsageReport {
   status: UsageStatus;
   /** Today's token totals (kept for the tooltip on every agent, even when `windows` is absent). */
   usage: AgentUsage;
-  /** Remaining rate-limit windows — present only for Codex with a snapshot (`status === 'ok'`). */
+  /** Remaining rate-limit windows — present for either agent when `status === 'ok'` (Codex snapshot / Claude live fetch). */
   windows?: RateWindow[];
   /** Present only when `status === 'error'` — a short human-readable reason. */
   error?: string;

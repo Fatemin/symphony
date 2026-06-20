@@ -28,6 +28,14 @@ export function setupEnv(): TestEnv {
   // exercise the reader override these to fixture dirs of their own.
   process.env.CLAUDE_CONFIG_DIR = path.join(root, 'claude');
   process.env.CODEX_HOME = path.join(root, 'codex');
+  // SYM-40: Claude's remaining quota now comes from a best-effort LIVE fetch using a local OAuth token.
+  // Keep `npm test` hermetic + offline: disable the macOS keychain read and clear any inherited OAuth
+  // env token / base-URL override, so the ONLY credential source is a `.credentials.json` a test writes
+  // into its own fixture dir (and the one live-path test stubs `globalThis.fetch`). Without this the
+  // reader would read the developer's real keychain and hit Anthropic during the suite.
+  process.env.SYMPHONY_DISABLE_KEYCHAIN = '1';
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete process.env.ANTHROPIC_BASE_URL;
 
   const repoPath = path.join(root, 'repo');
   fs.mkdirSync(repoPath, { recursive: true });

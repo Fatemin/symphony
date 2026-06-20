@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,24 +12,36 @@ import type {
 } from '../../shared/types';
 
 /**
- * SYM-38 / SYM-39: read the LOCAL Claude Code / Codex CLI session logs for the sidebar footer widget.
+ * SYM-38 / SYM-39 / SYM-40: read the LOCAL Claude Code / Codex CLI state for the sidebar footer widget.
  * SYM-39 repurposed the widget from token *usage* to **remaining** rate-limit quota (the user wants to
- * see what's left, not what's spent). Read-only and self-contained — it touches nothing Symphony owns,
- * only the CLIs' own data dirs, and writes nothing (so the repo's .gitignore needs no new rule).
+ * see what's left, not what's spent); SYM-40 made Claude show its real remaining, like Codex.
  *
- * Design points (verified against live CLI logs):
+ * Design points (verified against live CLI logs + the Claude usage endpoint):
  *  - Codex logs its live rate limits: each `token_count` event carries `payload.rate_limits` with a
  *    `primary` (short rolling) and `secondary` (weekly) window, each `{ used_percent, window_minutes,
  *    resets_at }`. We take the LATEST snapshot (max timestamp, any day) and report remaining = 100 −
- *    used. Claude exposes NO local quota state — its assistant lines carry only usage, and
- *    `~/.claude.json` holds only the plan tier — so Claude's row is `unsupported`.
+ *    used. Both agents' windows share `normalizeWindow` (clamp + roll-over on a passed reset).
+ *  - Claude persists NO remaining quota to its logs/caches — its `/usage` fetches it LIVE from an
+ *    authenticated Anthropic endpoint. SYM-40 (round 3: "show Claude's remaining like Codex") makes a
+ *    BEST-EFFORT live fetch of the SAME endpoint using the user's OWN local OAuth token (env →
+ *    `<root>/.credentials.json` → macOS keychain): `GET <base>/api/oauth/usage` → map `five_hour` /
+ *    `seven_day` → the same `RateWindow` shape, so the row renders identically to Codex. This is the
+ *    ONE place the reader is no longer strictly no-network — it makes a single outbound GET to the
+ *    fixed Anthropic host with the user's token (the same trust boundary as Claude Code itself; the
+ *    token is never logged nor returned to the client). It still WRITES nothing, and every failure
+ *    path (no token / expired / offline / non-200 / parse) degrades to `[]` → the row falls back to
+ *    the old `unsupported` view (today's usage + a `/usage` hint), so nothing regresses for API-key
+ *    users, headless servers, or when offline. A small TTL cache coalesces the bursty sidebar polls.
  *  - Today's token totals are still computed for the tooltip on both agents. "today" is the SERVER's
  *    local-machine day boundary — Symphony runs locally beside the CLIs, so timestamps share its clock.
  *  - Each agent root is scanned inside its OWN try/catch (`buildReport`) so a missing/locked Claude
  *    dir never blanks the Codex row and vice-versa — the endpoint always returns per-agent statuses.
+ *    Genuine local FS errors bubble to `error`; the live fetch's own errors never do (they → `[]`).
  *  - Env overrides are read at CALL time (not import time) so tests can point CLAUDE_CONFIG_DIR /
  *    CODEX_HOME at throwaway dirs. Files are streamed line-by-line (they grow to multi-MB). Claude
  *    files are bounded to today's mtime; Codex files to ~8 days so the weekly snapshot stays visible.
+ *    TEST-OFFLINE SAFETY: `setupEnv()` sets `SYMPHONY_DISABLE_KEYCHAIN=1` and clears the OAuth env
+ *    token so `npm test` never reads the dev's real keychain/token; the one live-path test stubs fetch.
  */
 
 /**
@@ -58,9 +71,14 @@ export async function readLocalUsage(): Promise<AgentUsageReport[]> {
 // ── Per-agent readers ──────────────────────────────────────────────────────
 
 function readClaudeUsage(now: Date): Promise<AgentUsageReport> {
-  // Claude has NO local remaining-quota data, so once its dir is found the row is `unsupported`. Today's
-  // usage is still computed so the tooltip can show today's tokens (see scanClaude).
-  return buildReport('claude', () => scanClaude(now), () => ({ status: 'unsupported' }));
+  // SYM-40: Claude is `ok` when the best-effort LIVE fetch (see scanClaude) returned remaining windows
+  // — it then renders exactly like Codex. When the fetch couldn't run (no local token / expired /
+  // offline / endpoint error) it yields no windows and the row falls back to `unsupported`: the UI
+  // honestly headlines today's usage and points at `/usage`. Today's usage is computed for the tooltip
+  // in BOTH cases. (Mirrors readCodexUsage's classify, minus the `empty` state.)
+  return buildReport('claude', () => scanClaude(now), (r) =>
+    r.windows && r.windows.length > 0 ? { status: 'ok', windows: r.windows } : { status: 'unsupported' },
+  );
 }
 
 function readCodexUsage(now: Date): Promise<AgentUsageReport> {
@@ -75,7 +93,7 @@ interface ScanResult {
   /** Did at least one of the agent's data roots exist? (false ⇒ not installed / never run.) */
   anyRootFound: boolean;
   usage: AgentUsage;
-  /** Codex remaining windows from the latest rate-limit snapshot; undefined for Claude / when none. */
+  /** Remaining windows: Codex's latest rate-limit snapshot, or Claude's live fetch; undefined/[] when none. */
   windows?: RateWindow[];
 }
 
@@ -127,7 +145,11 @@ async function scanClaude(now: Date): Promise<ScanResult> {
   }
 
   finalizeTotal(usage);
-  return { anyRootFound, usage };
+  // SYM-40: best-effort LIVE remaining fetch. Only when a root exists (else the row is `not_found`
+  // anyway). All of its own errors degrade to `[]` inside fetchClaudeRemaining, so the row falls back
+  // to `unsupported` (+ today's usage); only the local FS walk above can mark the agent `error`.
+  const windows = anyRootFound ? await fetchClaudeRemaining(now.getTime()) : [];
+  return { anyRootFound, usage, windows };
 }
 
 function addClaudeLine(obj: unknown, now: Date, seen: Set<string>, usage: AgentUsage): void {
@@ -228,13 +250,29 @@ function buildCodexWindows(rl: RawRateLimits, nowMs: number): RateWindow[] {
 
 function buildWindow(key: 'primary' | 'secondary', raw: RawWindow | undefined, nowMs: number): RateWindow | null {
   if (!raw || typeof raw !== 'object') return null;
-  const windowMinutes = Math.max(0, Math.round(toNum(raw.window_minutes)));
-  const windowMs = windowMinutes * 60_000;
-  let resetsAtMs = toNum(raw.resets_at) * 1000; // source is epoch SECONDS
-  let usedPercent = clampPercent(toNum(raw.used_percent));
+  // Codex's resets_at is epoch SECONDS; convert to ms before handing to the shared normalizer.
+  return normalizeWindow(key, toNum(raw.used_percent), toNum(raw.window_minutes), toNum(raw.resets_at) * 1000, nowMs);
+}
 
-  // STALENESS: once the reset moment has passed, the snapshot's used_percent is from the prior window —
-  // the quota has rolled over, so report it as fully remaining and project the reset boundary forward.
+/**
+ * Normalize one remaining window from already-parsed numbers (shared by Codex and Claude — SYM-40).
+ * Clamps `used_percent` to 0..100 and derives `remaining_percent`. STALENESS: once the reset moment has
+ * passed, the snapshot's used_percent is from the PRIOR window — the quota has rolled over, so report it
+ * as fully remaining and project the reset boundary forward. `resetsAtMs` is epoch MILLISECONDS (callers
+ * convert their own units first); 0 means unknown.
+ */
+function normalizeWindow(
+  key: 'primary' | 'secondary',
+  usedPercentRaw: number,
+  windowMinutesRaw: number,
+  resetsAtMsRaw: number,
+  nowMs: number,
+): RateWindow {
+  const windowMinutes = Math.max(0, Math.round(windowMinutesRaw));
+  const windowMs = windowMinutes * 60_000;
+  let resetsAtMs = resetsAtMsRaw;
+  let usedPercent = clampPercent(usedPercentRaw);
+
   if (resetsAtMs > 0 && resetsAtMs < nowMs) {
     usedPercent = 0;
     if (windowMs > 0) {
@@ -255,6 +293,173 @@ function buildWindow(key: 'primary' | 'secondary', raw: RawWindow | undefined, n
 }
 
 const isRolloutFile = (name: string): boolean => name.startsWith('rollout-') && name.endsWith('.jsonl');
+
+// ── Claude live remaining (SYM-40) ───────────────────────────────────────────
+
+/**
+ * Claude persists no remaining quota locally, so we fetch it LIVE from the same endpoint `/usage` uses,
+ * with the user's own local OAuth token. Best-effort: every error → `[]` (the row falls back to
+ * `unsupported`). A small TTL cache coalesces the bursty sidebar polls (60s interval + per-issue
+ * invalidations) so we don't hit the keychain/network on every refresh. The fixed Anthropic host is
+ * overridable via ANTHROPIC_BASE_URL (for tests / proxies); read at call time.
+ */
+const CLAUDE_USAGE_PATH = '/api/oauth/usage';
+const CLAUDE_FETCH_TIMEOUT_MS = 4_000;
+const CLAUDE_FETCH_TTL_MS = 30_000;
+const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+
+let claudeCache: { at: number; windows: RateWindow[] } | null = null;
+
+/** Test hook: clear the live-fetch cache between cases so a stubbed fetch isn't masked by a prior result. */
+export function __resetClaudeUsageCache(): void {
+  claudeCache = null;
+}
+
+/**
+ * The remaining windows for Claude, cached for a short TTL. Returns `[]` (→ `unsupported`) whenever no
+ * usable token is found (so a fresh login shows up on the next poll — the no-token case is NOT cached)
+ * or the fetch fails. Cached on every actual attempt (success OR failure) to avoid hammering a flaky
+ * endpoint across the bursty sidebar invalidations.
+ */
+async function fetchClaudeRemaining(nowMs: number): Promise<RateWindow[]> {
+  if (claudeCache && nowMs - claudeCache.at < CLAUDE_FETCH_TTL_MS) return claudeCache.windows;
+  const token = resolveClaudeToken(nowMs);
+  if (!token) return [];
+  const windows = await fetchClaudeWindows(token, nowMs);
+  claudeCache = { at: nowMs, windows };
+  return windows;
+}
+
+/** One outbound GET to the Anthropic usage endpoint; ALL errors (network/timeout/non-200/parse) → `[]`. */
+async function fetchClaudeWindows(token: string, nowMs: number): Promise<RateWindow[]> {
+  const base = (process.env.ANTHROPIC_BASE_URL?.trim() || DEFAULT_ANTHROPIC_BASE_URL).replace(/\/+$/, '');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLAUDE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await globalThis.fetch(`${base}${CLAUDE_USAGE_PATH}`, {
+      method: 'GET',
+      headers: {
+        // The user's own OAuth credential, sent only to the fixed Anthropic host over HTTPS — the same
+        // trust boundary as Claude Code itself. Never logged, never returned to the client.
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'anthropic-beta': 'oauth-2025-04-20',
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    return mapClaudeUsage(await res.json(), nowMs);
+  } catch {
+    return []; // network/timeout/parse → degrade to the unsupported fallback
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Map the usage endpoint's JSON to the shared `RateWindow` shape (pure aside from `nowMs` staleness).
+ * `five_hour`→primary (300 min), `seven_day`→secondary (10080 min); `utilization` is USED percent and
+ * `resets_at` an ISO-8601 string. Per-model weekly sub-limits (seven_day_opus/sonnet) are out of scope —
+ * two windows match the Codex two-window UI; a per-model breakdown is a deferred follow-up.
+ */
+export function mapClaudeUsage(json: unknown, nowMs: number): RateWindow[] {
+  const data = json as { five_hour?: unknown; seven_day?: unknown };
+  const out: RateWindow[] = [];
+  const primary = claudeWindow('primary', data?.five_hour, 300, nowMs);
+  if (primary) out.push(primary);
+  const secondary = claudeWindow('secondary', data?.seven_day, 10_080, nowMs);
+  if (secondary) out.push(secondary);
+  return out;
+}
+
+function claudeWindow(
+  key: 'primary' | 'secondary',
+  raw: unknown,
+  windowMinutes: number,
+  nowMs: number,
+): RateWindow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const w = raw as { utilization?: unknown; resets_at?: unknown };
+  return normalizeWindow(key, toNum(w.utilization), windowMinutes, parseTs(w.resets_at) ?? 0, nowMs);
+}
+
+/** OAuth token + its expiry (epoch ms; 0 = unknown/no-expiry). */
+interface ClaudeCreds {
+  accessToken: string;
+  expiresAt: number;
+}
+
+/** Resolve a non-expired access token, or null. Resolution order: env → .credentials.json → keychain. */
+function resolveClaudeToken(nowMs: number): string | null {
+  const creds = readClaudeCreds();
+  if (!creds) return null;
+  if (creds.expiresAt > 0 && creds.expiresAt < nowMs) return null; // expired → skip the fetch
+  return creds.accessToken || null;
+}
+
+/**
+ * Read the Claude OAuth credential read-only. Order: CLAUDE_CODE_OAUTH_TOKEN (headless/CI; no expiry) →
+ * `<root>/.credentials.json` (Linux + the test fixtures) → macOS keychain. We never refresh or write it.
+ */
+function readClaudeCreds(): ClaudeCreds | null {
+  const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  if (envToken) return { accessToken: envToken, expiresAt: 0 };
+
+  for (const root of claudeRoots()) {
+    const creds = parseCreds(readFileSafe(path.join(root, '.credentials.json')));
+    if (creds) return creds;
+  }
+
+  // The keychain is the macOS storage; gated off in tests (SYMPHONY_DISABLE_KEYCHAIN) so `npm test`
+  // never reads the developer's real token.
+  if (process.platform === 'darwin' && !keychainDisabled()) {
+    const creds = parseCreds(readKeychainBlob());
+    if (creds) return creds;
+  }
+  return null;
+}
+
+function keychainDisabled(): boolean {
+  const v = process.env.SYMPHONY_DISABLE_KEYCHAIN?.trim();
+  return v === '1' || v === 'true';
+}
+
+/** macOS keychain blob for the Claude OAuth credential. Fixed args (no injection); any failure → null. */
+function readKeychainBlob(): string | null {
+  try {
+    return execFileSync('security', ['find-generic-password', '-s', 'Claude Code-credentials', '-w'], {
+      encoding: 'utf8',
+      timeout: 3_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null; // not present / locked / no keychain → fall through
+  }
+}
+
+function readFileSafe(file: string): string | null {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null; // missing/unreadable → next source
+  }
+}
+
+/** Parse `{ claudeAiOauth: { accessToken, expiresAt } }` (the shape of both the file and keychain blob). */
+function parseCreds(raw: string | null): ClaudeCreds | null {
+  if (!raw) return null;
+  try {
+    const oauth = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown; expiresAt?: unknown } })
+      ?.claudeAiOauth;
+    const accessToken = typeof oauth?.accessToken === 'string' ? oauth.accessToken.trim() : '';
+    if (!accessToken) return null;
+    const expiresAt =
+      typeof oauth?.expiresAt === 'number' && Number.isFinite(oauth.expiresAt) ? oauth.expiresAt : 0;
+    return { accessToken, expiresAt };
+  } catch {
+    return null;
+  }
+}
 
 // ── Roots (env read at call time) ───────────────────────────────────────────
 
