@@ -158,7 +158,7 @@ src/server/
   tracker/     Tracker interface backed by the local DB (swap in Linear later, untouched orch)
   http/        Hono routes + SSE stream
   observability/ structured logger + live event bus
-src/web/       React board (Projects, Board, IssueDetail, StoryTree, Documentation, Ops, Settings)
+src/web/       React board (Projects, Board, IssueDetail, Review, StoryTree, Documentation, Ops, Settings)
 src/shared/    domain types shared by server + client
 tests/         offline pipeline + orchestrator tests with an injected fake runner
 ```
@@ -269,8 +269,10 @@ commit_guard:
 ```
 
 The React UI exposes these project-level knobs under each project via tabs: **Board**, **Agent**,
-**Story Tree**, **Docs**, and **Skills**; the left sidebar can expand a project directly to a view.
-The **Docs** tab (SYM-36) renders the repo's documentation — Markdown is themed, other allow-listed
+**Review**, **Story Tree**, **Docs**, and **Skills**; the left sidebar can expand a project directly
+to a view. The **Review** tab (SYM-51) runs a standalone, read-only agent audit of a chosen scope
+(docs, code, UI/UX, or all) and surfaces its graded findings as draft issue cards you can convert to
+issues or dismiss. The **Docs** tab (SYM-36) renders the repo's documentation — Markdown is themed, other allow-listed
 text shows as plain text — and lets you add/remove the source directories it reads (default `docs`,
 stored in `config.docs.directories`). `WORKFLOW.md` still wins for agent runtime fields and is
 appended after project prompt additions, keeping repo-versioned policy authoritative.
