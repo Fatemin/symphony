@@ -30,3 +30,28 @@ export const DEFAULT_WORKSPACE_ROOT =
 export const PORT = Number(process.env.PORT ?? 3030);
 
 export const IS_PROD = process.env.NODE_ENV === 'production';
+
+/**
+ * Network interface the server binds to (SYM-42). Defaults to `localhost` — a deliberate
+ * secure-by-default: passing no hostname makes Node bind every interface, which would expose the
+ * `bypassPermissions` agent runtime (= arbitrary command execution) to the whole LAN. Set
+ * `HOST=0.0.0.0` to opt into LAN access — together with `SYMPHONY_AUTH_TOKEN`, or the server
+ * refuses to start (see index.ts). Localhost-only single-user use is unaffected.
+ */
+export const HOST = process.env.HOST?.trim() || 'localhost';
+
+/**
+ * Optional shared secret for the minimal access-control middleware (SYM-42). Env-only **by design**:
+ * it must never live in the `settings` table because `GET /api/ops/settings` returns that to the
+ * client and would leak it. Empty/whitespace ⇒ `undefined` ⇒ auth disabled (the localhost default).
+ */
+export const AUTH_TOKEN = process.env.SYMPHONY_AUTH_TOKEN?.trim() || undefined;
+
+/**
+ * Escape hatch (SYM-42): allow binding a non-loopback `HOST` without a token. Off by default, so the
+ * server refuses to start when exposed without auth. Setting `SYMPHONY_ALLOW_INSECURE_LAN=1` downgrades
+ * the fatal refusal to a loud warning — only for trusted, already-isolated networks.
+ */
+export const ALLOW_INSECURE_LAN = /^(1|true|yes|on)$/i.test(
+  process.env.SYMPHONY_ALLOW_INSECURE_LAN?.trim() ?? '',
+);

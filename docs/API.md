@@ -5,8 +5,10 @@ and the route modules in [`src/server/http/routes/`](../src/server/http/routes/)
 mounted under **`/api`**. In dev the Vite client proxies `/api/*` to the Hono server on `:3030`; in
 production the same server also serves the built SPA.
 
-This is a **single-user, localhost tool** — there is no authentication, no rate limiting, and no
-versioning. Request bodies are JSON; responses are JSON unless noted (SSE for the stream route).
+This is a **single-user, localhost tool** — no rate limiting and no versioning. By default it binds
+`localhost` and runs with no authentication. For LAN access an **optional shared-token gate** can be
+enabled (see [Authentication](#authentication) below and [docs/DEPLOYMENT.md](DEPLOYMENT.md)). Request
+bodies are JSON; responses are JSON unless noted (SSE for the stream route).
 
 ## Conventions
 
@@ -15,8 +17,23 @@ versioning. Request bodies are JSON; responses are JSON unless noted (SSE for th
 - **Errors** are `{ "error": "<message>" }` with a 4xx/5xx status; review-gate actions return
   `{ "ok": false, "reason": "<message>" }`.
 - **Status codes** used deliberately: `201` create, `202` accepted/dispatched, `204` no content,
-  `400` bad input, `404` not found, `409` conflict/illegal-state, `422` nothing imported,
-  `502` upstream (agent/GitHub) failure.
+  `400` bad input, `401` unauthorized (auth enabled, bad/missing token), `404` not found,
+  `409` conflict/illegal-state, `422` nothing imported, `502` upstream (agent/GitHub) failure.
+
+## Authentication
+
+Auth is **off by default** (localhost single-user). Setting `SYMPHONY_AUTH_TOKEN` (SYM-42) mounts a
+shared-token middleware (`http/middleware/auth.ts`) in front of **every** route — `/api/*` and, in
+production, the served SPA — except `GET /api/health`, which stays open for liveness checks. The token
+is environment-only (it never appears in `GET /api/ops/settings`). Present it any of three ways:
+
+- `Authorization: Bearer <token>`
+- `Authorization: Basic base64(<anyuser>:<token>)` — username ignored (matches a browser Basic dialog)
+- `?token=<token>` query param
+
+A missing/wrong token returns `401 { "error": "Unauthorized" }` with `WWW-Authenticate: Basic
+realm="Symphony"`. The server refuses to start when bound to a non-loopback `HOST` without a token —
+see [docs/DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
