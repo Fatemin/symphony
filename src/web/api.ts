@@ -20,10 +20,13 @@ import type {
   ProjectSkill,
   Run,
   Snapshot,
+  ThinkingEffort,
 } from '../shared/types';
 
-// SYM-41: extended-thinking levels mirror the server's `ThinkingEffort` (core/config.ts).
-export type ThinkingEffort = 'none' | 'think' | 'think-hard' | 'ultrathink';
+// SYM-46: ThinkingEffort's canonical home is src/shared/types.ts; re-export it so web files keep
+// importing the type from '../api'. Imported above (not a bare `export … from`) so it also binds
+// locally for THINKING_EFFORT_OPTIONS / EngineConfig below.
+export type { ThinkingEffort };
 
 /** Select options for the thinking-effort controls (value = stored keyword, label = display). */
 export const THINKING_EFFORT_OPTIONS: { value: ThinkingEffort; label: string }[] = [

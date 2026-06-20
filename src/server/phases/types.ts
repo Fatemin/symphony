@@ -103,12 +103,15 @@ export function agentInput(
 }
 
 /**
- * SYM-41: resolve the extended-thinking keyword for a phase — project override ?? engine default.
- * Mirrors agentInput's precedence chain minus the WORKFLOW.md term (WorkflowPolicy has no such
- * field). Threaded into the prompt as data (never the system prompt / CLI args).
+ * Resolve the extended-thinking keyword for a phase — issue override ?? project override ?? engine
+ * default (SYM-46 widened SYM-41's project??engine chain with a per-issue layer). A `null`/absent
+ * issue or project value inherits the next layer; an explicit `'none'` at any layer is a deliberate
+ * override that beats the layers below it. Mirrors agentInput's precedence minus the WORKFLOW.md term
+ * (WorkflowPolicy has no such field). Threaded into the prompt as data (never the system prompt / CLI
+ * args).
  */
 export function resolveThinkingEffort(ctx: PhaseContext): ThinkingEffort {
-  return ctx.projectConfig.agent.thinking_effort ?? ctx.config.thinking_effort;
+  return ctx.issue.thinking_effort ?? ctx.projectConfig.agent.thinking_effort ?? ctx.config.thinking_effort;
 }
 
 /**

@@ -76,7 +76,8 @@ context, recent project learnings, available project skills, the worktree/branch
 "unattended — never use interactive tools" instruction, (on retries) the prior-failure context, and
 (SYM-41, pipeline only) a trailing `## Thinking effort\n<keyword>` block when `thinking_effort` ≠
 `none` — appended in the brief's tail *before* the role body, so `includes()`-based phase detection
-is position-insensitive and the role substrings never shift.
+is position-insensitive and the role substrings never shift. `resolveThinkingEffort` picks the
+keyword **issue ?? project ?? engine** (SYM-46 added the per-issue layer via `Issue.thinking_effort`).
 
 Each role body enforces a **professional-team quality floor** that per-repo policy can only *append*
 to:
@@ -141,6 +142,8 @@ What it can set (`WorkflowPolicy` / `ProjectConfig`):
 - `agent.enable_workflow_tool` (boolean) and `agent.thinking_effort` (`none`/`think`/`think-hard`/
   `ultrathink`) — the SYM-41 agent-execution controls. **Project config only** (engine default +
   project layers; `WorkflowPolicy` has no field for them, so WORKFLOW.md can't set them yet).
+  `thinking_effort` additionally has a per-issue layer (SYM-46, `Issue.thinking_effort`), resolved
+  as issue ?? project ?? engine — set it from the new-issue form or the issue detail header.
 - `prompts.{plan,implement,qa,delivery,merge}` — appended to that phase's baseline (§3).
 - `verification.commands` — objective gate (see §7).
 - `promotion` — `direct-merge` (default) or `pull-request`, plus `remote`, `base_branch`,

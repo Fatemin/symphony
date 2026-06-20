@@ -20,6 +20,15 @@ export type IssueMode = 'auto' | 'manual';
 export type AgentType = 'claude' | 'codex';
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 = none, 1 = urgent … 4 = low
 
+/**
+ * How hard a pipeline agent is asked to think (SYM-41). Maps to a native extended-thinking keyword
+ * appended to the prompt; `none` appends nothing (a true no-op). This is the canonical home — both
+ * `core/config.ts` (engine default) and the web `api.ts` re-export it. Resolved per phase as
+ * issue ?? project ?? engine (SYM-46).
+ */
+export type ThinkingEffort = 'none' | 'think' | 'think-hard' | 'ultrathink';
+export const THINKING_EFFORTS: ThinkingEffort[] = ['none', 'think', 'think-hard', 'ultrathink'];
+
 export type TaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
 // `delivery` is a plan-emitted role executed inside the implement phase (there is no separate
 // delivery phase) — it asks the engineer for a handoff/summary of what shipped (SYM-24).
@@ -96,6 +105,8 @@ export interface Issue {
   priority: Priority;
   status: IssueStatus;
   mode: IssueMode;
+  /** Per-issue extended-thinking override (SYM-46); null ⇒ inherit project ?? engine default. */
+  thinking_effort: ThinkingEffort | null;
   require_review: boolean;
   base_branch: string | null;
   branch_name: string | null;

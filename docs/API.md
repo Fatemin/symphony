@@ -92,11 +92,11 @@ feature/bug suggestion.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/issues?project_id=&status=` | List issues; both query params optional filters. |
-| `POST` | `/api/issues` | Create an issue. Body requires `project_id` + `title`. → `201` |
+| `POST` | `/api/issues` | Create an issue. Body requires `project_id` + `title`; optional `thinking_effort` (`none`/`think`/`think-hard`/`ultrathink`, SYM-46) sets the per-issue extended-thinking override (omit/`null` ⇒ inherit project ?? engine). → `201` |
 | `GET` | `/api/issues/:id` | Full detail: the issue plus `tasks`, `runs`, `events` (latest 200), `relations`, `revisions`. `404` if missing. |
-| `PATCH` | `/api/issues/:id` | Update issue fields (status, mode, priority, etc.). Moving to a terminal status mid-run cancels the active run; `cancelled` also cleans up the branch/worktree. |
+| `PATCH` | `/api/issues/:id` | Update issue fields (status, mode, priority, `thinking_effort`, etc.; pass `thinking_effort:null` to clear it back to inherit). Moving to a terminal status mid-run cancels the active run; `cancelled` also cleans up the branch/worktree. |
 | `DELETE` | `/api/issues/:id` | Cancel any active run, clean up resources, delete the issue. → `204` (also `204` if already gone). |
-| `POST` | `/api/issues/:id/follow-ups` | Create a follow-up issue linked to a **completed** source (`409` if source not `done`). Body requires `title`; `include_context` (default true) carries predecessor context. → `201` |
+| `POST` | `/api/issues/:id/follow-ups` | Create a follow-up issue linked to a **completed** source (`409` if source not `done`). Body requires `title`; `include_context` (default true) carries predecessor context; optional `thinking_effort` carries onto the follow-up. → `201` |
 
 ### Activity & review evidence
 
