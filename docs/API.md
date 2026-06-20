@@ -20,7 +20,8 @@ JSON; responses are JSON unless noted (SSE for the stream route).
   `{ "ok": false, "reason": "<message>" }`.
 - **Status codes** used deliberately: `201` create, `202` accepted/dispatched, `204` no content,
   `400` bad input, `401` unauthorized (auth enabled, bad/missing token), `404` not found,
-  `409` conflict/illegal-state, `422` nothing imported, `502` upstream (agent/GitHub) failure.
+  `409` conflict/illegal-state, `413` payload too large (oversize attachment upload),
+  `422` nothing imported, `502` upstream (agent/GitHub) failure.
 
 ## Authentication
 
@@ -113,9 +114,9 @@ dismisses. A restart fails any orphaned `running` run at boot.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/issues?project_id=&status=` | List issues; both query params optional filters. |
-| `POST` | `/api/issues` | Create an issue. Body requires `project_id` + `title`; optional `thinking_effort` (`none`/`think`/`think-hard`/`ultrathink`, SYM-46) sets the per-issue extended-thinking override (omit/`null` ⇒ inherit project ?? engine). → `201` |
+| `POST` | `/api/issues` | Create an issue. Body requires `project_id` + `title`; optional `attachment_ids?` links pre-uploaded files (SYM-35, capped by `max_attachments_per_item`); optional `thinking_effort` (`none`/`think`/`think-hard`/`ultrathink`, SYM-46) sets the per-issue extended-thinking override (omit/`null` ⇒ inherit project ?? engine). → `201` |
 | `GET` | `/api/issues/:id` | Full detail: the issue plus `tasks`, `runs`, `events` (latest 200), `relations`, `revisions`. `404` if missing. |
-| `PATCH` | `/api/issues/:id` | Update issue fields (status, mode, priority, `thinking_effort`, etc.; pass `thinking_effort:null` to clear it back to inherit). Moving to a terminal status mid-run cancels the active run; `cancelled` also cleans up the branch/worktree. |
+| `PATCH` | `/api/issues/:id` | Update issue fields (status, mode, priority, `attachment_ids`, `thinking_effort`, etc.; pass `thinking_effort:null` to clear it back to inherit). Moving to a terminal status mid-run cancels the active run; `cancelled` also cleans up the branch/worktree. |
 | `DELETE` | `/api/issues/:id` | Cancel any active run, clean up resources, delete the issue. → `204` (also `204` if already gone). |
 | `POST` | `/api/issues/:id/follow-ups` | Create a follow-up issue linked to a **completed** source (`409` if source not `done`). Body requires `title`; `include_context` (default true) carries predecessor context; optional `thinking_effort` carries onto the follow-up. → `201` |
 
@@ -142,6 +143,47 @@ dismisses. A restart fails any orphaned `running` run at boot.
 | `GET` | `/api/issues/:id/preview` | Current preview status for the issue. |
 | `POST` | `/api/issues/:id/preview` | Launch the project from the issue's worktree (uses `project.preview_command` or a default). `409` if there is no worktree yet. |
 | `DELETE` | `/api/issues/:id/preview` | Stop the preview. → `{ running: false, stopped }` |
+
+---
+
+## Attachments — `/api/attachments` (`http/routes/attachments.ts`)
+
+Binary file attachments for issues and ask turns (SYM-35). Transport is **multipart + raw bytes**
+(not base64-in-JSON — avoids the ~33% inflation). Upload is a **separate step** from issue/ask
+creation: the client uploads each file as it is pasted/dropped, holds the returned `id`, and
+issue/ask create then carry `attachment_ids` (small JSON) which the server links. An upload may
+pre-link to an existing issue via `issue_id` (the edit flow); the new-issue/ask flows upload
+unlinked and link on submit.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/attachments` | Upload one file (multipart). → the `Attachment` JSON, `201`. |
+| `GET` | `/api/attachments/:id` | Serve the raw bytes; `inline` by default, any truthy `?download` (e.g. `?download=1`) forces a download disposition. `404` if missing. |
+| `DELETE` | `/api/attachments/:id` | Delete the blob + row. Idempotent (no-op if already gone). → `204` |
+
+**`POST /api/attachments`** — multipart form fields: `file` (required, binary), `project_id`
+(required), `issue_id` (optional — auto-links the upload and enforces the per-issue cap; must belong
+to `project_id`). Success → `201` with the `Attachment`
+`{ id, project_id, issue_id, ask_message_id, filename, mime, size_bytes, created_at }`
+(`ask_message_id` is `null` on a fresh upload). Errors are `{ "error": "<message>" }`:
+
+- `400 "expected multipart/form-data with a file field"` — body is not multipart form data.
+- `400 "file is required"` — no `file` field (or it is not a file).
+- `400 "file is empty"` — zero-byte file.
+- `413 "file too large — max <max_attachment_bytes> bytes"` — exceeds the byte cap (Payload Too Large).
+- `400 "project_id is required"` / `400 "project not found"`.
+- `400 "issue not found"` / `400 "issue does not belong to project"` — only when `issue_id` is supplied.
+- `400 "too many attachments (max <max_attachments_per_item>)"` — the per-issue count cap.
+
+**`GET /api/attachments/:id`** → `200` with the raw bytes and headers: `Content-Type` (the stored
+`mime`, else `application/octet-stream`), `Content-Length`, `Content-Disposition`
+(`inline`/`attachment` plus `filename*=UTF-8''<encoded>`), and `Cache-Control: private, max-age=3600`
+(private but cacheable — an id's bytes never change). Any truthy `?download` value forces the
+`attachment` disposition. Missing id → `404 "not found"`.
+
+**Caps** (`core/config.ts`, both settings-table / UI editable): `max_attachment_bytes` (default
+10 MB) bounds the upload size → the `413`; `max_attachments_per_item` (default 10) bounds the
+per-issue count → the `400 "too many attachments"`.
 
 ---
 
