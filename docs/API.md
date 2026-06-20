@@ -75,12 +75,15 @@ Liveness probe. → `200 { "status": "ok" }`.
 
 Read-only Q&A against the project's **real repo** (not a worktree). Synchronous request/response — no
 run rows, no orchestrator. The agent is pinned to a read-only permission mode and may end by drafting a
-feature/bug suggestion.
+feature/bug suggestion. The request is intentionally **not** cancellable: closing the Ask panel mid-run
+disconnects the client but does **not** abort the in-flight reply (no `AbortSignal` is bound to the
+runner, SYM-48) — the answer is generated and persisted on completion regardless, so reopening the panel
+reseeds it.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects/:id/ask` | Ask a question. Body: `{ question, history?, agent? }`. → `{ answer, session_id, suggestion }`. No `repo_path` → `400`; agent failure → `502`. Persists the turn under today's conversation. |
-| `GET` | `/api/projects/:id/ask/history` | Today's persisted conversation (`{ date, messages }`) to reseed the panel. |
+| `POST` | `/api/projects/:id/ask` | Ask a question. Body: `{ question, history?, agent?, attachment_ids? }`. → `{ answer, session_id, suggestion }`. No `repo_path` → `400`; agent failure → `502`. Persists **both** the user and assistant turns under today's conversation **on completion** (no up-front user turn, so a failed run leaves nothing dangling); survives a client disconnect/panel close (SYM-48). |
+| `GET` | `/api/projects/:id/ask/history` | Today's persisted conversation (`{ date, messages }`) to reseed the panel. The panel refetches this on every open (`refetchOnMount: 'always'`) and seeds only from that fresh result, so a reply persisted while it was closed is restored rather than dropped (SYM-48); it also polls while open so a reply that lands after a mid-run reopen appears without re-toggling. |
 | `DELETE` | `/api/projects/:id/ask/history` | Reset today's conversation ("new conversation"). → `{ ok: true }` |
 
 ---
