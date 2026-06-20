@@ -18,6 +18,7 @@ docs go a level deeper and are grounded in the actual source (each claim cites a
 | [DATA_MODEL.md](DATA_MODEL.md) | Every table in `db/schema.ts` (fields, relations, purpose), the additive-migration convention, the status / mode / round state machine | touch the **schema, repos, or persisted state** |
 | [API.md](API.md) | The HTTP + SSE endpoint reference (`/api/*`), grounded in `http/routes/*` and the Hono entry | call or change the **server API** |
 | [AGENT_GUIDE.md](AGENT_GUIDE.md) | The operational contract for agents/contributors: phases & load-bearing role titles, prompt assembly, `WORKFLOW.md`/config, task roles, worktree/verification/promotion/commit-guard, the fakeRunner detection contract, and how-to-extend recipes | extend the **pipeline, prompts, phases, or config** |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | LAN access via `HOST`, the optional `SYMPHONY_AUTH_TOKEN` shared-token gate, where agents actually run (the backend host, not the LAN client), and the `bypassPermissions` exposure premise | expose the server **beyond localhost** on a LAN, or harden access |
 
 ## Who reads what
 
@@ -25,6 +26,7 @@ docs go a level deeper and are grounded in the actual source (each claim cites a
 - **Backend engineers** → [ARCHITECTURE.md](ARCHITECTURE.md) + [DATA_MODEL.md](DATA_MODEL.md).
 - **API / frontend consumers** → [API.md](API.md).
 - **Anyone changing how agents run** (phases, prompts, policy) → [AGENT_GUIDE.md](AGENT_GUIDE.md).
+- **Operators / anyone exposing the server on a LAN** → [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Keeping these docs honest
 
