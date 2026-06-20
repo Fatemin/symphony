@@ -74,10 +74,11 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * True only for loopback hosts (SYM-42). Drives the secure-by-default startup guard: a non-loopback
- * bind without a token is refused. Matches `localhost`, the whole `127.0.0.0/8` block, and IPv6 `::1`
- * (bracketed or not). `0.0.0.0` / `::` (all-interfaces) and any specific LAN IP/hostname are NOT
- * loopback; `undefined`/empty is treated as non-loopback (fail safe).
+ * True only for loopback hosts (SYM-42). Drives the informational LAN-exposure warning at startup: a
+ * non-loopback bind without a token logs a non-blocking notice (SYM-44 — it no longer refuses to
+ * start). Matches `localhost`, the whole `127.0.0.0/8` block, and IPv6 `::1` (bracketed or not).
+ * `0.0.0.0` / `::` (all-interfaces) and any specific LAN IP/hostname are NOT loopback;
+ * `undefined`/empty is treated as non-loopback (fail safe).
  */
 export function isLoopbackHost(host?: string): boolean {
   if (!host) return false;

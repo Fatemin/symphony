@@ -6,9 +6,10 @@ mounted under **`/api`**. In dev the Vite client proxies `/api/*` to the Hono se
 production the same server also serves the built SPA.
 
 This is a **single-user, localhost tool** — no rate limiting and no versioning. By default it binds
-`localhost` and runs with no authentication. For LAN access an **optional shared-token gate** can be
-enabled (see [Authentication](#authentication) below and [docs/DEPLOYMENT.md](DEPLOYMENT.md)). Request
-bodies are JSON; responses are JSON unless noted (SSE for the stream route).
+`localhost` and runs with no authentication. LAN access needs no auth either (just `HOST=0.0.0.0`); an
+**optional shared-token gate** can be enabled for hardening on untrusted networks (see
+[Authentication](#authentication) below and [docs/DEPLOYMENT.md](DEPLOYMENT.md)). Request bodies are
+JSON; responses are JSON unless noted (SSE for the stream route).
 
 ## Conventions
 
@@ -22,18 +23,19 @@ bodies are JSON; responses are JSON unless noted (SSE for the stream route).
 
 ## Authentication
 
-Auth is **off by default** (localhost single-user). Setting `SYMPHONY_AUTH_TOKEN` (SYM-42) mounts a
-shared-token middleware (`http/middleware/auth.ts`) in front of **every** route — `/api/*` and, in
-production, the served SPA — except `GET /api/health`, which stays open for liveness checks. The token
-is environment-only (it never appears in `GET /api/ops/settings`). Present it any of three ways:
+Auth is **off by default and entirely optional** (SYM-44 — LAN access no longer forces it). Setting
+`SYMPHONY_AUTH_TOKEN` (SYM-42) mounts a shared-token middleware (`http/middleware/auth.ts`) in front of
+**every** route — `/api/*` and, in production, the served SPA — except `GET /api/health`, which stays
+open for liveness checks. The token is environment-only (it never appears in `GET /api/ops/settings`).
+Present it any of three ways:
 
 - `Authorization: Bearer <token>`
 - `Authorization: Basic base64(<anyuser>:<token>)` — username ignored (matches a browser Basic dialog)
 - `?token=<token>` query param
 
 A missing/wrong token returns `401 { "error": "Unauthorized" }` with `WWW-Authenticate: Basic
-realm="Symphony"`. The server refuses to start when bound to a non-loopback `HOST` without a token —
-see [docs/DEPLOYMENT.md](DEPLOYMENT.md).
+realm="Symphony"`. Binding a non-loopback `HOST` without a token **starts** (with a one-line warning),
+it does not refuse — see [docs/DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 

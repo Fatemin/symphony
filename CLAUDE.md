@@ -65,16 +65,20 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   worktree, and the worktree must resolve inside `workspace_root`. `docs.ts` is a separate read-only
   reader (no worktree) that lists/reads the project repo's documentation for the Docs tab — every read
   is fenced inside the repo AND inside a configured doc directory (lexical + realpath checks).
-- `src/server/http/middleware/auth.ts` (SYM-42) — the ONLY credential-checking surface: a pure factory
-  `authMiddleware(token?)` (no-op when token unset; else Bearer / Basic(any-user:token) / `?token=` with
-  `crypto.timingSafeEqual`, `GET /api/health` exempt, `401` + `WWW-Authenticate: Basic` otherwise) plus a
-  pure `isLoopbackHost(host?)`. Kept FREE of `env.ts`/DB imports so the QA test builds it with a literal
-  token. `index.ts` mounts it `app.use('*', authMiddleware(AUTH_TOKEN))` BEFORE `/api` + static so it
-  gates API + prod SPA in one place, passes `hostname: HOST` to `serve()`, and runs a secure-by-default
-  startup guard: `HOST` defaults to `localhost` (env.ts), and a non-loopback bind without a token makes
-  the process `exit(1)` (loud warn instead when `SYMPHONY_ALLOW_INSECURE_LAN`). The token is **env-only by
-  design** (`SYMPHONY_AUTH_TOKEN` in `env.ts`) — it must NOT enter the `settings` table / `core/config.ts`,
-  or `GET /api/ops/settings` would leak it. Vite dev host is `SYMPHONY_WEB_HOST` (default localhost). LAN +
+- `src/server/http/middleware/auth.ts` (SYM-42; LAN-auth made fully optional in SYM-44) — the ONLY
+  credential-checking surface: a pure factory `authMiddleware(token?)` (no-op when token unset; else
+  Bearer / Basic(any-user:token) / `?token=` with `crypto.timingSafeEqual`, `GET /api/health` exempt,
+  `401` + `WWW-Authenticate: Basic` otherwise) plus a pure `isLoopbackHost(host?)`. Kept FREE of
+  `env.ts`/DB imports so the QA test builds it with a literal token. `index.ts` mounts it
+  `app.use('*', authMiddleware(AUTH_TOKEN))` BEFORE `/api` + static so it gates API + prod SPA in one
+  place, and passes `hostname: HOST` to `serve()`. Auth is **opt-in only** — SYM-44 removed the forced
+  startup guard (and `SYMPHONY_ALLOW_INSECURE_LAN`): `HOST` still defaults to `localhost` (env.ts) so an
+  install never self-exposes on upgrade, but a non-loopback bind without a token now just emits ONE
+  non-blocking `log.warn` (informed consent — the bypassPermissions pipeline runs on the SERVER host,
+  reachable unauthenticated) and starts. The token is **env-only by design** (`SYMPHONY_AUTH_TOKEN` in
+  `env.ts`) — it must NOT enter the `settings` table / `core/config.ts`, or `GET /api/ops/settings` would
+  leak it. Vite dev host is `SYMPHONY_WEB_HOST` (default localhost). LAN access, the optional token, the
+  "where agents run" finding (CLI is spawned by the backend process, never the LAN client), and the
   security premise live in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 - `src/server/usage/localUsage.ts` + `http/routes/usage.ts` (SYM-38, SYM-39, SYM-40) — reader for the
   sidebar footer. SYM-39 repurposed it from spent token usage to **remaining** rate-limit quota. It
