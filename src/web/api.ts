@@ -18,6 +18,10 @@ import type {
   OpsHistoryRow,
   Project,
   ProjectSkill,
+  ReviewFinding,
+  ReviewRun,
+  ReviewRunWithFindings,
+  ReviewScope,
   Run,
   Snapshot,
   ThinkingEffort,
@@ -222,6 +226,30 @@ export const api = {
     askHistory: (id: string) => req<AskHistory>(`/api/projects/${id}/ask/history`),
     askReset: (id: string) =>
       req<{ ok: boolean }>(`/api/projects/${id}/ask/history`, { method: 'DELETE' }),
+    // SYM-51: standalone, read-only project review. startReview returns the `running` batch (202);
+    // reviews lists batches+findings; convert/dismiss/delete operate on a finding or whole batch.
+    reviews: (id: string) => req<ReviewRunWithFindings[]>(`/api/projects/${id}/reviews`),
+    startReview: (id: string, data: { scope: ReviewScope; agent?: AgentType }) =>
+      req<ReviewRun>(`/api/projects/${id}/reviews`, { method: 'POST', ...body(data) }),
+    convertFinding: (id: string, findingId: string, data: { status: 'todo' | 'backlog' }) =>
+      req<{ issue: Issue; finding: ReviewFinding }>(
+        `/api/projects/${id}/reviews/findings/${findingId}/convert`,
+        { method: 'POST', ...body(data) },
+      ),
+    dismissFinding: (id: string, findingId: string) =>
+      req<ReviewFinding>(`/api/projects/${id}/reviews/findings/${findingId}`, {
+        method: 'PATCH',
+        ...body({ status: 'dismissed' }),
+      }),
+    // Reverse a dismiss (draft again). The convert endpoint owns 'converted', so this only toggles
+    // draft↔dismissed — keeping the dismiss action reversible.
+    restoreFinding: (id: string, findingId: string) =>
+      req<ReviewFinding>(`/api/projects/${id}/reviews/findings/${findingId}`, {
+        method: 'PATCH',
+        ...body({ status: 'draft' }),
+      }),
+    deleteReview: (id: string, runId: string) =>
+      req<void>(`/api/projects/${id}/reviews/${runId}`, { method: 'DELETE' }),
     skills: {
       list: (projectId: string) => req<ProjectSkill[]>(`/api/projects/${projectId}/skills`),
       create: (projectId: string, data: Partial<ProjectSkill>) =>

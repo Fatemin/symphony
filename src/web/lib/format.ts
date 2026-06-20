@@ -1,4 +1,12 @@
-import type { IssueStatus, Priority, RunPhase } from '../../shared/types';
+import type {
+  IssueStatus,
+  Priority,
+  ReviewCategory,
+  ReviewScope,
+  ReviewSeverity,
+  ReviewStatus,
+  RunPhase,
+} from '../../shared/types';
 
 export const STATUS_ORDER: IssueStatus[] = [
   'backlog',
@@ -83,3 +91,45 @@ export function formatPercent(n: number): string {
   if (!Number.isFinite(n)) return '0%';
   return `${Math.round(Math.max(0, Math.min(100, n)))}%`;
 }
+
+// ── Project review (SYM-51) ────────────────────────────────────────────────
+
+/** Render order / grade ranking of a finding's severity (most important first). */
+export const REVIEW_SEVERITY_ORDER: ReviewSeverity[] = ['critical', 'high', 'medium', 'low'];
+
+/**
+ * Severity styling for a finding card: a label, a chip class (matches PHASE_META's chip shape), and a
+ * dot color. `rank` drives the within-batch ordering so the most urgent findings surface first.
+ */
+export const REVIEW_SEVERITY_META: Record<
+  ReviewSeverity,
+  { label: string; badge: string; dot: string; rank: number }
+> = {
+  critical: { label: 'Critical', badge: 'bg-red-500/15 text-red-300', dot: 'bg-red-500', rank: 0 },
+  high: { label: 'High', badge: 'bg-orange-500/15 text-orange-300', dot: 'bg-orange-400', rank: 1 },
+  medium: { label: 'Medium', badge: 'bg-amber-400/15 text-amber-300', dot: 'bg-amber-400', rank: 2 },
+  low: { label: 'Low', badge: 'bg-slate-500/20 text-slate-300', dot: 'bg-slate-500', rank: 3 },
+};
+
+/** Scope picker + batch-header labels. `all` runs all three areas and tags each finding. */
+export const REVIEW_SCOPE_META: Record<ReviewScope, { label: string; hint: string }> = {
+  docs: { label: 'Docs', hint: 'Accuracy, completeness, and drift vs the code' },
+  code: { label: 'Code', hint: 'Correctness, architecture, security, performance, tests' },
+  ui_ux: { label: 'UI / UX', hint: 'Accessibility, every state, responsiveness, design consistency' },
+  all: { label: 'Full review', hint: 'Docs + code + UI/UX in one pass, each finding tagged' },
+};
+
+/** A finding's category chip (the scope set minus `all`); shown on full-review cards to tag the area. */
+export const REVIEW_CATEGORY_META: Record<ReviewCategory, { label: string; badge: string }> = {
+  docs: { label: 'Docs', badge: 'bg-sky-500/15 text-sky-300' },
+  code: { label: 'Code', badge: 'bg-violet-500/15 text-violet-300' },
+  ui_ux: { label: 'UI / UX', badge: 'bg-teal-500/15 text-teal-300' },
+};
+
+/** Batch lifecycle styling for the run header (dot + label). */
+export const REVIEW_STATUS_META: Record<ReviewStatus, { label: string; color: string; dot: string }> =
+  {
+    running: { label: 'Running', color: 'text-amber-300', dot: 'bg-amber-400' },
+    completed: { label: 'Completed', color: 'text-emerald-400', dot: 'bg-emerald-500' },
+    failed: { label: 'Failed', color: 'text-red-400', dot: 'bg-red-500' },
+  };

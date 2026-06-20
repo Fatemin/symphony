@@ -1,15 +1,20 @@
-import type {
-  AskMessage,
-  AskSuggestion,
-  Issue,
-  IssuePlanContext,
-  IssueTask,
-  PlanKeyFile,
-  Project,
-  ProjectNote,
-  ProjectSkill,
-  RunPhase,
-  StoryReferenceContext,
+import {
+  REVIEW_CATEGORIES,
+  REVIEW_SEVERITIES,
+  type AskMessage,
+  type AskSuggestion,
+  type Issue,
+  type IssuePlanContext,
+  type IssueTask,
+  type PlanKeyFile,
+  type Project,
+  type ProjectNote,
+  type ProjectSkill,
+  type ReviewCategory,
+  type ReviewScope,
+  type ReviewSeverity,
+  type RunPhase,
+  type StoryReferenceContext,
 } from '../../shared/types';
 import type { ThinkingEffort } from './config';
 import type { NewTask } from '../repo/tasks';
@@ -656,6 +661,168 @@ export function parseAsk(text: string): ParsedAsk {
     }
   }
   return { answer, suggestion };
+}
+
+// ── project review (SYM-51) ───────────────────────────────────────────────────
+
+const REVIEW_FENCE = 'symphony-review';
+/** Hard cap on findings parsed from one review, so a runaway reply can't flood the board. */
+const MAX_REVIEW_FINDINGS = 30;
+
+/** Per-scope guidance: what each kind of review should actually examine and grade. */
+const REVIEW_SCOPE_GUIDANCE: Record<Exclude<ReviewScope, 'all'>, string[]> = {
+  docs: [
+    `Review the **documentation** (README, docs/*, and any inline docs that describe behavior):`,
+    `- Accuracy — does each doc match how the code actually behaves today? Flag drift.`,
+    `- Completeness — are setup, commands, configuration, env vars, and workflows covered and current?`,
+    `- Clarity & structure — is it understandable by a newcomer, with no dead links or stale examples?`,
+  ],
+  code: [
+    `Review the **code** (the implementation, not the prose):`,
+    `- Correctness risks & likely bugs — edge cases, error handling, race conditions, data integrity.`,
+    `- Architecture & maintainability — boundary violations, duplication, tech debt, dead code.`,
+    `- Security — input validation, authz, injection, path traversal, secret handling.`,
+    `- Performance — obvious hotspots, N+1 queries, unbounded work.`,
+    `- Tests — meaningful coverage of the risky paths; gaps worth filling.`,
+  ],
+  ui_ux: [
+    `Review the **UI / UX** (read the web client under \`src/web\`):`,
+    `- Accessibility — semantics, labels, focus management, keyboard operability, contrast.`,
+    `- Every state — loading, empty, error, success, and disabled states are all designed, not just the happy path.`,
+    `- Responsiveness — layout holds up across viewport sizes.`,
+    `- Design-system consistency — components, spacing, and color usage match the rest of the product.`,
+    `- Interaction quality — clear microcopy, sensible defaults, and forgiving, discoverable flows.`,
+  ],
+};
+
+/**
+ * Prompt for the project "review" feature (SYM-51): a read-only agent that audits a scope of the
+ * repository (docs / code / ui_ux / all) and reports graded findings the user can convert into
+ * issues. Structurally a sibling of buildAskPrompt — live repo, no worktree, no edits — but it ends
+ * by emitting a single `symphony-review` JSON fence instead of a conversational answer.
+ */
+export function buildReviewPrompt(project: Project, scope: ReviewScope): string {
+  const lines: string[] = [
+    `# Review — ${project.name} (${project.key})`,
+    ``,
+    `You are a senior engineer performing a thorough, professional review of this project. Read the`,
+    `relevant parts of the repository so every finding reflects how the code and docs actually are`,
+    `today — do not guess. This is READ-ONLY: do not modify, create, or delete any files, and do not`,
+    `commit. You are unattended — never use interactive tools.`,
+  ];
+  if (project.context?.trim()) {
+    lines.push(``, `## Project context`, project.context.trim());
+  }
+  lines.push(``, `## What to review`);
+  if (scope === 'all') {
+    lines.push(
+      `Do a FULL review covering all three areas below, and tag each finding with its \`category\`` +
+        ` (\`docs\`, \`code\`, or \`ui_ux\`):`,
+    );
+    for (const area of ['docs', 'code', 'ui_ux'] as const) {
+      lines.push(``, ...REVIEW_SCOPE_GUIDANCE[area]);
+    }
+  } else {
+    lines.push(...REVIEW_SCOPE_GUIDANCE[scope]);
+  }
+  lines.push(
+    ``,
+    `---`,
+    ``,
+    `Focus on findings that are worth acting on — concrete, specific, and grounded in real files`,
+    `(reference \`path/to/file.ts\` where relevant). Skip nitpicks and praise. Grade each finding's`,
+    `\`severity\`: \`critical\` (must fix — broken/unsafe), \`high\` (important), \`medium\` (worthwhile),`,
+    `\`low\` (minor/polish). Each finding becomes a draft issue card the user can convert, so write the`,
+    `\`title\`, \`description\`, and \`acceptance_criteria\` as you would a real feature/bug ticket.`,
+    ``,
+    `End your response with EXACTLY ONE fenced code block tagged \`${REVIEW_FENCE}\` containing JSON:`,
+    ``,
+    '```' + REVIEW_FENCE,
+    `{`,
+    `  "summary": "one short paragraph: overall health and the themes you found",`,
+    `  "findings": [`,
+    `    {`,
+    `      "category": "code",`,
+    `      "type": "bug",`,
+    `      "severity": "high",`,
+    `      "title": "short imperative issue title",`,
+    `      "description": "what is wrong/missing and why it matters, with file references",`,
+    `      "acceptance_criteria": "- a checkable outcome\\n- another"`,
+    `    }`,
+    `  ]`,
+    `}`,
+    '```',
+    ``,
+    `\`category\` is "docs", "code", or "ui_ux". \`type\` is "feature" or "bug". Return an empty`,
+    `\`findings\` array if the reviewed scope is genuinely in good shape — do not invent problems.`,
+  );
+  return lines.join('\n');
+}
+
+/** One graded finding parsed from a review reply, validated and bounded for safe persistence. */
+export interface ParsedReviewFinding {
+  category: ReviewCategory;
+  type: 'feature' | 'bug';
+  severity: ReviewSeverity;
+  title: string;
+  description: string;
+  acceptance_criteria: string;
+}
+
+export interface ParsedReview {
+  summary: string;
+  findings: ParsedReviewFinding[];
+}
+
+/**
+ * Parse the review fence into a summary + graded findings. A missing/malformed fence is NON-FATAL:
+ * the run still completes with `findings: []` and the raw text as the summary, so a flaky reply
+ * degrades gracefully instead of failing the whole batch (mirrors parseAsk's tolerance).
+ */
+export function parseReview(text: string): ParsedReview {
+  const raw = text ?? '';
+  const json = extractFenced(raw, REVIEW_FENCE) ?? extractFirstObject(raw);
+  // When the JSON has no usable summary, fall back to the prose (fence stripped) so the run still
+  // carries something readable.
+  const fallbackSummary = (stripFenced(raw, REVIEW_FENCE).trim() || raw.trim()).slice(0, 4_000);
+  if (!json) return { summary: fallbackSummary, findings: [] };
+  try {
+    const obj = JSON.parse(json) as { summary?: unknown; findings?: unknown };
+    const summary =
+      typeof obj.summary === 'string' && obj.summary.trim()
+        ? obj.summary.trim().slice(0, 4_000)
+        : fallbackSummary;
+    const findings = Array.isArray(obj.findings)
+      ? obj.findings
+          .filter((f): f is Record<string, unknown> => !!f && typeof f === 'object')
+          .map(normalizeReviewFinding)
+          .filter((f): f is ParsedReviewFinding => f !== null)
+          .slice(0, MAX_REVIEW_FINDINGS)
+      : [];
+    return { summary, findings };
+  } catch {
+    return { summary: fallbackSummary, findings: [] };
+  }
+}
+
+/** Whitelist + bound one raw finding; a finding with no title is unusable and dropped. */
+function normalizeReviewFinding(f: Record<string, unknown>): ParsedReviewFinding | null {
+  const title = String(f.title ?? '').trim();
+  if (!title) return null;
+  const category = String(f.category ?? '').toLowerCase();
+  const severity = String(f.severity ?? '').toLowerCase();
+  return {
+    category: (REVIEW_CATEGORIES as string[]).includes(category)
+      ? (category as ReviewCategory)
+      : 'code',
+    type: f.type === 'bug' ? 'bug' : 'feature',
+    severity: (REVIEW_SEVERITIES as string[]).includes(severity)
+      ? (severity as ReviewSeverity)
+      : 'medium',
+    title: title.slice(0, 200),
+    description: String(f.description ?? '').trim().slice(0, 4_000),
+    acceptance_criteria: String(f.acceptance_criteria ?? '').trim().slice(0, 4_000),
+  };
 }
 
 // ── merge-conflict resolution ────────────────────────────────────────────────

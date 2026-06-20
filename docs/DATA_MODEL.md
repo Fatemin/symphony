@@ -38,7 +38,7 @@ call in `migrate.ts` (for existing DBs). To add a table: add a new `CREATE TABLE
 
 ## Tables
 
-Symphony's schema has **12 tables** (count the `CREATE TABLE IF NOT EXISTS` statements in
+Symphony's schema has **15 tables** (count the `CREATE TABLE IF NOT EXISTS` statements in
 `db/schema.ts`). Relationship overview:
 
 ```
@@ -50,7 +50,9 @@ projects ─┬─< issues ─┬─< issue_tasks
           ├─< issue_relations >─ issues   (source/target, typed edges)
           ├─< project_notes
           ├─< project_skills
-          └─< ask_messages
+          ├─< ask_messages
+          ├─< attachments        (also issue- / ask-scoped)
+          └─< review_runs ──< review_findings ──? issues   (a converted finding links its issue)
 settings  (global key/value; not project-scoped)
 ```
 
@@ -301,6 +303,57 @@ queries — there is no scheduler.
 | `created_at` | TEXT | |
 
 Indexed `(project_id, convo_date, id)`. Mapped to `AskMessage` / `AskHistory`. Repo: `repo/ask.ts`.
+
+### 13. `review_runs`
+
+One **review batch** (SYM-51) — a standalone, read-only agent audit of a project scope. Modeled on
+Ask (live repo, `plan` mode, `disableWorkflows`), NOT the orchestrator pipeline, and run
+asynchronously: the POST returns the `running` row immediately and the agent finishes in the
+background. One in-flight run per project is enforced by `countRunningReviews`; a server restart
+fails any orphaned `running` rows at boot (`failInterruptedReviewRuns`).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | TEXT PK | |
+| `project_id` | TEXT FK→projects | `ON DELETE CASCADE` |
+| `scope` | TEXT | `ReviewScope`: `docs` \| `code` \| `ui_ux` \| `all` |
+| `status` | TEXT | `ReviewStatus`: `running` \| `completed` \| `failed` (default `running`) |
+| `agent` | TEXT | concrete agent resolved at start (`claude` \| `codex`); null if unset |
+| `summary` | TEXT | the agent's overview; null until completed |
+| `error` | TEXT | failure reason when `status='failed'` |
+| `created_at` | TEXT | |
+| `completed_at` | TEXT | set when the run leaves `running` |
+
+Indexed `(project_id, created_at)` and `(status)`. Mapped to `ReviewRun` /
+`ReviewRunWithFindings`. Repo: `repo/reviews.ts`.
+
+### 14. `review_findings`
+
+The graded **draft "issue cards"** within a review batch (SYM-51). Each is a candidate feature/bug
+the user can convert into a real issue or dismiss. Severity drives both the ordering within a batch
+and the priority of a converted issue (`critical→1 … low→4`).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | TEXT PK | |
+| `review_run_id` | TEXT FK→review_runs | `ON DELETE CASCADE` |
+| `project_id` | TEXT FK→projects | `ON DELETE CASCADE` |
+| `seq` | INTEGER | per-run running number, for stable ordering (report order) |
+| `category` | TEXT | `ReviewCategory`: `docs` \| `code` \| `ui_ux` (default `code`) |
+| `type` | TEXT | `feature` \| `bug` — what a converted issue becomes (default `feature`) |
+| `title` | TEXT | |
+| `description` | TEXT | |
+| `acceptance_criteria` | TEXT | |
+| `severity` | TEXT | `ReviewSeverity`: `critical` \| `high` \| `medium` \| `low` (default `medium`) |
+| `status` | TEXT | `ReviewFindingStatus`: `draft` \| `converted` \| `dismissed` (default `draft`) |
+| `issue_id` | TEXT FK→issues | set on convert; `ON DELETE SET NULL` (card keeps living if the issue is deleted) |
+| `created_at` / `updated_at` | TEXT | |
+
+**Finding lifecycle:** `draft` ──convert──▶ `converted` (creates + links an issue; idempotent —
+a second convert is a 409) and `draft` ⇄ `dismissed` (reversible). `converted` is terminal — its
+status can't be changed once an issue is linked. Indexed `(review_run_id)`, `(project_id)`,
+`(status)`. Reads `LEFT JOIN issues` to surface the converted issue's `key`. Mapped to
+`ReviewFinding`. Repo: `repo/reviews.ts`.
 
 ## Status state machine
 

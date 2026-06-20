@@ -13,8 +13,9 @@ JSON; responses are JSON unless noted (SSE for the stream route).
 
 ## Conventions
 
-- **Mount points** (`index.ts`): `/api/projects` (project CRUD **and** the `ask` sub-routes),
-  `/api/issues`, `/api/ops`, `/api/usage`, `/api/stream`, `/api/fs`, plus `GET /api/health`.
+- **Mount points** (`index.ts`): `/api/projects` (project CRUD **and** the `ask` + `reviews`
+  sub-routes), `/api/issues`, `/api/attachments`, `/api/ops`, `/api/usage`, `/api/stream`, `/api/fs`,
+  plus `GET /api/health`.
 - **Errors** are `{ "error": "<message>" }` with a 4xx/5xx status; review-gate actions return
   `{ "ok": false, "reason": "<message>" }`.
 - **Status codes** used deliberately: `201` create, `202` accepted/dispatched, `204` no content,
@@ -85,6 +86,23 @@ reseeds it.
 | `POST` | `/api/projects/:id/ask` | Ask a question. Body: `{ question, history?, agent?, attachment_ids? }`. → `{ answer, session_id, suggestion }`. No `repo_path` → `400`; agent failure → `502`. Persists **both** the user and assistant turns under today's conversation **on completion** (no up-front user turn, so a failed run leaves nothing dangling); survives a client disconnect/panel close (SYM-48). |
 | `GET` | `/api/projects/:id/ask/history` | Today's persisted conversation (`{ date, messages }`) to reseed the panel. The panel refetches this on every open (`refetchOnMount: 'always'`) and seeds only from that fresh result, so a reply persisted while it was closed is restored rather than dropped (SYM-48); it also polls while open so a reply that lands after a mid-run reopen appears without re-toggling. |
 | `DELETE` | `/api/projects/:id/ask/history` | Reset today's conversation ("new conversation"). → `{ ok: true }` |
+
+### Review — standalone project review (`http/routes/reviews.ts`, mounted under `/api/projects`, SYM-51)
+
+Read-only agent **audit** of a project scope (`docs` / `code` / `ui_ux` / `all`) against the **real
+repo** (not a worktree, `plan` mode, `disableWorkflows`). Modeled on Ask but **asynchronous**: the
+POST starts a background run and returns `202` immediately; the agent finishes regardless of the
+client (no `AbortSignal`). One in-flight run per project; the agent's graded findings are persisted as
+draft **issue cards** the user converts into real issues (`createIssue`, severity→priority) or
+dismisses. A restart fails any orphaned `running` run at boot.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/projects/:id/reviews` | Start a review. Body: `{ scope, agent? }`. → the `running` `ReviewRun`, **`202`**. Invalid scope → `400`; no `repo_path` → `400`; a review already running → `409`; missing project → `404`. |
+| `GET` | `/api/projects/:id/reviews` | Recent batches (newest first) with their findings — `ReviewRunWithFindings[]`. The Review tab polls this while a batch is `running`. |
+| `POST` | `/api/projects/:id/reviews/findings/:findingId/convert` | Convert a draft finding into an issue. Body: `{ status: 'todo' \| 'backlog' }`. → `{ issue, finding }`, **`201`**. Type/priority/status mapped from the finding; idempotent — a re-convert is `409`. |
+| `PATCH` | `/api/projects/:id/reviews/findings/:findingId` | Set a finding's status. Body: `{ status: 'draft' \| 'dismissed' }` (dismiss / restore). A `converted` finding can't change → `409`. |
+| `DELETE` | `/api/projects/:id/reviews/:runId` | Delete a batch (cascades its findings; converted issues are untouched). → `204`. |
 
 ---
 
