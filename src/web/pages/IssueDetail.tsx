@@ -233,6 +233,7 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             value={issue.mode}
             onChange={(e) => update.mutate({ mode: e.target.value as Detail['mode'] })}
             className="w-auto"
+            aria-label="Dispatch mode"
             title="auto = orchestrator auto-dispatches"
           >
             <option value="manual">manual</option>
@@ -243,6 +244,7 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             value={issue.thinking_effort ?? ''}
             onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
             className="w-auto"
+            aria-label="Thinking effort"
             title="Extended-thinking budget for this issue (inherit = project/engine default)"
           >
             <option value="">inherit</option>
@@ -274,7 +276,7 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             </Button>
           ) : null}
           {issue.status !== 'cancelled' && issue.status !== 'done' && (
-            <Button variant="ghost" title="Cancel" onClick={() => update.mutate({ status: 'cancelled' })}>
+            <Button variant="ghost" aria-label="Cancel issue" title="Cancel" onClick={() => update.mutate({ status: 'cancelled' })}>
               <CircleSlash className="h-4 w-4" />
             </Button>
           )}
