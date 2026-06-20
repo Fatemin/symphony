@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Bot, Plus, Save, Trash2 } from 'lucide-react';
+import { Bot, Plus, Save, Trash2 } from 'lucide-react';
 import type { AgentType, Project } from '../../shared/types';
 import { AGENT_OPTIONS, AVAILABLE_MODELS } from '../../shared/models';
 import {
@@ -14,7 +14,7 @@ import {
   type VerificationCommandConfig,
 } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
+import { Button, Field, Input, Loading, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
 
 const PHASES: ProjectRunPhase[] = ['plan', 'implement', 'qa'];
 
@@ -87,7 +87,7 @@ export function ProjectAgent() {
     onError: (e) => toast.error(String(e)),
   });
 
-  if (!project || !form) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!project || !form) return <Loading />;
 
   const setConfig = (updater: (config: ProjectWorkflowConfig) => ProjectWorkflowConfig) => {
     setForm((current) => (current ? { ...current, config: updater(current.config) } : current));
@@ -96,20 +96,16 @@ export function ProjectAgent() {
 
   return (
     <div className="flex h-full flex-col p-6">
-      <header className="mb-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-muted hover:text-fg">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <span className="grid h-7 w-7 place-items-center rounded text-xs font-bold" style={{ background: project.color + '33', color: project.color }}>
-            {project.key}
-          </span>
-          <h1 className="text-lg font-semibold">{project.name}</h1>
-        </div>
-        <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>
-          <Save className="h-4 w-4" /> Save
-        </Button>
-      </header>
+      <PageHeader
+        back={{ to: '/' }}
+        icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
+        title={project.name}
+        actions={
+          <Button variant="primary" disabled={save.isPending} loading={save.isPending} onClick={() => save.mutate()}>
+            <Save className="h-4 w-4" /> Save
+          </Button>
+        }
+      />
 
       <ProjectTabs projectId={project.id} />
 

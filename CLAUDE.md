@@ -128,7 +128,19 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   + writes a fixture `.credentials.json`. It still WRITES nothing, so no new runtime path / `.gitignore`
   rule is needed.
 - `src/web/` — React 19 + Vite + Tailwind v4 + TanStack Query. `src/shared/types.ts` holds domain
-  types shared by both sides. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
+  types shared by both sides. The visual layer is a hand-rolled design system (SYM-59): semantic
+  tokens + a global `@layer base` `:focus-visible` ring + native-`<dialog>` base in `globals.css`
+  (new `@theme` tokens `--color-accent-hover` / `--color-ring` / `--color-success` / `--color-warning`
+  / `--color-danger` / `--color-info`, plus themed `--elev-1/2/3` elevation vars — all existing token
+  names preserved), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
+  `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
+  `Select` (focus ring + `aria-invalid`), `Spinner`, plus `Modal` + `useModalDialog` (native `<dialog>`:
+  focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the `AskPanel` drawer, the
+  `PathField` picker, and IssueDetail's request-changes dialog all build on it), `PageHeader`,
+  `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
+  responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
+  spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live
+  in [`docs/DESIGN.md`](docs/DESIGN.md). Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
   Review / Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
   `issue_relations` into a forest via the pure `lib/storyTree.ts#buildStoryTrees` (follow_up edges
   nest, relates_to surface as cross-links), backed by read-only `GET /api/projects/:id/relations`.

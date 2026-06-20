@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Download, Github, Package, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { Download, Github, Package, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
 import type { ProjectSkill } from '../../shared/types';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, Field, Input, Panel, Textarea } from '../components/ui';
+import { Badge, Button, EmptyState, Field, Input, Loading, PageHeader, Panel, ProjectChip, Textarea } from '../components/ui';
 
 interface SkillForm {
   name: string;
@@ -99,24 +99,20 @@ export function ProjectSkills() {
     onError: (e) => toast.error(String(e)),
   });
 
-  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!project) return <Loading />;
 
   return (
     <div className="flex h-full flex-col p-6">
-      <header className="mb-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-muted hover:text-fg">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <span className="grid h-7 w-7 place-items-center rounded text-xs font-bold" style={{ background: project.color + '33', color: project.color }}>
-            {project.key}
-          </span>
-          <h1 className="text-lg font-semibold">{project.name}</h1>
-        </div>
-        <Button variant="primary" onClick={() => setCreating((v) => !v)}>
-          <Plus className="h-4 w-4" /> New skill
-        </Button>
-      </header>
+      <PageHeader
+        back={{ to: '/' }}
+        icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
+        title={project.name}
+        actions={
+          <Button variant="primary" onClick={() => setCreating((v) => !v)}>
+            <Plus className="h-4 w-4" /> New skill
+          </Button>
+        }
+      />
 
       <ProjectTabs projectId={project.id} />
 
@@ -208,7 +204,7 @@ export function ProjectSkills() {
         )}
 
         {isLoading ? (
-          <p className="text-sm text-muted">Loading…</p>
+          <Loading />
         ) : skills && skills.length > 0 ? (
           <div className="space-y-3">
             {skills.map((skill) =>
@@ -260,10 +256,11 @@ export function ProjectSkills() {
             )}
           </div>
         ) : (
-          <Panel className="p-8 text-center text-sm text-muted">
-            <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted" />
-            No skills yet. Import one from GitHub or create your own — enabled skills are loaded into every agent run.
-          </Panel>
+          <EmptyState
+            icon={<Sparkles />}
+            title="No skills yet"
+            description="Import one from GitHub or create your own — enabled skills are loaded into every agent run."
+          />
         )}
       </div>
     </div>

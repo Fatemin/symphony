@@ -26,6 +26,7 @@ This README is the user-facing "how it works" guide. For the deep reference laye
 - [docs/API.md](docs/API.md) — the HTTP + SSE endpoint reference.
 - [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) — the contract for agents/contributors: phases, load-bearing role titles, prompt assembly, policy, and how to extend.
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — LAN access (no auth required), the optional shared-token gate, where agents actually run, and the `bypassPermissions` exposure premise.
+- [docs/DESIGN.md](docs/DESIGN.md) — the web UI design system: tokens, shared primitives, UI states, and the accessibility + responsive rules.
 
 ---
 

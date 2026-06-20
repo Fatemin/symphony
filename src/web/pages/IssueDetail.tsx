@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Sparkles, Square, X, XCircle } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Sparkles, Square, XCircle } from 'lucide-react';
 import type { Attachment, Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
 import { api, streamIssue, THINKING_EFFORT_OPTIONS, type ApproveOptions, type IssueDetail as Detail, type ThinkingEffort } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { Markdown } from '../components/Markdown';
-import { Badge, Button, Field, Input, Panel, Select, Spinner, Textarea } from '../components/ui';
+import { Badge, Button, ErrorState, Field, Input, Loading, Modal, Panel, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 
 type LiveEvent = Event & { cursor: number };
@@ -16,7 +16,7 @@ type LiveEvent = Event & { cursor: number };
 export function IssueDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const { data: issue } = useQuery({
+  const { data: issue, isError, error, refetch } = useQuery({
     queryKey: ['issue', id],
     queryFn: () => api.issues.get(id!),
     refetchInterval: (q) => (isRunning(q.state.data?.status) ? 2000 : false),
@@ -31,7 +31,17 @@ export function IssueDetail() {
     refetchInterval: issue && isRunning(issue.status) ? 2000 : false,
   });
 
-  if (!issue) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (isError)
+    return (
+      <div className="mx-auto max-w-6xl p-6">
+        <ErrorState
+          title="Couldn't load this issue"
+          description={error instanceof Error ? error.message : 'It may have been deleted, or the server is unreachable.'}
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  if (!issue) return <Loading />;
 
   const runningNow = snap ? snap.running.some((r) => r.issue_id === issue.id) : isRunning(issue.status);
   const retry = snap?.retrying.find((r) => r.issue_id === issue.id) ?? null;
@@ -41,8 +51,8 @@ export function IssueDetail() {
   const parked = isRunning(issue.status) && !runningNow;
 
   return (
-    <div className="mx-auto grid max-w-6xl grid-cols-3 gap-6 p-6">
-      <div className="col-span-2 space-y-5">
+    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 p-6 lg:grid-cols-3">
+      <div className="space-y-5 lg:col-span-2">
         <Header issue={issue} runningNow={runningNow} onChange={() => qc.invalidateQueries({ queryKey: ['issue', id] })} />
         {(retry || (suspended && parked)) && <QueueStatusBanner retry={retry} suspended={suspended} />}
         {issue.merge_conflict && <ConflictBanner issue={issue} />}
@@ -52,7 +62,9 @@ export function IssueDetail() {
         <Tasks issue={issue} />
         <Runs issue={issue} />
       </div>
-      <div className="col-span-1 sticky top-6 flex h-[calc(100vh-3rem)] flex-col gap-5">
+      {/* On lg+ the chain/activity column sticks beside the body; on narrow it stacks below at a
+          fixed height so the activity feed stays usable instead of collapsing under flex-1. */}
+      <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)]">
         <RelationsPanel issue={issue} />
         <Activity issueId={issue.id} initial={issue.events} />
       </div>
@@ -455,40 +467,40 @@ function RequestChangesDialog({
   const [feedback, setFeedback] = useState('');
   const trimmed = feedback.trim();
   const nextRound = issue.round + 1;
+  const close = () => {
+    if (!pending) onCancel();
+  };
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-panel p-4 shadow-2xl">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MessageSquarePlus className="h-4 w-4 text-indigo-300" />
-            <h2 className="text-sm font-semibold">Request changes · round {nextRound}</h2>
-          </div>
-          <Button variant="ghost" className="px-2" onClick={onCancel} disabled={pending}>
-            <X className="h-4 w-4" />
+    <Modal
+      onClose={close}
+      icon={<MessageSquarePlus className="h-4 w-4 text-indigo-300" />}
+      title={`Request changes · round ${nextRound}`}
+      footer={
+        <>
+          <Button onClick={close} disabled={pending}>
+            Cancel
           </Button>
-        </div>
-        <p className="mb-3 text-xs text-muted">
-          Not happy with this round? Describe what to fix. The agent re-plans, re-implements, and
-          re-QAs on the <span className="font-mono">{issue.branch_name}</span> branch — building on
-          what's already there, with your feedback as the top priority.
-        </p>
-        <Field label="What needs to change?">
-          <Textarea
-            rows={5}
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            placeholder="e.g. Close the dialog on Escape, and tighten the empty-state copy."
-            autoFocus
-          />
-        </Field>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button onClick={onCancel} disabled={pending}>Cancel</Button>
           <Button variant="primary" disabled={!trimmed || pending} onClick={() => onConfirm(trimmed)}>
             {pending ? <Spinner /> : <RotateCcw className="h-4 w-4" />} Start round {nextRound}
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="mb-3 text-xs text-muted">
+        Not happy with this round? Describe what to fix. The agent re-plans, re-implements, and
+        re-QAs on the <span className="font-mono">{issue.branch_name}</span> branch — building on
+        what's already there, with your feedback as the top priority.
+      </p>
+      <Field label="What needs to change?">
+        <Textarea
+          rows={5}
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          placeholder="e.g. Close the dialog on Escape, and tighten the empty-state copy."
+          autoFocus
+        />
+      </Field>
+    </Modal>
   );
 }
 
@@ -862,7 +874,7 @@ function Activity({ issueId, initial }: { issueId: string; initial: LiveEvent[] 
   }, [events]);
 
   return (
-    <Panel className="flex min-h-0 flex-1 flex-col p-0">
+    <Panel className="flex min-h-0 flex-1 flex-col p-0 max-lg:h-[420px]">
       <div className="border-b border-border px-4 py-2.5 text-xs font-medium text-muted">Activity</div>
       <div ref={scroller} className="flex-1 space-y-2 overflow-y-auto p-4">
         {events.length === 0 && <p className="text-xs text-subtle">No activity yet.</p>}

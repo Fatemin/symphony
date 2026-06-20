@@ -9,14 +9,17 @@ import {
   Columns3,
   FolderKanban,
   Layers3,
+  Menu,
   Moon,
   Music4,
   Settings as SettingsIcon,
   Sun,
+  X,
 } from 'lucide-react';
 import { api } from '../api';
 import { STATUS_META } from '../lib/format';
 import { SidebarUsage } from './SidebarUsage';
+import { cn } from './ui';
 import { useTheme } from '../theme';
 
 const links = [
@@ -48,6 +51,22 @@ export function Layout() {
   }, [issues]);
   const currentProjectId = useMemo(() => location.pathname.match(/^\/projects\/([^/]+)/)?.[1], [location.pathname]);
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded());
+  // SYM-59: below `lg` the sidebar is an off-canvas drawer. Closes on navigation (route change) and on
+  // Escape; a backdrop covers the page while it's open. On `lg+` it's a persistent static rail.
+  const [navOpen, setNavOpen] = useState(false);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
 
   useEffect(() => {
     if (!currentProjectId) return;
@@ -73,7 +92,27 @@ export function Layout() {
 
   return (
     <div className="flex h-full bg-bg">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-bg-2 px-2 py-3">
+      <a
+        href="#main-content"
+        className="sr-only z-50 rounded-md bg-panel px-3 py-2 text-sm font-medium text-fg shadow-[var(--elev-2)] focus:not-sr-only focus:absolute focus:left-3 focus:top-3"
+      >
+        Skip to content
+      </a>
+      {/* Mobile drawer backdrop (lg: persistent rail, no backdrop). */}
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          aria-hidden
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+      <aside
+        aria-label="Primary"
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-border bg-bg-2 px-2 py-3 transition-transform duration-200 motion-reduce:transition-none lg:static lg:z-auto lg:translate-x-0 lg:!visible',
+          navOpen ? 'translate-x-0 visible shadow-[var(--elev-3)]' : '-translate-x-full invisible',
+        )}
+      >
         <div className="mb-3 flex items-center gap-1">
           <Link to="/" className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-fg hover:bg-hover">
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-panel">
@@ -90,9 +129,17 @@ export function Layout() {
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
+          <button
+            type="button"
+            onClick={() => setNavOpen(false)}
+            aria-label="Close navigation"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg lg:hidden"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <nav className="space-y-0.5">
+        <nav aria-label="Main" className="space-y-0.5">
           {links.map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} className={navClass}>
               <Icon className="h-4 w-4" />
@@ -176,14 +223,42 @@ export function Layout() {
           <SidebarUsage />
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">
-        {/* SYM-31: keyed by pathname so the entrance animation re-runs on each navigation. The
-            wrapper stays inside <main> (the scroll container must not remount) and carries h-full so
-            full-height pages (flex h-full flex-col) still get a definite-height parent. */}
-        <div key={location.pathname} className="anim-page-in h-full">
-          <Outlet />
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile-only top bar: the menu trigger for the off-canvas sidebar (hidden on lg+). */}
+        <div className="flex items-center gap-2 border-b border-border bg-bg-2 px-3 py-2 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+          <Link to="/" className="flex min-w-0 items-center gap-2 text-fg">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-panel">
+              <Music4 className="h-4 w-4 text-indigo-300" />
+            </span>
+            <span className="truncate text-sm font-semibold tracking-tight">Symphony</span>
+          </Link>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+            className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg"
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
         </div>
-      </main>
+        <main id="main-content" className="min-h-0 flex-1 overflow-y-auto">
+          {/* SYM-31: keyed by pathname so the entrance animation re-runs on each navigation. The
+              wrapper stays inside <main> (the scroll container must not remount) and carries h-full so
+              full-height pages (flex h-full flex-col) still get a definite-height parent. */}
+          <div key={location.pathname} className="anim-page-in h-full">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

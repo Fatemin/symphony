@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, BookOpen, FileCode, FileText, Plus, RotateCcw, X } from 'lucide-react';
+import { BookOpen, FileCode, FileText, Plus, RotateCcw, X } from 'lucide-react';
 import type { DocEntry, Project } from '../../shared/types';
 import { api, type ProjectWorkflowConfig } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Markdown } from '../components/Markdown';
-import { Button, Input, Panel, Spinner } from '../components/ui';
+import { Button, EmptyState, ErrorState, Input, Loading, PageHeader, Panel, ProjectChip, Spinner } from '../components/ui';
 
 const DEFAULT_DOC_DIRECTORIES = ['docs'];
 const MARKDOWN_RE = /\.(md|markdown|mdx)$/i;
@@ -79,22 +79,15 @@ export function Documentation() {
   const directories = listing?.directories ?? DEFAULT_DOC_DIRECTORIES;
   const groups = useMemo(() => groupByDir(listing?.files ?? [], directories), [listing, directories]);
 
-  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!project) return <Loading />;
 
   return (
     <div className="flex h-full flex-col p-6">
-      <header className="mb-5 flex items-center gap-3">
-        <Link to="/" className="text-muted hover:text-fg">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <span
-          className="grid h-7 w-7 place-items-center rounded text-xs font-bold"
-          style={{ background: project.color + '33', color: project.color }}
-        >
-          {project.key}
-        </span>
-        <h1 className="text-lg font-semibold">{project.name}</h1>
-      </header>
+      <PageHeader
+        back={{ to: '/' }}
+        icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
+        title={project.name}
+      />
 
       <ProjectTabs projectId={project.id} />
 
@@ -183,36 +176,31 @@ function ReadingPane({
   docErr: unknown;
 }) {
   if (listLoading) {
-    return (
-      <div className="flex items-center gap-2 p-8 text-sm text-muted">
-        <Spinner /> Loading…
-      </div>
-    );
+    return <Loading />;
   }
   if (!hasFiles) {
     return (
-      <Panel className="mx-auto mt-8 max-w-md p-8 text-center text-sm text-muted">
-        <BookOpen className="mx-auto mb-2 h-5 w-5 text-muted" />
-        No documents found in {directories.length ? directories.map((d) => `“${d}”`).join(', ') : 'the configured directories'}.
-        <span className="mt-1 block text-xs">Add a directory above, or drop Markdown files into one of these folders.</span>
-      </Panel>
+      <EmptyState
+        className="mx-auto mt-8 max-w-md"
+        icon={<BookOpen />}
+        title="No documents found"
+        description={`Looked in ${directories.length ? directories.map((d) => `“${d}”`).join(', ') : 'the configured directories'}. Add a directory above, or drop Markdown files into one of these folders.`}
+      />
     );
   }
   if (!selected) {
     return <p className="p-8 text-sm text-muted">Select a document to read.</p>;
   }
   if (docLoading) {
-    return (
-      <div className="flex items-center gap-2 p-8 text-sm text-muted">
-        <Spinner /> Loading…
-      </div>
-    );
+    return <Loading />;
   }
   if (docError || !doc) {
     return (
-      <Panel className="mx-auto mt-8 max-w-md p-8 text-center text-sm text-red-400">
-        Couldn't open this document{docErr instanceof Error ? `: ${docErr.message}` : ''}.
-      </Panel>
+      <ErrorState
+        className="mx-auto mt-8 max-w-md"
+        title="Couldn't open this document"
+        description={docErr instanceof Error ? docErr.message : undefined}
+      />
     );
   }
   return (
@@ -351,11 +339,11 @@ function DirectoryEditor({
 function NoRepo() {
   return (
     <div className="mx-auto mt-10 w-full max-w-md">
-      <Panel className="p-8 text-center text-sm text-muted">
-        <BookOpen className="mx-auto mb-2 h-5 w-5 text-muted" />
-        This project has no linked repo, so there are no documents to show. Link a repository in the
-        Agent settings to read its docs here.
-      </Panel>
+      <EmptyState
+        icon={<BookOpen />}
+        title="No linked repo"
+        description="This project has no linked repo, so there are no documents to show. Link a repository in the Agent settings to read its docs here."
+      />
     </div>
   );
 }

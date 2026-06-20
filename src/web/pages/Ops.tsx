@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, History, RefreshCw, Zap } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Input, Panel, Select } from '../components/ui';
+import { Badge, Button, Input, PageHeader, Panel, Select } from '../components/ui';
 import { fmtDuration, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 import type { IssueStatus, OpsHistoryRow, RunStatus } from '../../shared/types';
 
@@ -22,22 +22,21 @@ export function Ops() {
   const kick = useMutation({ mutationFn: api.ops.kick, onSuccess: () => qc.invalidateQueries({ queryKey: ['snapshot'] }) });
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
-      <header className="mb-6 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <Activity className="h-5 w-5 text-indigo-400" /> Orchestrator
-        </h1>
-        <div className="flex items-center gap-2">
-          <Badge className={snap?.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}>
-            {snap?.enabled ? 'enabled' : 'disabled'}
-          </Badge>
-          <Button onClick={() => kick.mutate()}>
-            <Zap className="h-4 w-4" /> Kick
-          </Button>
-        </div>
-      </header>
+    <div className="mx-auto max-w-5xl p-6 sm:p-8">
+      <PageHeader
+        title="Orchestrator"
+        icon={<Activity className="h-5 w-5 text-indigo-400" />}
+        actions={
+          <>
+            <Badge tone={snap?.enabled ? 'success' : 'danger'}>{snap?.enabled ? 'enabled' : 'disabled'}</Badge>
+            <Button onClick={() => kick.mutate()}>
+              <Zap className="h-4 w-4" /> Kick
+            </Button>
+          </>
+        }
+      />
 
-      <div className="mb-6 grid grid-cols-4 gap-3">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Running" value={snap?.running.length ?? 0} />
         <Stat label="Retrying" value={snap?.retrying.length ?? 0} />
         <Stat label="Total tokens" value={(snap?.totals.total_tokens ?? 0).toLocaleString()} />
@@ -47,33 +46,35 @@ export function Ops() {
       <Panel className="mb-5">
         <SectionHeader icon={<RefreshCw className="h-3.5 w-3.5" />} title="Running" count={snap?.running.length ?? 0} />
         {snap && snap.running.length > 0 ? (
-          <table className="w-full text-sm">
-            <thead className="text-left text-[11px] uppercase tracking-wide text-subtle">
-              <tr>
-                <th className="px-4 py-2 font-medium">Issue</th>
-                <th className="px-4 py-2 font-medium">Phase</th>
-                <th className="px-4 py-2 font-medium">Attempt</th>
-                <th className="px-4 py-2 font-medium">Turns</th>
-                <th className="px-4 py-2 font-medium">Tokens</th>
-                <th className="px-4 py-2 font-medium">Started</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snap.running.map((r) => (
-                <tr key={r.issue_id} className="border-t border-border">
-                  <td className="px-4 py-2">
-                    <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
-                    <span className="ml-2 text-muted">{r.title}</span>
-                  </td>
-                  <td className="px-4 py-2"><Badge className="bg-amber-500/15 text-amber-300">{r.phase}</Badge></td>
-                  <td className="px-4 py-2 text-muted">{r.attempt}</td>
-                  <td className="px-4 py-2 text-muted">{r.num_turns}</td>
-                  <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-muted">{relativeTime(r.started_at)}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-[11px] uppercase tracking-wide text-subtle">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Issue</th>
+                  <th className="px-4 py-2 font-medium">Phase</th>
+                  <th className="px-4 py-2 font-medium">Attempt</th>
+                  <th className="px-4 py-2 font-medium">Turns</th>
+                  <th className="px-4 py-2 font-medium">Tokens</th>
+                  <th className="px-4 py-2 font-medium">Started</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {snap.running.map((r) => (
+                  <tr key={r.issue_id} className="border-t border-border">
+                    <td className="px-4 py-2">
+                      <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
+                      <span className="ml-2 text-muted">{r.title}</span>
+                    </td>
+                    <td className="px-4 py-2"><Badge className="bg-amber-500/15 text-amber-300">{r.phase}</Badge></td>
+                    <td className="px-4 py-2 text-muted">{r.attempt}</td>
+                    <td className="px-4 py-2 text-muted">{r.num_turns}</td>
+                    <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-muted">{relativeTime(r.started_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <Empty>Nothing running.</Empty>
         )}

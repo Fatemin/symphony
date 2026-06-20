@@ -7,7 +7,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api, attachmentUrl } from '../api';
 import { AttachmentInput } from './AttachmentInput';
 import { Markdown } from './Markdown';
-import { Button, Select, Spinner, Textarea } from './ui';
+import { Button, Select, Spinner, Textarea, useModalDialog } from './ui';
 
 type Turn = AskMessage & { suggestion?: AskSuggestion | null; converted?: boolean };
 
@@ -82,6 +82,10 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   // Tracks the in-flight drag origin; null when idle. setPointerCapture keeps move/up firing even
   // when the cursor leaves the thin handle, so no window-level listeners are needed.
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  // SYM-59: render the drawer as a native modal <dialog> for focus-trap, Escape-to-close, focus
+  // restore, and a top-layer surface (escapes the .anim-page-in transform). The panel keeps its own
+  // resize/persist behaviour; the ::backdrop replaces the hand-rolled click-to-close overlay.
+  const { ref: dialogRef, handleCancel } = useModalDialog(onClose);
 
   useEffect(() => {
     // A width stored on a larger screen must never exceed a now-smaller viewport (the backdrop has
@@ -240,14 +244,19 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <aside
-        className="relative flex h-full flex-col border-l border-border bg-panel shadow-xl"
-        style={{ width }}
-      >
-        {/* SYM-21: left-edge resizer. Lives inside the <aside> (not the backdrop) so a drag never
-            reaches the backdrop's click-to-close. role="separator" + Arrow-key handling gives
+    <dialog
+      ref={dialogRef}
+      onCancel={handleCancel}
+      onClick={(e) => {
+        if (e.target === dialogRef.current) onClose(); // a click on the ::backdrop reports the dialog as target
+      }}
+      aria-label={`Ask ${projectKey}`}
+      style={{ width }}
+      className="anim-drawer-in left-auto right-0 top-0 m-0 flex h-[100dvh] flex-col border-l border-border bg-panel p-0 text-fg shadow-[var(--elev-3)] backdrop:bg-black/50"
+    >
+      <div className="flex h-full flex-col">
+        {/* SYM-21: left-edge resizer. Lives inside the dialog (not the backdrop) so a drag never
+            reaches the ::backdrop click-to-close. role="separator" + Arrow-key handling gives
             keyboard parity with the pointer drag. */}
         <div
           role="separator"
@@ -356,8 +365,8 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
             </Button>
           </div>
         </div>
-      </aside>
-    </div>
+      </div>
+    </dialog>
   );
 }
 
