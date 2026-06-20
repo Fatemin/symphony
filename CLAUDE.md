@@ -47,7 +47,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `buildAskPrompt()` AFTER the other sections, so the load-bearing role substrings never shift.
   `thinking_effort` (SYM-41) likewise appends a `## Thinking effort\n<keyword>` block in
   `issueBrief()`'s tail (only when not `none`); `phases/types.ts#resolveThinkingEffort` resolves it
-  (project ?? engine) and only the pipeline passes it, so Ask is unaffected.
+  (issue ?? project ?? engine — SYM-46 added the per-issue layer; `Issue.thinking_effort`, a nullable
+  `issues.thinking_effort` column, null ⇒ inherit) and only the pipeline passes it, so Ask is
+  unaffected. `ThinkingEffort`'s canonical home is `src/shared/types.ts` (SYM-46); `core/config.ts`
+  and the web `api.ts` re-export it.
 - `src/server/repo/` — one file per table, all SQL lives here. `db/schema.ts` is idempotent
   (`CREATE TABLE IF NOT EXISTS`, runs every boot); additive `ALTER TABLE` backfills go in
   `db/migrate.ts`. There is no migration tool.
@@ -145,7 +148,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   agent-execution controls `enable_workflow_tool` (boolean, default `false`) and `thinking_effort`
   (`none`/`think`/`think-hard`/`ultrathink`, default `none`) are also per-project overridable via
   `config.agent` — copy each field-by-field in `projectConfig.ts#mergeAgent` or it is stripped on
-  save. Attachment limits live here too: `max_attachment_bytes` (default 10 MB) and
+  save. `thinking_effort` is ALSO per-issue overridable (SYM-46): the nullable `issues.thinking_effort`
+  column (whitelist-guarded in `repo/issues.ts#mapRow`, null ⇒ inherit) is the highest-priority layer
+  in `resolveThinkingEffort` (issue ?? project ?? engine). Attachment limits live here too:
+  `max_attachment_bytes` (default 10 MB) and
   `max_attachments_per_item` (default 10), both numeric and UI-editable via the `settings` table.
 - Privacy boundary: only framework code is tracked. Runtime/private data — `data/` (the SQLite DB +
   attachment blobs), per-issue worktrees under `workspace_root`, `.env`, and machine-local agent/editor

@@ -93,6 +93,7 @@ One unit of tracked work — the thing the user manages.
 | `priority` | INTEGER | `0`=none, `1`=urgent … `4`=low |
 | `status` | TEXT | the lifecycle status (see [state machine](#status-state-machine)); default `backlog` |
 | `mode` | TEXT | `auto` \| `manual` (default `manual`) — gates poll-loop pickup |
+| `thinking_effort` | TEXT | per-issue extended-thinking override `none`/`think`/`think-hard`/`ultrathink` (SYM-46); NULL ⇒ inherit project ?? engine. Whitelist-guarded on read in `mapRow` |
 | `require_review` | INTEGER (bool) | default `1`; off ⇒ a passing issue goes straight to `done` |
 | `base_branch`, `branch_name`, `worktree_path` | TEXT | set when work starts |
 | `round` | INTEGER | current revision round; `1`=first build, `2+`=after "request changes" |
@@ -278,7 +279,10 @@ default and a `NUMERIC_KEYS` entry, or `resolveConfig` won't coerce it. Non-nume
 `resolveConfig` branch: booleans (`enabled`, `enable_workflow_tool`) use a `Boolean()` case, and the
 `thinking_effort` enum uses a value-whitelist branch placed BEFORE the loose string fallback (SYM-41).
 `enable_workflow_tool` (default off) and `thinking_effort` (default `none`) are also per-project
-overridable via the project `config.agent` blob.
+overridable via the project `config.agent` blob. `thinking_effort` additionally has a per-issue layer
+(SYM-46): `resolveThinkingEffort` (`phases/types.ts`) resolves it as **issue ?? project ?? engine**
+from the nullable `issues.thinking_effort` column, so an explicit per-issue keyword (including `none`)
+overrides both lower layers and NULL inherits them.
 
 ### 12. `ask_messages`
 

@@ -4,12 +4,14 @@ import { deleteAttachmentsByIssue, linkAttachmentsToIssue } from './attachments'
 import {
   ACTIVE_STATUSES,
   TERMINAL_STATUSES,
+  THINKING_EFFORTS,
   type Issue,
   type IssueMode,
   type IssueStatus,
   type IssueType,
   type MergeConflictInfo,
   type Priority,
+  type ThinkingEffort,
 } from '../../shared/types';
 
 interface IssueRow {
@@ -32,6 +34,7 @@ interface IssueRow {
   worktree_path: string | null;
   round: number;
   merge_conflict: string | null;
+  thinking_effort: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -71,6 +74,12 @@ function mapRow(r: IssueRow): Issue {
     worktree_path: r.worktree_path,
     round: r.round,
     merge_conflict,
+    // SYM-46: mapRow is the defensive boundary — only a whitelisted keyword survives; anything else
+    // (NULL, a stale/garbage value written directly) reads back as null (= inherit).
+    thinking_effort:
+      r.thinking_effort && (THINKING_EFFORTS as readonly string[]).includes(r.thinking_effort)
+        ? (r.thinking_effort as ThinkingEffort)
+        : null,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -88,6 +97,8 @@ export interface CreateIssueInput {
   status?: IssueStatus;
   mode?: IssueMode;
   require_review?: boolean;
+  /** Per-issue extended-thinking override (SYM-46); null/undefined ⇒ inherit project ?? engine. */
+  thinking_effort?: ThinkingEffort | null;
   /** Ids of previously-uploaded attachments to link to the new issue (SYM-35). */
   attachment_ids?: string[];
 }
@@ -108,8 +119,8 @@ export function createIssue(input: CreateIssueInput): Issue {
   db.prepare(
     `INSERT INTO issues
        (id, project_id, parent_id, seq, key, type, title, description,
-        acceptance_criteria, labels, priority, status, mode, require_review)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        acceptance_criteria, labels, priority, status, mode, require_review, thinking_effort)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.project_id,
@@ -125,6 +136,7 @@ export function createIssue(input: CreateIssueInput): Issue {
     input.status ?? 'backlog',
     input.mode ?? 'manual',
     input.require_review === false ? 0 : 1,
+    input.thinking_effort ?? null,
   );
   if (input.attachment_ids?.length) linkAttachmentsToIssue(input.attachment_ids, id);
   return getIssue(id)!;
@@ -192,6 +204,7 @@ const UPDATABLE = [
   'priority',
   'status',
   'mode',
+  'thinking_effort',
   'base_branch',
   'branch_name',
   'worktree_path',
@@ -208,6 +221,8 @@ export interface UpdateIssueInput {
   status?: IssueStatus;
   mode?: IssueMode;
   require_review?: boolean;
+  /** Per-issue extended-thinking override (SYM-46); pass null to clear it back to inherit. */
+  thinking_effort?: ThinkingEffort | null;
   base_branch?: string | null;
   branch_name?: string | null;
   worktree_path?: string | null;

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
 import type { Attachment, BoardIssue, Issue, IssueStatus } from '../../shared/types';
-import { api, type ApproveOptions } from '../api';
+import { api, THINKING_EFFORT_OPTIONS, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { AttachmentInput } from '../components/AttachmentInput';
@@ -403,6 +403,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
     priority: 2,
     mode: 'auto',
     status: 'todo',
+    thinking_effort: '', // SYM-46: '' = inherit the project/engine default
     description: '',
     acceptance_criteria: '',
   });
@@ -417,6 +418,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
         priority: form.priority as Issue['priority'],
         mode: form.mode as Issue['mode'],
         status: form.status as IssueStatus,
+        thinking_effort: (form.thinking_effort || null) as Issue['thinking_effort'],
         description: form.description || null,
         acceptance_criteria: form.acceptance_criteria || null,
         attachment_ids: attachments.map((a) => a.id),
@@ -463,6 +465,15 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
           <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
             <option value="backlog">backlog</option>
             <option value="todo">todo</option>
+          </Select>
+        </Field>
+        {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
+        <Field label="Thinking effort">
+          <Select value={form.thinking_effort} onChange={(e) => setForm({ ...form, thinking_effort: e.target.value })}>
+            <option value="">inherit (project default)</option>
+            {THINKING_EFFORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </Select>
         </Field>
         <div className="col-span-2">

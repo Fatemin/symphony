@@ -90,6 +90,7 @@ issueRoutes.post('/:id/follow-ups', async (c) => {
     status: body.status ?? 'todo',
     mode: body.mode,
     require_review: body.require_review,
+    thinking_effort: body.thinking_effort, // SYM-46: carry the per-issue override onto the follow-up
     include_context: body.include_context !== false,
   });
   return c.json(result, 201);

@@ -44,6 +44,7 @@ const issue: Issue = {
   priority: 2,
   status: 'in_progress',
   mode: 'auto',
+  thinking_effort: null,
   require_review: true,
   base_branch: 'main',
   branch_name: 'agent/pr-1',

@@ -1,5 +1,6 @@
 import { DEFAULT_WORKSPACE_ROOT } from '../env';
-import type { AgentType } from '../../shared/types';
+import { THINKING_EFFORTS } from '../../shared/types';
+import type { AgentType, ThinkingEffort } from '../../shared/types';
 
 // Engine-wide runtime configuration. Defaults live here; the `settings` table holds
 // UI-editable overrides; per-project rows can further override `model`. This module is
@@ -11,13 +12,11 @@ export type PermissionMode =
   | 'bypassPermissions'
   | 'plan';
 
-/**
- * How hard the pipeline agent is asked to think (SYM-41). Maps to a native extended-thinking keyword
- * appended to the prompt; `none` appends nothing (a true no-op). See `THINKING_EFFORT_KEYWORD`.
- */
-export type ThinkingEffort = 'none' | 'think' | 'think-hard' | 'ultrathink';
-
-export const THINKING_EFFORTS: ThinkingEffort[] = ['none', 'think', 'think-hard', 'ultrathink'];
+// SYM-46: ThinkingEffort's canonical home moved to shared/types.ts. Re-exported here (binding the
+// imported names into this module's scope, not a bare `export … from`) so the many downstream
+// `from '../core/config'` imports — projectConfig.ts, prompt.ts, phases/types.ts — keep resolving.
+export { THINKING_EFFORTS };
+export type { ThinkingEffort };
 
 export interface EngineConfig {
   /** Master switch — when false the orchestrator dispatches nothing. */

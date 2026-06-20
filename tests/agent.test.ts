@@ -12,6 +12,7 @@ const { loadWorkflow } = await import('../src/server/core/workflow');
 const { parseProjectConfig } = await import('../src/server/core/projectConfig');
 const { resolveConfig, DEFAULT_SETTINGS } = await import('../src/server/core/config');
 const { parseQa } = await import('../src/server/core/prompt');
+const { resolveThinkingEffort } = await import('../src/server/phases/types');
 
 test.after(() => env.cleanup());
 
@@ -159,4 +160,23 @@ test('runnerEnv injects CLAUDE_CODE_DISABLE_WORKFLOWS only when workflows are di
   const enabled = runnerEnv(base, false);
   assert.equal(enabled.CLAUDE_CODE_DISABLE_WORKFLOWS, undefined);
   assert.equal(enabled, base, 'enabled passes the env through unchanged');
+});
+
+test('resolveThinkingEffort precedence: issue ?? project ?? engine (SYM-46)', () => {
+  // Build a minimal PhaseContext shape — only the three layers the resolver reads matter here.
+  const resolve = (issue: unknown, project: unknown, engine: string) =>
+    resolveThinkingEffort({
+      issue: { thinking_effort: issue },
+      projectConfig: { agent: { thinking_effort: project } },
+      config: { thinking_effort: engine },
+    } as unknown as Parameters<typeof resolveThinkingEffort>[0]);
+
+  // Issue override wins outright over both lower layers.
+  assert.equal(resolve('ultrathink', 'think', 'none'), 'ultrathink');
+  // A null issue value inherits the project layer.
+  assert.equal(resolve(null, 'think-hard', 'none'), 'think-hard');
+  // Null issue + undefined project falls through to the engine default.
+  assert.equal(resolve(null, undefined, 'think'), 'think');
+  // Explicit issue 'none' is a deliberate override that beats a project 'ultrathink'.
+  assert.equal(resolve('none', 'ultrathink', 'think'), 'none');
 });

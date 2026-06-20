@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, CheckCircle2, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Sparkles, Square, X, XCircle } from 'lucide-react';
 import type { Attachment, Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
-import { api, streamIssue, type ApproveOptions, type IssueDetail as Detail } from '../api';
+import { api, streamIssue, THINKING_EFFORT_OPTIONS, type ApproveOptions, type IssueDetail as Detail, type ThinkingEffort } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { Markdown } from '../components/Markdown';
@@ -238,6 +238,18 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             <option value="manual">manual</option>
             <option value="auto">auto</option>
           </Select>
+          {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
+          <Select
+            value={issue.thinking_effort ?? ''}
+            onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
+            className="w-auto"
+            title="Extended-thinking budget for this issue (inherit = project/engine default)"
+          >
+            <option value="">inherit</option>
+            {THINKING_EFFORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
           {issue.status === 'review' ? (
             <>
               <Button
@@ -317,6 +329,7 @@ function FollowUpForm({
     priority: Priority;
     mode: IssueMode;
     status: Extract<IssueStatus, 'backlog' | 'todo'>;
+    thinking_effort: '' | ThinkingEffort;
     description: string;
     acceptance_criteria: string;
     include_context: boolean;
@@ -326,6 +339,7 @@ function FollowUpForm({
     priority: source.priority,
     mode: 'manual',
     status: 'todo',
+    thinking_effort: '', // SYM-46: '' = inherit the project/engine default
     description: '',
     acceptance_criteria: '',
     include_context: true,
@@ -338,6 +352,7 @@ function FollowUpForm({
         priority: form.priority as Detail['priority'],
         mode: form.mode as Detail['mode'],
         status: form.status as IssueStatus,
+        thinking_effort: form.thinking_effort || null,
         description: form.description || null,
         acceptance_criteria: form.acceptance_criteria || null,
         include_context: form.include_context,
@@ -389,6 +404,15 @@ function FollowUpForm({
           <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Extract<IssueStatus, 'backlog' | 'todo'> })}>
             <option value="backlog">backlog</option>
             <option value="todo">todo</option>
+          </Select>
+        </Field>
+        {/* SYM-46: carry a per-issue extended-thinking override onto the follow-up; inherit = default. */}
+        <Field label="Thinking effort">
+          <Select value={form.thinking_effort} onChange={(e) => setForm({ ...form, thinking_effort: e.target.value as '' | ThinkingEffort })}>
+            <option value="">inherit (project default)</option>
+            {THINKING_EFFORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </Select>
         </Field>
         <div className="col-span-2">
