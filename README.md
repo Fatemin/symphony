@@ -25,7 +25,7 @@ This README is the user-facing "how it works" guide. For the deep reference laye
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — every table, the additive-migration convention, and the status / mode / round state machine.
 - [docs/API.md](docs/API.md) — the HTTP + SSE endpoint reference.
 - [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) — the contract for agents/contributors: phases, load-bearing role titles, prompt assembly, policy, and how to extend.
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — LAN access, the secure-by-default bind, the shared-token gate, and the `bypassPermissions` exposure premise.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — LAN access (no auth required), the optional shared-token gate, where agents actually run, and the `bypassPermissions` exposure premise.
 
 ---
 
@@ -183,10 +183,9 @@ network/auth vars (SYM-42) are deliberately env-only — the token must never re
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `HOST` | `localhost` | Interface the server binds to. **Secure default:** localhost only. Set `0.0.0.0` (+ a token) for LAN — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). |
+| `HOST` | `localhost` | Interface the server binds to. Defaults to localhost; set `0.0.0.0` (or a specific IP) for LAN access — no token required (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). |
 | `PORT` | `3030` | Server port. |
-| `SYMPHONY_AUTH_TOKEN` | *(unset)* | Shared secret that turns on the minimal access-control middleware. Unset ⇒ no auth (localhost single-user). |
-| `SYMPHONY_ALLOW_INSECURE_LAN` | *(unset)* | `1` to bind a non-loopback `HOST` **without** a token (downgrades the start-up refusal to a loud warning). Unsafe. |
+| `SYMPHONY_AUTH_TOKEN` | *(unset)* | **Optional** shared secret that turns on the minimal access-control middleware. Unset ⇒ no auth. |
 | `SYMPHONY_WEB_HOST` | *(unset)* | Vite dev-server bind. `true` = all interfaces, or a literal host. Dev only. |
 | `SYMPHONY_DATA_DIR` | `./data` | Root for the SQLite DB + attachment blobs. |
 | `SYMPHONY_DB_PATH` | `<DATA_DIR>/symphony.db` | Explicit SQLite file path (overrides the default under `DATA_DIR`). |
@@ -341,14 +340,16 @@ prompts, so agents act freely **inside their isolated worktree** — a real chec
 not a sandbox. Human control lives at the **review gate**, not per command. Switch `permission_mode`
 to `acceptEdits` to keep agents on the file-edit rail (at the cost of stalling on shell/`git` steps).
 
-**Network exposure (SYM-42).** Because agents execute arbitrary commands on the host, the server is
-**secure by default**: it binds `localhost` only. To reach the UI from another LAN device you must opt
-in *and* gate it — set `HOST=0.0.0.0` **and** `SYMPHONY_AUTH_TOKEN=<secret>`. Binding a non-loopback
-interface without a token makes the server **refuse to start** (override with `SYMPHONY_ALLOW_INSECURE_LAN=1`
-for trusted, isolated networks only). The token enables a minimal shared-token gate (HTTP Basic /
-Bearer / `?token=`) in front of every `/api` route and the SPA, with `GET /api/health` exempt. There is
-no TLS — Symphony serves plain HTTP, so terminate TLS at a reverse proxy if confidentiality matters.
-Full guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+**Network exposure (SYM-42, relaxed in SYM-44).** Agents execute arbitrary commands — and they run on
+the machine hosting the **backend**, not the LAN client that opened the UI (the client is browser-only;
+the orchestrator spawns the CLI via `child_process.spawn` in the server process). The server still
+binds `localhost` by default so an install never exposes itself on upgrade. To reach the UI from another
+LAN device, set `HOST=0.0.0.0` — that's the only required change; **no token is required** (a non-loopback
+bind without a token now starts with a one-line warning instead of refusing). On an untrusted network you
+can opt into hardening with `SYMPHONY_AUTH_TOKEN=<secret>`, which enables a minimal shared-token gate
+(HTTP Basic / Bearer / `?token=`) in front of every `/api` route and the SPA, with `GET /api/health`
+exempt. There is no TLS — Symphony serves plain HTTP, so terminate TLS at a reverse proxy if
+confidentiality matters. Full guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Data & privacy
 
@@ -370,7 +371,7 @@ transcripts; this is the framework, not your data.
 
 ## Known limitations
 
-- Single-user by design; LAN access is an opt-in shared-token / Basic-auth gate, not multi-tenancy (no accounts, roles, rate limiting, or TLS — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+- Single-user by design; LAN access binds via `HOST` with an **optional** shared-token / Basic-auth gate, not multi-tenancy (no accounts, roles, rate limiting, or TLS — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 - Hand-rolled schema (idempotent `CREATE TABLE`), no migration tool or down-migrations.
 - Worktrees persist after success (by design) and aren't auto-garbage-collected.
 - `WORKFLOW.md` is read per run, not file-watched.

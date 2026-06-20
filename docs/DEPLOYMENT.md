@@ -1,62 +1,99 @@
 # Symphony — Deployment & LAN access
 
 Symphony is built as a **single-user, localhost-first** tool. This page covers the one supported step
-beyond that: making the UI reachable from other devices on your **local network (LAN)** safely.
+beyond that: making the UI reachable from other devices on your **local network (LAN)** — and the
+security premise you should understand before you do.
 
 > ⚠️ **Read the security premise first.** Symphony's pipeline runs coding agents with
 > `permission_mode=bypassPermissions` — there is no human at the CLI to approve each step, so agents
-> execute arbitrary shell commands on the host machine *inside their worktree*. Exposing the server to
-> the network without authentication is therefore equivalent to **publishing an unauthenticated
-> arbitrary-command-execution console** to everyone on that network. Symphony will not let you do that
-> by accident (see [secure-by-default](#secure-by-default) below).
+> execute arbitrary shell commands. Those commands run on the **machine hosting the Symphony backend**
+> (see [Where agents run](#where-agents-run)), *inside their worktree*. Exposing the server to the LAN
+> therefore lets anyone on that network drive that command execution. On a trusted home/office LAN this
+> is usually fine; for an untrusted network, add the [optional token](#optional-hardening-shared-token).
 
 ---
 
-## Secure by default
+## Enabling LAN access
 
-By default the server binds **`localhost` only** (`HOST=localhost`). Nothing on the LAN can reach it;
-existing single-user usage is unchanged and needs no token.
+By default the server binds **`localhost` only** (`HOST=localhost`), so an existing install never
+starts exposing itself on upgrade. Nothing on the LAN can reach it; localhost single-user usage is
+unchanged and needs no token.
 
-To go beyond localhost you change two things deliberately:
+To reach the UI from another device, bind a non-loopback interface — that's the **only** required
+change (SYM-44 dropped the previous requirement that LAN access also carry a token):
 
-1. **Bind a non-loopback interface** — `HOST=0.0.0.0` (all interfaces) or a specific IP.
-2. **Set a shared token** — `SYMPHONY_AUTH_TOKEN=<secret>`.
-
-If you bind a non-loopback `HOST` **without** a token, the server **refuses to start** and logs how to
-fix it:
-
-```
-level=error msg="refusing to start: non-loopback HOST without authentication"
-  host=0.0.0.0 risk="bypassPermissions agents = arbitrary command execution exposed to the LAN"
-  fix="set SYMPHONY_AUTH_TOKEN=<secret> (recommended), or SYMPHONY_ALLOW_INSECURE_LAN=1 to override (unsafe)"
+```bash
+npm run build
+HOST=0.0.0.0 npm start          # all interfaces, no auth — fine on a trusted LAN
 ```
 
-Setting `SYMPHONY_ALLOW_INSECURE_LAN=1` downgrades the refusal to a loud warning and starts anyway —
-**only** do this on a network you fully trust and have otherwise isolated.
+Then from a LAN device open `http://<host-ip>:3030`.
+
+When you bind a non-loopback `HOST` **without** a token, the server starts and logs a one-line notice
+so the exposure is a conscious choice, not a silent one:
+
+```
+level=warn msg="bound to a non-loopback interface with NO authentication"
+  host=0.0.0.0
+  risk="bypassPermissions agents run arbitrary commands on THIS host; the LAN can reach them unauthenticated"
+  hardening="set SYMPHONY_AUTH_TOKEN=<secret> to gate access on an untrusted network"
+```
+
+### Optional hardening (shared token)
+
+On an untrusted or shared network, set a shared token to gate access:
+
+```bash
+HOST=0.0.0.0 SYMPHONY_AUTH_TOKEN='choose-a-long-random-secret' npm start
+```
+
+The browser then prompts for credentials once (**username: anything, password: the token**) and
+reuses them for the whole app. The token is optional hardening, not a requirement.
+
+---
+
+## Where agents run
+
+A LAN client runs **only the browser** — the React UI talking to the backend over HTTP. Everything
+else happens on the machine running the Symphony backend:
+
+- The orchestrator's poll loop lives **in the backend process** (`orchestrator.start()` in
+  [`src/server/index.ts`](../src/server/index.ts)).
+- Each phase spawns the Claude / Codex CLI via `child_process.spawn`
+  ([`src/server/agent/claudeRunner.ts`](../src/server/agent/claudeRunner.ts),
+  [`codexRunner.ts`](../src/server/agent/codexRunner.ts)) as a **child of the backend process**.
+- The agent's working directory is a git worktree under `workspace_root` **on the backend host**.
+
+So the answer to "which machine actually invokes Claude Code?" is: **the host running the Symphony
+backend**, never the remote LAN device that opened the UI. A phone or laptop browsing in from across
+the network triggers runs but executes nothing locally. This is exactly why LAN exposure is a
+*server-host* command-execution concern, and why the optional token gates the server, not the client.
 
 ---
 
 ## Recommended path: production single port
 
-The cleanest authenticated LAN deployment serves the built client and the API from the **same** Hono
-port, so the browser's Basic credentials cover every same-origin request (page, `/api`, SSE stream,
-attachment images):
+The cleanest LAN deployment serves the built client and the API from the **same** Hono port, so one
+origin covers every request (page, `/api`, SSE stream, attachment images) — and, *if* you add a token,
+the browser's Basic credentials cover them all in one prompt:
 
 ```bash
 npm run build
-HOST=0.0.0.0 SYMPHONY_AUTH_TOKEN='choose-a-long-random-secret' npm start
+HOST=0.0.0.0 npm start                                       # trusted LAN, no auth
+HOST=0.0.0.0 SYMPHONY_AUTH_TOKEN='long-random-secret' npm start   # + optional token hardening
 ```
 
-Then from a LAN device open `http://<host-ip>:3030`. The browser prompts for credentials once
-(**username: anything, password: the token**) and reuses them for the whole app.
+Then from a LAN device open `http://<host-ip>:3030`. With a token set, the browser prompts for
+credentials once (**username: anything, password: the token**) and reuses them for the whole app.
 
 `PORT` (default `3030`) changes the listening port.
 
 ---
 
-## Authentication schemes
+## Authentication schemes (optional)
 
-When `SYMPHONY_AUTH_TOKEN` is set, the gate accepts the shared token presented any of three ways
+Auth is **off unless you set `SYMPHONY_AUTH_TOKEN`**. When set, the gate accepts the shared token
+presented any of three ways
 (`GET /api/health` is always exempt for liveness checks):
 
 | Scheme | How |
@@ -120,15 +157,14 @@ multi-tenancy — the shared token is a minimal gate, not a full auth stack.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `HOST` | `localhost` | Interface the server binds to. Non-loopback requires a token (or the override). |
+| `HOST` | `localhost` | Interface the server binds to. Set `0.0.0.0` (or a specific IP) for LAN access — no token required. |
 | `PORT` | `3030` | Server port. |
-| `SYMPHONY_AUTH_TOKEN` | *(unset)* | Shared secret enabling the access-control middleware. Unset ⇒ no auth (localhost only). |
-| `SYMPHONY_ALLOW_INSECURE_LAN` | *(unset)* | `1`/`true` to allow a non-loopback bind **without** a token (downgrades the refusal to a warning). Unsafe. |
+| `SYMPHONY_AUTH_TOKEN` | *(unset)* | **Optional** shared secret enabling the access-control middleware. Unset ⇒ no auth. |
 | `SYMPHONY_WEB_HOST` | *(unset)* | Vite dev-server bind. `true` = all interfaces; or a literal host. Dev only. |
 | `SYMPHONY_DATA_DIR` | `./data` | Root for the SQLite DB + attachment blobs. |
 | `SYMPHONY_DB_PATH` | `<DATA_DIR>/symphony.db` | Explicit SQLite file path. |
 | `SYMPHONY_WORKSPACE_ROOT` | `<tmp>/symphony_workspaces` | Where per-issue git worktrees are created. |
 
-Backward compatibility: with none of these set the server binds `localhost`, runs with no auth, and
-behaves exactly as before — the only default-behavior change is that it no longer binds every
-interface implicitly.
+Backward compatibility: with none of these set the server binds `localhost` and runs with no auth,
+exactly as before. Binding a non-loopback `HOST` now **starts** (with a one-line warning) instead of
+refusing — the token is optional hardening, not a requirement.
