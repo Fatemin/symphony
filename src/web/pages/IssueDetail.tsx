@@ -227,16 +227,9 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
           )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <Select
-            value={issue.mode}
-            onChange={(e) => update.mutate({ mode: e.target.value as Detail['mode'] })}
-            className="w-auto"
-            aria-label="Dispatch mode"
-            title="auto = orchestrator auto-dispatches"
-          >
-            <option value="manual">manual</option>
-            <option value="auto">auto</option>
-          </Select>
+          {/* SYM-47: the auto/manual mode toggle is gone from the detail page — dispatch mode is
+              chosen only at creation (Board "New issue" / Follow-up forms); flipping it here had no
+              effect given listAutoCandidates' status filter and the always-available Run button. */}
           {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
           <Select
             value={issue.thinking_effort ?? ''}
