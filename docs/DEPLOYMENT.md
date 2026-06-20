@@ -130,16 +130,25 @@ SYMPHONY_WEB_HOST=0.0.0.0 npm run dev:web    # web only, all interfaces
 npm run dev:web -- --host
 ```
 
-`SYMPHONY_WEB_HOST` accepts `true` (all interfaces) or a literal host; unset keeps the historical
-localhost-only default. The Vite proxy target stays `localhost:3030` because the proxy runs on the dev
-machine next to the backend — so set `SYMPHONY_AUTH_TOKEN` on the backend and the middleware still
-gates `/api` through the proxy.
+Then from a LAN device open `http://<LAN-IP>:5173` (find `<LAN-IP>` with `ipconfig getifaddr en0` on
+macOS, or `hostname -I` on Linux).
 
-> ⚠️ **Caveat (split origin).** With Vite on `:5173` proxying to the backend on `:3030`, the first
-> unauthenticated `/api` call returns `401`, but the native browser Basic-auth dialog does not pop
-> reliably in every browser for a proxied XHR/`fetch`. The **supported authenticated-LAN path is the
-> production single port** above (`npm run build && npm start`); dev-LAN is best for quick same-trust
-> use. A polished in-app login screen is intentionally out of scope.
+`SYMPHONY_WEB_HOST` accepts `true` (all interfaces) or a literal host/IP; unset keeps the historical
+localhost-only default. It is the **only** variable you set for dev-LAN access — you do **not** change
+the backend `HOST` or switch to `npm start`. The reason: the Vite proxy runs on the same dev machine as
+the backend and forwards `/api` to `localhost:3030` ([`vite.config.ts`](../vite.config.ts)), so the
+backend keeps its default `localhost` bind ([`src/server/env.ts`](../src/server/env.ts)) and `/api`
+still resolves through the proxy.
+
+> ⚠️ **Security — the dev page is not auth-gated.** The page Vite serves on `:5173` is **static and
+> never passes through Hono's auth middleware** — only the proxied `/api` calls are gated, and even
+> then the first unauthenticated `/api` call returns `401` while the native browser Basic-auth dialog
+> does not pop reliably in every browser for a proxied XHR/`fetch`. The backend reached through that
+> proxy still runs pipeline agents with `permission_mode=bypassPermissions` (arbitrary commands on the
+> dev host), so set `SYMPHONY_AUTH_TOKEN` on the backend. For a clean authenticated LAN setup prefer
+> the production single-port path ([Recommended path](#recommended-path-production-single-port),
+> `npm run build && npm start`); dev-LAN is best for quick same-trust use. A polished in-app login
+> screen is intentionally out of scope.
 
 ---
 
