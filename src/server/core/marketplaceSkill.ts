@@ -1,4 +1,12 @@
-import { fetchGithubSkill, type FetchedSkill } from './githubSkill';
+import {
+  fetchGithubSkill,
+  type FetchedSkill,
+  API,
+  ghFetch,
+  seg,
+  encodePath,
+  assertNotRateLimited,
+} from './githubSkill';
 
 /**
  * Import Claude Code marketplace plugins' skills from GitHub (SYM-17). A user pastes the two
@@ -99,7 +107,6 @@ const stripGitSuffix = (repo: string) => repo.replace(/\.git$/i, '');
 // ── network resolution (NOT exercised by the offline test suite) ─────────────
 
 const RAW = 'https://raw.githubusercontent.com';
-const API = 'https://api.github.com';
 // GitHub repos default to one of these; we try in order when the default branch is unknown.
 const BRANCHES = ['main', 'master'];
 
@@ -243,11 +250,7 @@ async function listSkillDirs(
     const url = `${API}/repos/${seg(owner)}/${seg(repo)}/contents/${encodePath(dir)}?ref=${seg(branch)}`;
     const res = await ghFetch(url, 'application/vnd.github+json');
     if (res.status === 404) continue;
-    if (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0') {
-      throw new Error(
-        'GitHub API rate limit reached — set GITHUB_TOKEN to raise the ~60 requests/hour unauthenticated limit',
-      );
-    }
+    assertNotRateLimited(res);
     if (!res.ok) {
       throw new Error(`could not list ${dir} in ${owner}/${repo}: ${res.status} ${res.statusText}`);
     }
@@ -263,21 +266,6 @@ async function listSkillDirs(
   return [];
 }
 
-async function ghFetch(url: string, accept: string): Promise<Response> {
-  try {
-    return await fetch(url, { headers: ghHeaders(accept) });
-  } catch (e) {
-    throw new Error(`could not reach ${url}: ${e instanceof Error ? e.message : String(e)}`);
-  }
-}
-
-function ghHeaders(accept: string): Record<string, string> {
-  const headers: Record<string, string> = { 'user-agent': 'symphony', accept };
-  const token = process.env.GITHUB_TOKEN;
-  if (token) headers.authorization = `Bearer ${token}`;
-  return headers;
-}
-
 function dedupeByName(skills: FetchedSkill[]): FetchedSkill[] {
   const seen = new Set<string>();
   const out: FetchedSkill[] = [];
@@ -289,7 +277,5 @@ function dedupeByName(skills: FetchedSkill[]): FetchedSkill[] {
   return out;
 }
 
-const seg = (s: string) => encodeURIComponent(s);
-const encodePath = (p: string) => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 const joinPath = (...parts: string[]) => parts.filter(Boolean).join('/');
 const normalizeRelPath = (p: string) => p.replace(/^\.\/+/, '').replace(/^\/+|\/+$/g, '');

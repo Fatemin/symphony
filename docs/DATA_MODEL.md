@@ -232,7 +232,7 @@ issue worktree's `.claude/skills/<slug>/SKILL.md` before the pipeline runs.
 | `project_id` | TEXT FK→projects | `ON DELETE CASCADE` |
 | `name`, `description` | TEXT | unique name per project (`idx_project_skills_name`) |
 | `content` | TEXT | the SKILL.md body (front matter synthesized at materialize time) |
-| `files` | TEXT (JSON array of `{path,content}`) | optional extra files |
+| `files` | TEXT (JSON array of `{path,content}`) | optional extra files; populated by GitHub folder/tree imports (SYM-50) and materialized alongside `SKILL.md`, relative paths preserved |
 | `source` | TEXT | `manual` \| `github` \| `marketplace` |
 | `source_url` | TEXT | origin for imported skills |
 | `enabled` | INTEGER (bool) | default `1` |

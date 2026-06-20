@@ -66,8 +66,8 @@ Liveness probe. → `200 { "status": "ok" }`.
 |--------|------|---------|
 | `GET` | `/api/projects/:id/skills` | List the project's skills. |
 | `POST` | `/api/projects/:id/skills` | Create a manual skill. Body requires `name`; `409` on duplicate name. → `201` |
-| `POST` | `/api/projects/:id/skills/import` | Import a skill from a GitHub `url`. Fetch failure → `502`; duplicate → `409`. → `201` |
-| `POST` | `/api/projects/:id/skills/install` | Install a marketplace plugin's skills from a pasted `command`. Parse error → `400`; fetch failure → `502`; per-skill duplicates collected into `skipped`. → `201` if any imported, else `422`. |
+| `POST` | `/api/projects/:id/skills/import` | Import a skill from a GitHub `url`. A folder/tree URL (one not ending in `.md`) also fetches the skill directory's sibling files into `files` so multi-file skills import completely (SYM-50, bounded by file-count/byte/depth caps); an explicit `*.md` URL stays single-file. Fetch failure → `502`; duplicate → `409`. → `201` |
+| `POST` | `/api/projects/:id/skills/install` | Install a marketplace plugin's skills from a pasted `command`. Each skill is resolved through the same `fetchGithubSkill` path, so multi-file plugin skills also get their sibling `files` (SYM-50). Parse error → `400`; fetch failure → `502`; per-skill duplicates collected into `skipped`. → `201` if any imported, else `422`. |
 | `PATCH` | `/api/projects/:id/skills/:skillId` | Update a skill (e.g. toggle `enabled`). `404` if not in this project; `409` on name clash. |
 | `DELETE` | `/api/projects/:id/skills/:skillId` | Delete a skill. → `204` |
 
