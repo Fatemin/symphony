@@ -76,6 +76,8 @@ One target repository + its agent policy. The top of the ownership tree.
 
 Mapped to `Project` (`src/shared/types.ts`). Repo: `repo/projects.ts`.
 
+#### Project config (JSON)
+
 The `config` blob is parsed/serialized by `core/projectConfig.ts` (`parseProjectConfig` → `mergeProjectConfigs`), which copies **only** known sections — each new section needs its own merge/clone path or it is silently stripped on save. `docs.directories` (default `['docs']`, SYM-36) drives the Documentation tab's source folders; it is additive JSON, so no migration was needed and pre-existing projects get the default applied at parse time. The `agent` section also carries the optional SYM-41 execution controls `enable_workflow_tool` (boolean) and `thinking_effort` (`none`/`think`/`think-hard`/`ultrathink`) — copied field-by-field in `mergeAgent`; undefined ⇒ inherit the engine default.
 
 ### 2. `issues`
