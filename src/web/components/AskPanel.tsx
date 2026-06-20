@@ -11,6 +11,15 @@ import { Button, Select, Spinner, Textarea } from './ui';
 
 type Turn = AskMessage & { suggestion?: AskSuggestion | null; converted?: boolean };
 
+// Map a persisted history turn to a panel turn. Restores the SYM-28 suggestion card and SYM-35
+// attachments so both survive a reseed. Shared by the initial seed and the open-drawer reconcile.
+const toTurn = (m: AskMessage): Turn => ({
+  role: m.role,
+  content: m.content,
+  suggestion: m.suggestion,
+  attachments: m.attachments,
+});
+
 // SYM-21: the Ask drawer is user-resizable. Width is a controlled pixel value (not a Tailwind class)
 // persisted to localStorage so it survives the per-open remount (Board renders AskPanel only while
 // askOpen). DEFAULT_WIDTH matches the previous static `max-w-lg` (32rem) so existing users see no
@@ -119,32 +128,31 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
     persistWidth(next);
   };
 
-  const { data: history } = useQuery({
+  // SYM-48: the panel remounts on every open (Board renders it only while askOpen). On a quick
+  // reopen this query first emits STALE cache — possibly the pre-reply EMPTY history captured before
+  // the in-flight reply landed — so seeding from that first emission dropped a reply that completed
+  // while the panel was closed. `refetchOnMount: 'always'` forces a fresh fetch this mount (and we
+  // gate the seed on `isFetchedAfterMount` below, so the stale cache never seeds). `refetchOnWindow
+  // Focus` + a modest `refetchInterval` then keep an open drawer reconciled, so a reply landing
+  // after a mid-run reopen appears without re-toggling (matches Board's 3s project poll; this is a
+  // cheap today's-rows DB read and structural sharing keeps `history` stable when unchanged).
+  const { data: history, isFetchedAfterMount } = useQuery({
     queryKey: ['ask-history', projectId],
     queryFn: () => api.projects.askHistory(projectId),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: 3000,
   });
-
-  useEffect(() => {
-    if (seeded.current || !history) return;
-    seeded.current = true;
-    if (history.messages.length) {
-      // Restore the persisted suggestion (SYM-28) and attachments (SYM-35) so the draft-issue card
-      // and uploaded files survive a conversation switch (panel reopen / project switch).
-      setTurns(
-        history.messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-          suggestion: m.suggestion,
-          attachments: m.attachments,
-        })),
-      );
-    }
-  }, [history]);
 
   const reset = useMutation({
     mutationFn: () => api.projects.askReset(projectId),
-    onSuccess: () => {
+    onSuccess: async () => {
       setTurns([]);
+      // SYM-48: cancel any in-flight history fetch (the open-drawer poll) BEFORE refetching. A poll
+      // the server processed before this delete could otherwise resolve with the old turns and the
+      // reconcile below would resurrect the just-cleared conversation; cancelling discards its result
+      // so only the post-delete (empty) refetch lands.
+      await qc.cancelQueries({ queryKey: ['ask-history', projectId] });
       qc.invalidateQueries({ queryKey: ['ask-history', projectId] });
     },
     onError: (e) => toast.error(String(e)),
@@ -160,9 +168,9 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
       }),
     onSuccess: (res) => {
       setTurns((prev) => [...prev, { role: 'assistant', content: res.answer, suggestion: res.suggestion }]);
-      // The server just persisted this turn; refresh the cache so a later reopen reseeds it (the
-      // `seeded` guard keeps this refetch from stomping the current session's turns). Without it,
-      // a reopen within gcTime would seed stale cache and drop the conversation just had.
+      // The server just persisted both turns; refresh the cache so `history` matches the live turns
+      // (the SYM-48 reconcile no-ops while lengths are equal) and a later reopen reseeds from fresh
+      // data rather than stale cache.
       qc.invalidateQueries({ queryKey: ['ask-history', projectId] });
     },
     onError: (e) => {
@@ -171,6 +179,31 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
       setTurns((prev) => (prev[prev.length - 1]?.role === 'user' ? prev.slice(0, -1) : prev));
     },
   });
+
+  // SYM-48: seed + reconcile today's conversation from the SERVER, not the cache. Declared after
+  // `ask` so its `isPending` is in scope for the deps (a const referenced in deps before its own
+  // declaration would hit the temporal dead zone). `isFetchedAfterMount` is true only once a fetch
+  // completes during THIS mount, so the stale empty cache never wins the seed.
+  useEffect(() => {
+    if (!isFetchedAfterMount || !history) return;
+    if (!seeded.current) {
+      // First fresh fetch this open wins — even when empty — so a reply that completed while the
+      // panel was closed is restored instead of dropped (the SYM-48 acceptance criterion).
+      seeded.current = true;
+      setTurns(history.messages.map(toTurn));
+      return;
+    }
+    // Already seeded: adopt out-of-band growth (e.g. a reply that lands after a mid-run reopen)
+    // WITHOUT stomping an in-flight send. During an active ask the optimistic user turn (submit)
+    // is preserved; the happy path never reseeds because onSuccess already left turns.length ===
+    // history.length. A grow-only replace keeps things simple (the local `converted` flag is only
+    // lost on a genuine out-of-band reseed, which is acceptable).
+    if (!ask.isPending) {
+      setTurns((prev) =>
+        history.messages.length > prev.length ? history.messages.map(toTurn) : prev,
+      );
+    }
+  }, [history, isFetchedAfterMount, ask.isPending]);
 
   const convert = useMutation({
     mutationFn: (vars: { index: number; suggestion: AskSuggestion; status: IssueStatus }) =>

@@ -65,6 +65,11 @@ export async function runProjectAsk(
   // SYM-35: resolve any attached files to absolute Read-able paths for the prompt.
   const attachments = listAttachmentRefsByIds(req.attachment_ids ?? []);
 
+  // SYM-48 invariant: this run is intentionally NOT cancellable from the HTTP request. Do not thread
+  // an AbortSignal (e.g. the route's `c.req.raw.signal`) into the runner input — a client disconnect
+  // (the user closing the Ask panel before the reply lands) must NOT abort the in-flight reply. The
+  // answer is produced regardless and persisted on completion by the route handler, so a reopen
+  // reseeds it from GET /ask/history.
   const result = await runner({
     agent,
     cwd: project.repo_path,
@@ -108,6 +113,10 @@ askRoutes.post('/:id/ask', async (c) => {
     return c.json({ error: `too many attachments (max ${maxPerItem})` }, 400);
   }
 
+  // SYM-48: deliberately run to completion without binding `c.req.raw.signal` — closing the Ask
+  // panel mid-run disconnects the client but must not abort the reply. Both turns are persisted
+  // below regardless, so the next GET /ask/history (the panel's fresh-fetch reseed on reopen)
+  // returns them. See the matching invariant in runProjectAsk.
   try {
     const result = await runProjectAsk(project, {
       question,
