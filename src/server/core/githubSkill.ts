@@ -4,8 +4,11 @@ import type { ProjectSkillFile } from '../../shared/types';
 /**
  * Fetch a Claude Code skill (a SKILL.md) from GitHub (SYM-14). Accepts the common github.com link
  * shapes a user copies from the browser (blob/tree) plus raw.githubusercontent.com URLs, and
- * resolves them to the raw SKILL.md. The YAML front matter (name + description) is parsed out so
- * the skill can be stored + re-materialized with synthesized front matter later.
+ * resolves them to the raw SKILL.md. A bare repo URL — github.com/<owner>/<repo>, no /blob//tree/ —
+ * is also accepted (SYM-52): the default branch is resolved and the repo root then skills/ is probed
+ * for a SKILL.md, so a flat single-skill repo imports without a deep link. The YAML front matter
+ * (name + description) is parsed out so the skill can be stored + re-materialized with synthesized
+ * front matter later.
  */
 export interface FetchedSkill {
   name: string;
@@ -20,6 +23,8 @@ export interface FetchedSkill {
  * points at; `dir` is the repo-relative directory that CONTAINS that SKILL.md (used to list sibling
  * files); `isDirectory` is true when the URL did NOT already name a `.md` file — i.e. a /tree/ or
  * raw/blob folder link — which is the signal to fetch sibling files alongside SKILL.md (SYM-50).
+ * `bareRepo` (SYM-52) marks a github.com/<owner>/<repo> URL with no ref: `rawSkillUrl`/`ref` are
+ * empty because the default branch + skill directory are resolved later, in the async layer.
  */
 export interface GithubSkillRef {
   rawSkillUrl: string;
@@ -28,13 +33,17 @@ export interface GithubSkillRef {
   ref: string;
   dir: string;
   isDirectory: boolean;
+  /** SYM-52: a bare repo URL whose ref/path are resolved in the network layer (default branch + root/skills probe). */
+  bareRepo?: boolean;
 }
 
 /**
  * Resolve a GitHub URL into a {@link GithubSkillRef}:
  *   github.com/<o>/<r>/blob/<ref>/<path>           → raw.githubusercontent.com/<o>/<r>/<ref>/<path>
  *   github.com/<o>/<r>/tree/<ref>/<path/to/skill>  → …/<path/to/skill>/SKILL.md  (isDirectory)
+ *   github.com/<o>/<r>                             → bareRepo ref (default branch + root/skills resolved later)
  *   raw.githubusercontent.com/<o>/<r>/<ref>/<path> → unchanged (SKILL.md appended if a directory)
+ * Stays PURE/SYNC (no network) — the bare-repo default-branch lookup happens in fetchGithubSkill.
  * Throws on an unsupported host / shape.
  */
 export function parseGithubSkillRef(url: string): GithubSkillRef {
@@ -58,9 +67,23 @@ export function parseGithubSkillRef(url: string): GithubSkillRef {
   } else if (host === 'github.com' || host === 'www.github.com') {
     const parts = u.pathname.split('/').filter(Boolean);
     const [owner, repo, kind, ref, ...rest] = parts;
+    // SYM-52: a bare repo URL (github.com/<owner>/<repo>, no /blob//tree//raw/) resolves to a
+    // directory ref whose default branch + skill dir are filled in by the async layer. Tolerates a
+    // trailing slash (dropped by filter(Boolean) above) and a `.git` suffix on the repo.
+    if (owner && repo && !kind) {
+      return {
+        rawSkillUrl: '',
+        owner: decode(owner),
+        repo: decode(stripGitSuffix(repo)),
+        ref: '',
+        dir: '',
+        isDirectory: true,
+        bareRepo: true,
+      };
+    }
     if (!owner || !repo || !ref || !kind || !['blob', 'tree', 'raw'].includes(kind)) {
       throw new Error(
-        `unsupported GitHub URL: ${url} — expected a /blob/, /tree/ or /raw/ link to a skill`,
+        `unsupported GitHub URL: ${url} — expected a /blob/, /tree/ or /raw/ link to a skill, or a github.com/<owner>/<repo> repo URL`,
       );
     }
     segs = [owner, repo, ref, ...rest];
@@ -98,6 +121,11 @@ function decode(seg: string): string {
   }
 }
 
+/** Strip a trailing `.git` from a repo segment (a clone URL keeps it; the API path must not). */
+function stripGitSuffix(repo: string): string {
+  return repo.replace(/\.git$/i, '');
+}
+
 /**
  * Normalize a GitHub URL to the raw SKILL.md it points at. Thin wrapper over
  * {@link parseGithubSkillRef} kept for callers that only need the resolved URL string.
@@ -127,20 +155,56 @@ export interface FetchSkillOptions {
 }
 
 /**
- * Fetch + parse a skill. For a directory reference (a /tree/ or raw/blob folder link) it also lists
- * the skill directory via the GitHub contents API and pulls every non-SKILL.md sibling file into
- * `files` (relative paths preserved), so multi-file skills import completely (SYM-50). An explicit
- * `*.md` link stays single-file (`files` undefined). Uses the Node global fetch — the sibling-fetch
- * path is exercised offline via a stubbed fetch in tests; the real network path is verified manually.
+ * Sentinel for "the SKILL.md at this exact ref is a 404". Lets the bare-repo / marketplace fallbacks
+ * distinguish "try the next candidate location" from a real network/rate-limit error they must surface
+ * (SYM-52).
+ */
+export class SkillNotFoundError extends Error {
+  constructor(rawUrl: string) {
+    super(`SKILL.md not found at ${rawUrl}`);
+    this.name = 'SkillNotFoundError';
+  }
+}
+
+/**
+ * Fetch + parse a skill. For a directory reference (a /tree/ or raw/blob folder link, or a bare-repo
+ * root/skills probe) it also lists the skill directory via the GitHub contents API and pulls every
+ * non-SKILL.md sibling file into `files` (relative paths preserved), so multi-file skills import
+ * completely (SYM-50). An explicit `*.md` link stays single-file (`files` undefined). A bare repo URL
+ * (SYM-52) first resolves the default branch, then probes the repo root and `skills/` for a SKILL.md.
+ * Uses the Node global fetch — the sibling-fetch path is exercised offline via a stubbed fetch in
+ * tests; the real network path is verified manually.
  */
 export async function fetchGithubSkill(url: string, opts: FetchSkillOptions = {}): Promise<FetchedSkill> {
-  const ref = parseGithubSkillRef(url);
+  const parsed = parseGithubSkillRef(url);
+  if (parsed.bareRepo) {
+    // Bare github.com/<owner>/<repo>: resolve the default branch (one extra API call) then probe the
+    // repo root and skills/ for a flat single-skill layout (SYM-52).
+    const branch = await fetchDefaultBranch(parsed.owner, parsed.repo);
+    return fetchRepoLevelSkill(parsed.owner, parsed.repo, branch, url, opts);
+  }
+  // An explicit blob/tree/raw URL: a 404 here is the user's own link, surfaced as SkillNotFoundError.
+  return fetchSkillAtRef(parsed, url, opts);
+}
+
+/**
+ * Fetch + parse the SKILL.md named by `ref`, attaching sibling files for a directory ref. A 404 on
+ * the raw SKILL.md throws {@link SkillNotFoundError} (so fallbacks can move to the next candidate);
+ * network / other-non-ok failures keep the existing clear errors. `sourceUrl` is recorded verbatim as
+ * the skill's `source_url` (the URL the user actually provided, not the resolved raw URL).
+ */
+async function fetchSkillAtRef(
+  ref: GithubSkillRef,
+  sourceUrl: string,
+  opts: FetchSkillOptions,
+): Promise<FetchedSkill> {
   let res: Response;
   try {
     res = await fetch(ref.rawSkillUrl, { headers: { 'user-agent': 'symphony', accept: 'text/plain' } });
   } catch (e) {
     throw new Error(`could not reach ${ref.rawSkillUrl}: ${e instanceof Error ? e.message : String(e)}`);
   }
+  if (res.status === 404) throw new SkillNotFoundError(ref.rawSkillUrl);
   if (!res.ok) {
     throw new Error(`could not fetch skill from ${ref.rawSkillUrl}: ${res.status} ${res.statusText}`);
   }
@@ -155,7 +219,7 @@ export async function fetchGithubSkill(url: string, opts: FetchSkillOptions = {}
     name,
     description,
     content: stripFrontMatter(raw).trim(),
-    source_url: url.trim(),
+    source_url: sourceUrl.trim(),
   };
   // Only fetch siblings AFTER SKILL.md 200s, so a non-skill directory fails fast (and marketplace's
   // per-skill try/catch keeps skipping it). An explicit *.md link is single-file by design.
@@ -164,6 +228,55 @@ export async function fetchGithubSkill(url: string, opts: FetchSkillOptions = {}
     if (files.length) skill.files = files;
   }
   return skill;
+}
+
+/** Resolve a repo's default branch via the GitHub API (one request; the bare-repo path only, SYM-52). */
+async function fetchDefaultBranch(owner: string, repo: string): Promise<string> {
+  const res = await ghFetch(`${API}/repos/${seg(owner)}/${seg(repo)}`, 'application/vnd.github+json');
+  if (res.status === 404) throw new Error(`repository not found: ${owner}/${repo}`);
+  assertNotRateLimited(res);
+  if (!res.ok) {
+    throw new Error(`could not resolve ${owner}/${repo}: ${res.status} ${res.statusText}`);
+  }
+  const body = (await res.json()) as { default_branch?: unknown };
+  return typeof body.default_branch === 'string' && body.default_branch ? body.default_branch : 'main';
+}
+
+/** Build a directory {@link GithubSkillRef} for `<owner>/<repo>@<branch>/<dir>/SKILL.md` (SYM-52). */
+function dirRefAt(owner: string, repo: string, branch: string, dir: string): GithubSkillRef {
+  return {
+    rawSkillUrl: `${RAW}/${seg(owner)}/${seg(repo)}/${seg(branch)}${dir ? `/${encodePath(dir)}` : ''}/SKILL.md`,
+    owner,
+    repo,
+    ref: branch,
+    dir,
+    isDirectory: true,
+  };
+}
+
+/**
+ * Probe a bare repo for a flat single-skill layout: a SKILL.md at the repo root, else directly under
+ * skills/ (SYM-52). A skills/<name>/ multi-skill layout is NOT handled here — that routes through the
+ * marketplace resolver, which the error message points at.
+ */
+async function fetchRepoLevelSkill(
+  owner: string,
+  repo: string,
+  branch: string,
+  sourceUrl: string,
+  opts: FetchSkillOptions,
+): Promise<FetchedSkill> {
+  for (const dir of ['', 'skills']) {
+    try {
+      return await fetchSkillAtRef(dirRefAt(owner, repo, branch, dir), sourceUrl, opts);
+    } catch (e) {
+      if (e instanceof SkillNotFoundError) continue; // try the next candidate location
+      throw e; // a real network / rate-limit error must surface, not be swallowed
+    }
+  }
+  throw new Error(
+    `no SKILL.md found at the repo root or under skills/ in ${owner}/${repo}@${branch} — if this repo bundles multiple skills under skills/<name>/, use Install from Claude Code instead`,
+  );
 }
 
 interface ContentEntry {
@@ -215,7 +328,8 @@ async function fetchSkillSiblings(ref: GithubSkillRef, opts: FetchSkillOptions):
 
 /** Contents-API listing of one directory inside the skill's repo (404 → the dir is gone). */
 async function listDirEntries(ref: GithubSkillRef, dir: string): Promise<ContentEntry[]> {
-  const url = `${API}/repos/${seg(ref.owner)}/${seg(ref.repo)}/contents/${encodePath(dir)}?ref=${seg(ref.ref)}`;
+  // dir='' (a bare-repo root probe) maps to `/contents?ref=…` with no trailing slash (SYM-52).
+  const url = `${API}/repos/${seg(ref.owner)}/${seg(ref.repo)}/contents${dir ? `/${encodePath(dir)}` : ''}?ref=${seg(ref.ref)}`;
   const res = await ghFetch(url, 'application/vnd.github+json');
   if (res.status === 404) {
     throw new Error(`skill directory not found: ${dir} in ${ref.owner}/${ref.repo}@${ref.ref}`);
@@ -297,6 +411,9 @@ function deriveNameFromUrl(rawUrl: string): string {
 // marketplace resolver behave identically (SYM-50).
 
 export const API = 'https://api.github.com';
+
+/** raw.githubusercontent.com host for building raw SKILL.md URLs (shared with marketplaceSkill.ts). */
+export const RAW = 'https://raw.githubusercontent.com';
 
 /** A path segment encoder for owner/repo/ref values. */
 export const seg = (s: string): string => encodeURIComponent(s);

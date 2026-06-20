@@ -12,7 +12,7 @@ const env = setupEnv();
 const { parseGithubSkillUrl, parseGithubSkillRef, fetchGithubSkill, stripFrontMatter } = await import(
   '../src/server/core/githubSkill'
 );
-const { parseMarketplaceImport } = await import('../src/server/core/marketplaceSkill');
+const { parseMarketplaceImport, fetchMarketplaceSkills } = await import('../src/server/core/marketplaceSkill');
 const { buildSkillMarkdown, skillSlug, materializeSkills } = await import('../src/server/workspace/skills');
 const { createProject } = await import('../src/server/repo/projects');
 const { createProjectSkill, listProjectSkills } = await import('../src/server/repo/projectSkills');
@@ -64,7 +64,9 @@ test('parseGithubSkillUrl resolves common GitHub link shapes to a raw SKILL.md',
 test('parseGithubSkillUrl rejects unsupported URLs', () => {
   assert.throws(() => parseGithubSkillUrl('not a url'));
   assert.throws(() => parseGithubSkillUrl('https://example.com/skills/foo'));
-  assert.throws(() => parseGithubSkillUrl('https://github.com/o/r')); // no blob/tree/ref
+  assert.throws(() => parseGithubSkillUrl('https://github.com/o')); // owner only, no repo
+  // SYM-52: a bare repo URL no longer throws — it resolves to a bareRepo ref (empty rawSkillUrl).
+  assert.equal(parseGithubSkillUrl('https://github.com/o/r'), '');
 });
 
 // ── parseGithubSkillRef: directory-vs-file trigger (pure, offline) ────────────
@@ -86,6 +88,17 @@ test('parseGithubSkillRef flags folder links as directories and *.md links as si
 
   // A raw directory URL is also a directory reference.
   assert.equal(parseGithubSkillRef('https://raw.githubusercontent.com/o/r/main/skills/foo').isDirectory, true);
+});
+
+test('parseGithubSkillRef accepts a bare repo URL as a default-branch directory ref (SYM-52)', () => {
+  const bare = parseGithubSkillRef('https://github.com/nextlevelbuilder/ui-ux-pro-max-skill');
+  assert.deepEqual(
+    { bareRepo: bare.bareRepo, isDirectory: bare.isDirectory, owner: bare.owner, repo: bare.repo, ref: bare.ref, dir: bare.dir, rawSkillUrl: bare.rawSkillUrl },
+    { bareRepo: true, isDirectory: true, owner: 'nextlevelbuilder', repo: 'ui-ux-pro-max-skill', ref: '', dir: '', rawSkillUrl: '' },
+  );
+  // A trailing slash and a `.git` suffix are tolerated; a www. host works too.
+  assert.equal(parseGithubSkillRef('https://github.com/o/r.git/').repo, 'r');
+  assert.equal(parseGithubSkillRef('https://www.github.com/o/r').bareRepo, true);
 });
 
 // ── fetchGithubSkill: sibling-file import (offline via a stubbed fetch, SYM-50) ─
@@ -188,10 +201,98 @@ test('fetchGithubSkill enforces the max-file cap (a large repo cannot blow up an
   });
 });
 
+// ── fetchGithubSkill: bare repo URL → default branch + flat/root probe (offline, SYM-52) ──
+
+test('fetchGithubSkill on a bare repo URL resolves the default branch and imports the root SKILL.md', async () => {
+  const SKILL_MD = '---\nname: root-skill\ndescription: at the repo root\n---\n\nRoot body.';
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    // The repo's default branch is NOT main — the bare-repo path must honor it.
+    if (url === 'https://api.github.com/repos/o/r') {
+      return new Response(JSON.stringify({ default_branch: 'trunk' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/trunk/SKILL.md') {
+      return new Response(SKILL_MD, { status: 200 });
+    }
+    // Root contents listing has NO trailing slash before the query string (SYM-52).
+    if (url === 'https://api.github.com/repos/o/r/contents?ref=trunk') {
+      return new Response(
+        JSON.stringify([
+          { type: 'file', name: 'SKILL.md', path: 'SKILL.md', size: SKILL_MD.length, download_url: 'https://raw.githubusercontent.com/o/r/trunk/SKILL.md' },
+          { type: 'file', name: 'reference.md', path: 'reference.md', size: 8, download_url: 'https://raw.githubusercontent.com/o/r/trunk/reference.md' },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/trunk/reference.md') {
+      return new Response('ref body', { status: 200 });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const fetched = await fetchGithubSkill('https://github.com/o/r');
+    assert.equal(fetched.name, 'root-skill');
+    assert.equal(fetched.content, 'Root body.');
+    assert.equal(fetched.source_url, 'https://github.com/o/r'); // the user's URL, not the resolved raw
+    assert.deepEqual(fetched.files?.map((f) => f.path), ['reference.md']); // root siblings, SKILL.md excluded
+  });
+});
+
+test('fetchGithubSkill on a bare repo URL falls back to skills/SKILL.md when the root has none', async () => {
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/o/r') {
+      return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    // Root SKILL.md is a 404 → SkillNotFoundError → probe skills/SKILL.md next (no contents call at root).
+    if (url === 'https://raw.githubusercontent.com/o/r/main/SKILL.md') {
+      return new Response('not found', { status: 404 });
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/SKILL.md') {
+      return new Response('---\nname: flat\ndescription: under skills/\n---\n\nFlat body.', { status: 200 });
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents/skills?ref=main') {
+      return new Response(
+        JSON.stringify([
+          { type: 'file', name: 'SKILL.md', path: 'skills/SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/SKILL.md' },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const fetched = await fetchGithubSkill('https://github.com/o/r');
+    assert.equal(fetched.name, 'flat');
+    assert.equal(fetched.content, 'Flat body.');
+    assert.equal(fetched.files, undefined, 'only SKILL.md under skills/ → no sibling files');
+  });
+});
+
+test('fetchGithubSkill on a bare repo URL with no SKILL.md anywhere throws a clear error', async () => {
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/o/r') {
+      return new Response(JSON.stringify({ default_branch: 'main' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response('not found', { status: 404 }); // neither root nor skills/ has a SKILL.md
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    await assert.rejects(
+      fetchGithubSkill('https://github.com/o/r'),
+      /no SKILL\.md found at the repo root or under skills\/.*Install from Claude Code/s,
+    );
+  });
+});
+
 // ── parseMarketplaceImport (pure, offline) ───────────────────────────────────
-// Note: the marketplace network resolver fetchMarketplaceSkills() is still verified manually against a
-// real repo — only its pure parser and the route's 400 path run offline. fetchGithubSkill, by contrast,
-// IS exercised offline above via a stubbed globalThis.fetch (the SYM-50 sibling-file import path).
+// Note: the marketplace network resolver fetchMarketplaceSkills() is verified manually against a real
+// repo; only its pure parser, the route's 400 path, and the SYM-52 flat-fallback case (below) run
+// offline. fetchGithubSkill is likewise exercised offline via a stubbed globalThis.fetch (the SYM-50
+// sibling-file import and the SYM-52 bare-repo paths above).
 
 test('parseMarketplaceImport reads the two pasted /plugin commands', () => {
   const spec = parseMarketplaceImport(
@@ -227,6 +328,43 @@ test('parseMarketplaceImport throws on unparseable input', () => {
   assert.throws(() => parseMarketplaceImport('garbage'));
   // An install line alone names a marketplace, not a resolvable owner/repo.
   assert.throws(() => parseMarketplaceImport('/plugin install foo@bar'));
+});
+
+// ── fetchMarketplaceSkills: flat single-skill fallback (offline via stubbed fetch, SYM-52) ─
+
+test('fetchMarketplaceSkills falls back to a root SKILL.md when no skills/<name>/ dirs exist', async () => {
+  const MP = JSON.stringify({ name: 'mp', plugins: [{ name: 'p', source: '.' }] });
+  const SKILL = '---\nname: solo-plugin\ndescription: a flat single-skill plugin\n---\n\nFlat plugin body.';
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://raw.githubusercontent.com/o/r/main/.claude-plugin/marketplace.json') {
+      return new Response(MP, { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    // The plugin's skills/ dir has no <name>/ subdirs → collectSkills finds nothing.
+    if (url.startsWith('https://api.github.com/repos/o/r/contents/skills?ref=')) {
+      return new Response('not found', { status: 404 });
+    }
+    // Flat fallback: the plugin root (source '.') holds SKILL.md directly.
+    if (url === 'https://raw.githubusercontent.com/o/r/main/SKILL.md') {
+      return new Response(SKILL, { status: 200 });
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents?ref=main') {
+      return new Response(
+        JSON.stringify([
+          { type: 'file', name: 'SKILL.md', path: 'SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/SKILL.md' },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const skills = await fetchMarketplaceSkills({ owner: 'o', repo: 'r', plugin: 'p' });
+    assert.equal(skills.length, 1);
+    assert.equal(skills[0]!.name, 'solo-plugin');
+    assert.equal(skills[0]!.content, 'Flat plugin body.');
+  });
 });
 
 // ── front-matter helpers (pure, offline) ─────────────────────────────────────
