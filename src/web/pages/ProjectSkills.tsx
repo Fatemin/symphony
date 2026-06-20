@@ -44,10 +44,17 @@ export function ProjectSkills() {
 
   const importSkill = useMutation({
     mutationFn: () => api.projects.skills.import(projectId, importUrl.trim()),
-    onSuccess: (skill) => {
+    // SYM-58: a bare repo URL can import several skills, so mirror the install batch toast.
+    onSuccess: (result) => {
       invalidate();
       setImportUrl('');
-      toast.success(`Imported “${skill.name}”`);
+      const imported = result.imported.length;
+      const summary = `Imported ${imported} skill${imported === 1 ? '' : 's'}`;
+      if (result.skipped.length) {
+        toast.success(`${summary} · skipped ${result.skipped.length} (${result.skipped.map((s) => s.name).join(', ')})`);
+      } else {
+        toast.success(summary);
+      }
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -128,8 +135,9 @@ export function ProjectSkills() {
           <p className="mb-3 text-xs text-muted">
             Paste a link to a skill's <code>SKILL.md</code> (or its folder) on GitHub — a <code>blob</code>,{' '}
             <code>tree</code>, or <code>raw</code> URL. A bare repo URL like{' '}
-            <code>github.com/owner/repo</code> works too: its default branch is resolved and a{' '}
-            <code>SKILL.md</code> at the repo root or under <code>skills/</code> is imported.
+            <code>github.com/owner/repo</code> works too: its default branch is resolved and every{' '}
+            <code>SKILL.md</code> at the repo root, directly under <code>skills/</code>, or in{' '}
+            <code>skills/&lt;name&gt;/</code> subfolders is imported.
           </p>
           <div className="flex items-start gap-2">
             <div className="flex-1">

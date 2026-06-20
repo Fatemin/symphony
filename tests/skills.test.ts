@@ -12,7 +12,9 @@ const env = setupEnv();
 const { parseGithubSkillUrl, parseGithubSkillRef, fetchGithubSkill, stripFrontMatter } = await import(
   '../src/server/core/githubSkill'
 );
-const { parseMarketplaceImport, fetchMarketplaceSkills } = await import('../src/server/core/marketplaceSkill');
+const { parseMarketplaceImport, fetchMarketplaceSkills, fetchRepoSkills } = await import(
+  '../src/server/core/marketplaceSkill'
+);
 const { buildSkillMarkdown, skillSlug, materializeSkills } = await import('../src/server/workspace/skills');
 const { createProject } = await import('../src/server/repo/projects');
 const { createProjectSkill, listProjectSkills } = await import('../src/server/repo/projectSkills');
@@ -36,6 +38,10 @@ async function withFetch(stub: typeof globalThis.fetch, fn: () => Promise<void>)
     globalThis.fetch = real;
   }
 }
+
+/** A JSON 200 Response (the GitHub repo-metadata / contents-listing shape). */
+const ghJson = (data: unknown) =>
+  new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
 
 // ── parseGithubSkillUrl (pure, offline) ──────────────────────────────────────
 
@@ -282,8 +288,10 @@ test('fetchGithubSkill on a bare repo URL with no SKILL.md anywhere throws a cle
 
   await withFetch(stub, async () => {
     await assert.rejects(
+      // SYM-58: the shared terminal error names every layout tried + the GITHUB_TOKEN remedy (and no
+      // longer points at "Install from Claude Code" — the bare URL now resolves skills/<name>/ itself).
       fetchGithubSkill('https://github.com/o/r'),
-      /no SKILL\.md found at the repo root or under skills\/.*Install from Claude Code/s,
+      /no SKILL\.md found in o\/r@main — tried the repo root, skills\/SKILL\.md, and skills\/<name>\/ subdirectories.*GITHUB_TOKEN/s,
     );
   });
 });
@@ -364,6 +372,120 @@ test('fetchMarketplaceSkills falls back to a root SKILL.md when no skills/<name>
     assert.equal(skills.length, 1);
     assert.equal(skills[0]!.name, 'solo-plugin');
     assert.equal(skills[0]!.content, 'Flat plugin body.');
+  });
+});
+
+// ── fetchRepoSkills: bare repo URL → unified root / flat / skills/<name>/ resolver (offline, SYM-58) ─
+
+const skillMd = (name: string) => `---\nname: ${name}\ndescription: ${name} skill\n---\n\n${name} body.`;
+
+test('fetchRepoSkills imports every skill under skills/<name>/ for a bare repo URL (SYM-58)', async () => {
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/o/r') return ghJson({ default_branch: 'main' });
+    // The flat probe finds nothing at the root or directly under skills/ → fall through to skills/<name>/.
+    if (url === 'https://raw.githubusercontent.com/o/r/main/SKILL.md') return new Response('nf', { status: 404 });
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/SKILL.md') return new Response('nf', { status: 404 });
+    // collectSkills lists skills/ and finds two <name>/ subdirs, each with its own SKILL.md.
+    if (url === 'https://api.github.com/repos/o/r/contents/skills?ref=main') {
+      return ghJson([
+        { type: 'dir', name: 'alpha', path: 'skills/alpha', html_url: 'https://github.com/o/r/tree/main/skills/alpha' },
+        { type: 'dir', name: 'beta', path: 'skills/beta', html_url: 'https://github.com/o/r/tree/main/skills/beta' },
+      ]);
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/alpha/SKILL.md') return new Response(skillMd('alpha'), { status: 200 });
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/beta/SKILL.md') return new Response(skillMd('beta'), { status: 200 });
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/alpha?ref=main') {
+      return ghJson([{ type: 'file', name: 'SKILL.md', path: 'skills/alpha/SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/alpha/SKILL.md' }]);
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/beta?ref=main') {
+      return ghJson([{ type: 'file', name: 'SKILL.md', path: 'skills/beta/SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/beta/SKILL.md' }]);
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const skills = await fetchRepoSkills('o', 'r', 'https://github.com/o/r');
+    assert.deepEqual(skills.map((s) => s.name).sort(), ['alpha', 'beta']);
+    // Each skill's source_url is its resolved tree URL (the subdir), not the bare repo URL.
+    assert.ok(skills.every((s) => /skills\/(alpha|beta)$/.test(s.source_url)));
+    // SKILL.md-only subdirs carry no extra sibling files.
+    assert.ok(skills.every((s) => s.files === undefined));
+  });
+});
+
+test('fetchRepoSkills returns the flat root skill before listing skills/<name>/ (SYM-58)', async () => {
+  let listedSkillsDir = false;
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/o/r') return ghJson({ default_branch: 'main' });
+    if (url === 'https://raw.githubusercontent.com/o/r/main/SKILL.md') return new Response(skillMd('root'), { status: 200 });
+    if (url === 'https://api.github.com/repos/o/r/contents?ref=main') {
+      return ghJson([{ type: 'file', name: 'SKILL.md', path: 'SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/SKILL.md' }]);
+    }
+    if (url.startsWith('https://api.github.com/repos/o/r/contents/skills?ref=')) {
+      listedSkillsDir = true;
+      return new Response('[]', { status: 200 });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const skills = await fetchRepoSkills('o', 'r', 'https://github.com/o/r');
+    assert.equal(skills.length, 1);
+    assert.equal(skills[0]!.name, 'root');
+    assert.equal(skills[0]!.source_url, 'https://github.com/o/r'); // the bare URL the user pasted
+    assert.equal(listedSkillsDir, false, 'a flat root skill short-circuits before the skills/<name>/ listing');
+  });
+});
+
+test('fetchRepoSkills throws the layouts + GITHUB_TOKEN error when a bare repo has no skill (SYM-58)', async () => {
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/o/r') return ghJson({ default_branch: 'main' });
+    return new Response('not found', { status: 404 }); // no flat SKILL.md and no skills/<name>/ subdirs
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    await assert.rejects(
+      fetchRepoSkills('o', 'r', 'https://github.com/o/r'),
+      /no SKILL\.md found in o\/r@main — tried the repo root, skills\/SKILL\.md, and skills\/<name>\/ subdirectories.*GITHUB_TOKEN/s,
+    );
+  });
+});
+
+test('POST /skills/import on a bare repo URL imports every skills/<name>/ skill and returns the batch result (SYM-58)', async () => {
+  const project = createProject({ name: 'Bare Import', key: 'BI', repo_path: env.repoPath });
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/o/r') return ghJson({ default_branch: 'main' });
+    if (url === 'https://raw.githubusercontent.com/o/r/main/SKILL.md') return new Response('nf', { status: 404 });
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/SKILL.md') return new Response('nf', { status: 404 });
+    if (url === 'https://api.github.com/repos/o/r/contents/skills?ref=main') {
+      return ghJson([
+        { type: 'dir', name: 'alpha', path: 'skills/alpha', html_url: 'https://github.com/o/r/tree/main/skills/alpha' },
+        { type: 'dir', name: 'beta', path: 'skills/beta', html_url: 'https://github.com/o/r/tree/main/skills/beta' },
+      ]);
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/alpha/SKILL.md') return new Response(skillMd('alpha'), { status: 200 });
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/beta/SKILL.md') return new Response(skillMd('beta'), { status: 200 });
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/alpha?ref=main') {
+      return ghJson([{ type: 'file', name: 'SKILL.md', path: 'skills/alpha/SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/alpha/SKILL.md' }]);
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/beta?ref=main') {
+      return ghJson([{ type: 'file', name: 'SKILL.md', path: 'skills/beta/SKILL.md', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/beta/SKILL.md' }]);
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const res = await projectRoutes.request(`/${project.id}/skills/import`, json({ url: 'https://github.com/o/r' }));
+    assert.equal(res.status, 201);
+    const result = (await res.json()) as { imported: { name: string; source: string }[]; skipped: unknown[] };
+    assert.deepEqual(result.imported.map((s) => s.name).sort(), ['alpha', 'beta']);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(result.imported.every((s) => s.source === 'github'), 'imported skills keep the github source');
+    assert.equal(listProjectSkills(project.id).length, 2, 'both skills are persisted under the project');
   });
 });
 

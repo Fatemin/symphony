@@ -9,6 +9,13 @@ import type { ProjectSkillFile } from '../../shared/types';
  * for a SKILL.md, so a flat single-skill repo imports without a deep link. The YAML front matter
  * (name + description) is parsed out so the skill can be stored + re-materialized with synthesized
  * front matter later.
+ *
+ * SYM-58: this module owns the FLAT bare-repo probe only — {@link fetchRepoLevelSkill} now returns
+ * `null` (not a throw) when neither the repo root nor skills/ holds a SKILL.md, so a caller can fall
+ * through to the `skills/<name>/` multi-skill layout. That fallback (and the unified
+ * "import every skill in a bare repo" resolver) lives in marketplaceSkill.ts#fetchRepoSkills, which
+ * reuses the exported {@link fetchDefaultBranch} / {@link fetchRepoLevelSkill} / {@link noRepoSkillError}
+ * helpers — keeping the marketplace `collectSkills` reuse one-directional to avoid a circular import.
  */
 export interface FetchedSkill {
   name: string;
@@ -179,9 +186,13 @@ export async function fetchGithubSkill(url: string, opts: FetchSkillOptions = {}
   const parsed = parseGithubSkillRef(url);
   if (parsed.bareRepo) {
     // Bare github.com/<owner>/<repo>: resolve the default branch (one extra API call) then probe the
-    // repo root and skills/ for a flat single-skill layout (SYM-52).
+    // repo root and skills/ for a flat single-skill layout (SYM-52). This direct entry point stays
+    // SINGLE-skill (the SYM-52 contract) — a null flat probe throws here rather than fanning out to
+    // skills/<name>/; the multi-skill resolver is marketplaceSkill.ts#fetchRepoSkills (SYM-58).
     const branch = await fetchDefaultBranch(parsed.owner, parsed.repo);
-    return fetchRepoLevelSkill(parsed.owner, parsed.repo, branch, url, opts);
+    const flat = await fetchRepoLevelSkill(parsed.owner, parsed.repo, branch, url, opts);
+    if (flat) return flat;
+    throw noRepoSkillError(parsed.owner, parsed.repo, branch);
   }
   // An explicit blob/tree/raw URL: a 404 here is the user's own link, surfaced as SkillNotFoundError.
   return fetchSkillAtRef(parsed, url, opts);
@@ -230,8 +241,12 @@ async function fetchSkillAtRef(
   return skill;
 }
 
-/** Resolve a repo's default branch via the GitHub API (one request; the bare-repo path only, SYM-52). */
-async function fetchDefaultBranch(owner: string, repo: string): Promise<string> {
+/**
+ * Resolve a repo's default branch via the GitHub API (one request; the bare-repo path, SYM-52).
+ * Exported (SYM-58) so marketplaceSkill.ts#fetchRepoSkills resolves the branch once and reuses it for
+ * both the flat probe and the skills/<name>/ listing.
+ */
+export async function fetchDefaultBranch(owner: string, repo: string): Promise<string> {
   const res = await ghFetch(`${API}/repos/${seg(owner)}/${seg(repo)}`, 'application/vnd.github+json');
   if (res.status === 404) throw new Error(`repository not found: ${owner}/${repo}`);
   assertNotRateLimited(res);
@@ -256,16 +271,18 @@ function dirRefAt(owner: string, repo: string, branch: string, dir: string): Git
 
 /**
  * Probe a bare repo for a flat single-skill layout: a SKILL.md at the repo root, else directly under
- * skills/ (SYM-52). A skills/<name>/ multi-skill layout is NOT handled here — that routes through the
- * marketplace resolver, which the error message points at.
+ * skills/ (SYM-52). Returns `null` (SYM-58) — NOT a throw — when neither location holds a SKILL.md, so
+ * the caller can fall through to the `skills/<name>/` multi-skill layout (handled by
+ * marketplaceSkill.ts#fetchRepoSkills). A real network / rate-limit error still throws. Exported so the
+ * marketplace resolver shares this exact flat probe.
  */
-async function fetchRepoLevelSkill(
+export async function fetchRepoLevelSkill(
   owner: string,
   repo: string,
   branch: string,
   sourceUrl: string,
   opts: FetchSkillOptions,
-): Promise<FetchedSkill> {
+): Promise<FetchedSkill | null> {
   for (const dir of ['', 'skills']) {
     try {
       return await fetchSkillAtRef(dirRefAt(owner, repo, branch, dir), sourceUrl, opts);
@@ -274,8 +291,20 @@ async function fetchRepoLevelSkill(
       throw e; // a real network / rate-limit error must surface, not be swallowed
     }
   }
-  throw new Error(
-    `no SKILL.md found at the repo root or under skills/ in ${owner}/${repo}@${branch} — if this repo bundles multiple skills under skills/<name>/, use Install from Claude Code instead`,
+  return null; // no flat SKILL.md — the caller decides whether to probe skills/<name>/ or give up
+}
+
+/**
+ * The terminal "this bare repo holds no skill" error (SYM-58), shared by {@link fetchGithubSkill}'s
+ * single-skill bare-repo path and marketplaceSkill.ts#fetchRepoSkills so both name the same set of
+ * layouts tried (repo root, skills/SKILL.md, skills/<name>/ subdirs) and the GITHUB_TOKEN rate-limit
+ * remedy — repeated probes burn the ~60/hr unauthenticated GitHub budget.
+ */
+export function noRepoSkillError(owner: string, repo: string, branch: string): Error {
+  return new Error(
+    `no SKILL.md found in ${owner}/${repo}@${branch} — tried the repo root, skills/SKILL.md, and ` +
+      `skills/<name>/ subdirectories. If GitHub is rate-limiting these probes, set GITHUB_TOKEN to ` +
+      `raise the ~60 requests/hour unauthenticated limit.`,
   );
 }
 

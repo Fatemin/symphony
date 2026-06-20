@@ -1,7 +1,11 @@
 import {
   fetchGithubSkill,
+  fetchDefaultBranch,
+  fetchRepoLevelSkill,
+  noRepoSkillError,
   SkillNotFoundError,
   type FetchedSkill,
+  type FetchSkillOptions,
   API,
   RAW,
   ghFetch,
@@ -20,6 +24,11 @@ import {
  * `parseMarketplaceImport` turns that paste (or a bare `owner/repo`, or a github repo URL) into a
  * `MarketplaceSpec`; `fetchMarketplaceSkills` resolves it against the repo's
  * `.claude-plugin/marketplace.json` and returns one FetchedSkill per `<pluginRoot>/skills/<slug>`.
+ *
+ * SYM-58: `fetchRepoSkills` unifies the bare-repo "Import from GitHub" path with this resolver — a
+ * pasted `github.com/<owner>/<repo>` URL now imports EVERY skill regardless of layout (root,
+ * flat `skills/`, or `skills/<name>/` subdirs), reusing `githubSkill.ts`'s flat probe + this module's
+ * existing `collectSkills`.
  */
 
 export interface MarketplaceSpec {
@@ -183,6 +192,33 @@ export async function fetchMarketplaceSkills(spec: MarketplaceSpec): Promise<Fet
     );
   }
   return dedupeByName(all);
+}
+
+/**
+ * SYM-58: resolve a bare `github.com/<owner>/<repo>` URL to ALL of its skills, unifying the three
+ * layouts the two import panels previously each covered separately:
+ *   (1) a flat single-skill layout — a SKILL.md at the repo root or directly under skills/
+ *       (`fetchRepoLevelSkill`, the same probe the SYM-52 single-skill import uses);
+ *   (2) a `skills/<name>/` multi-skill layout — `collectSkills` lists every subdir and pulls its
+ *       SKILL.md + sibling files (skipping non-skill dirs);
+ *   (3) else `noRepoSkillError` — names the layouts tried + the GITHUB_TOKEN remedy.
+ * The default branch is resolved ONCE and threaded through both probes. This lives here (not inside
+ * `fetchRepoLevelSkill`) so the flat probe can reuse `collectSkills` without githubSkill.ts importing
+ * back into this module — a circular import. Returns every resolved skill so a single pasted repo URL
+ * surfaces multi-skill repos; the route collects per-skill duplicates into `skipped`.
+ */
+export async function fetchRepoSkills(
+  owner: string,
+  repo: string,
+  sourceUrl: string,
+  opts: FetchSkillOptions = {},
+): Promise<FetchedSkill[]> {
+  const branch = await fetchDefaultBranch(owner, repo);
+  const flat = await fetchRepoLevelSkill(owner, repo, branch, sourceUrl, opts);
+  if (flat) return [flat];
+  const nested = await collectSkills(owner, repo, 'skills', [branch]);
+  if (nested.length) return dedupeByName(nested);
+  throw noRepoSkillError(owner, repo, branch);
 }
 
 /** Map a plugin's `source` to a {owner, repo, path}. Handles "./"/path strings and a github object. */
