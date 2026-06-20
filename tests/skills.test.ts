@@ -9,7 +9,9 @@ import { setupEnv } from './helpers/env';
 // Env must be set before importing any server module (they read paths from env at import).
 const env = setupEnv();
 
-const { parseGithubSkillUrl, stripFrontMatter } = await import('../src/server/core/githubSkill');
+const { parseGithubSkillUrl, parseGithubSkillRef, fetchGithubSkill, stripFrontMatter } = await import(
+  '../src/server/core/githubSkill'
+);
 const { parseMarketplaceImport } = await import('../src/server/core/marketplaceSkill');
 const { buildSkillMarkdown, skillSlug, materializeSkills } = await import('../src/server/workspace/skills');
 const { createProject } = await import('../src/server/repo/projects');
@@ -23,6 +25,17 @@ const json = (body: unknown, method = 'POST') => ({
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 });
+
+/** Run `fn` with `globalThis.fetch` replaced by `stub`, always restoring the real fetch after. */
+async function withFetch(stub: typeof globalThis.fetch, fn: () => Promise<void>): Promise<void> {
+  const real = globalThis.fetch;
+  globalThis.fetch = stub;
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
 
 // ── parseGithubSkillUrl (pure, offline) ──────────────────────────────────────
 
@@ -54,9 +67,131 @@ test('parseGithubSkillUrl rejects unsupported URLs', () => {
   assert.throws(() => parseGithubSkillUrl('https://github.com/o/r')); // no blob/tree/ref
 });
 
+// ── parseGithubSkillRef: directory-vs-file trigger (pure, offline) ────────────
+
+test('parseGithubSkillRef flags folder links as directories and *.md links as single files', () => {
+  // A /tree/ folder link → directory: list siblings under skills/foo.
+  const tree = parseGithubSkillRef('https://github.com/o/r/tree/main/skills/foo');
+  assert.equal(tree.isDirectory, true);
+  assert.deepEqual(
+    { owner: tree.owner, repo: tree.repo, ref: tree.ref, dir: tree.dir },
+    { owner: 'o', repo: 'r', ref: 'main', dir: 'skills/foo' },
+  );
+  assert.equal(tree.rawSkillUrl, 'https://raw.githubusercontent.com/o/r/main/skills/foo/SKILL.md');
+
+  // An explicit blob/.../SKILL.md → NOT a directory; dir is the parent that holds any siblings.
+  const blob = parseGithubSkillRef('https://github.com/o/r/blob/main/skills/foo/SKILL.md');
+  assert.equal(blob.isDirectory, false);
+  assert.equal(blob.dir, 'skills/foo');
+
+  // A raw directory URL is also a directory reference.
+  assert.equal(parseGithubSkillRef('https://raw.githubusercontent.com/o/r/main/skills/foo').isDirectory, true);
+});
+
+// ── fetchGithubSkill: sibling-file import (offline via a stubbed fetch, SYM-50) ─
+
+test('fetchGithubSkill on a /tree/ folder imports SKILL.md plus nested sibling files', async () => {
+  const SKILL_MD = '---\nname: foo\ndescription: A multi-file skill\n---\n\nUse the references.';
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/foo/SKILL.md') {
+      return new Response(SKILL_MD, { status: 200 });
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/foo?ref=main') {
+      return new Response(
+        JSON.stringify([
+          // The top-level SKILL.md is listed too — it must NOT be duplicated into files.
+          { type: 'file', name: 'SKILL.md', path: 'skills/foo/SKILL.md', size: SKILL_MD.length, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/foo/SKILL.md' },
+          { type: 'file', name: 'reference.md', path: 'skills/foo/reference.md', size: 17, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/foo/reference.md' },
+          { type: 'dir', name: 'scripts', path: 'skills/foo/scripts', size: 0, download_url: null },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/foo/scripts?ref=main') {
+      return new Response(
+        JSON.stringify([
+          { type: 'file', name: 'build.sh', path: 'skills/foo/scripts/build.sh', size: 10, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/foo/scripts/build.sh' },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/foo/reference.md') {
+      return new Response('reference content', { status: 200 });
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/foo/scripts/build.sh') {
+      return new Response('echo build', { status: 200 });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const fetched = await fetchGithubSkill('https://github.com/o/r/tree/main/skills/foo');
+    assert.equal(fetched.name, 'foo');
+    assert.equal(fetched.content, 'Use the references.'); // SKILL.md body, front matter stripped
+    assert.ok(fetched.files, 'sibling files are populated for a folder import');
+    const byPath = Object.fromEntries(fetched.files!.map((f) => [f.path, f.content]));
+    assert.deepEqual(Object.keys(byPath).sort(), ['reference.md', 'scripts/build.sh']);
+    assert.equal(byPath['reference.md'], 'reference content');
+    assert.equal(byPath['scripts/build.sh'], 'echo build'); // nested path preserved
+    // SKILL.md is the `content`, never re-imported as a sibling file.
+    assert.ok(!fetched.files!.some((f) => /skill\.md/i.test(f.path)));
+  });
+});
+
+test('fetchGithubSkill on an explicit SKILL.md URL stays single-file (no contents-API call)', async () => {
+  let listedContents = false;
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('api.github.com')) {
+      listedContents = true;
+      return new Response('[]', { status: 200 });
+    }
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/solo/SKILL.md') {
+      return new Response('---\nname: solo\ndescription: Just one file\n---\n\nSolo body.', { status: 200 });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    const fetched = await fetchGithubSkill('https://github.com/o/r/blob/main/skills/solo/SKILL.md');
+    assert.equal(fetched.content, 'Solo body.');
+    assert.equal(fetched.files, undefined, 'an explicit .md import has no extra files');
+    assert.equal(listedContents, false, 'an explicit .md URL must never hit the contents API');
+  });
+});
+
+test('fetchGithubSkill enforces the max-file cap (a large repo cannot blow up an import)', async () => {
+  const stub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === 'https://raw.githubusercontent.com/o/r/main/skills/big/SKILL.md') {
+      return new Response('---\nname: big\ndescription: many files\n---\n\nbody', { status: 200 });
+    }
+    if (url === 'https://api.github.com/repos/o/r/contents/skills/big?ref=main') {
+      return new Response(
+        JSON.stringify([
+          { type: 'file', name: 'a.md', path: 'skills/big/a.md', size: 5, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/big/a.md' },
+          { type: 'file', name: 'b.md', path: 'skills/big/b.md', size: 5, download_url: 'https://raw.githubusercontent.com/o/r/main/skills/big/b.md' },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (/\/skills\/big\/[ab]\.md$/.test(url)) return new Response('x', { status: 200 });
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  await withFetch(stub, async () => {
+    await assert.rejects(
+      fetchGithubSkill('https://github.com/o/r/tree/main/skills/big', { maxFiles: 1 }),
+      /more than 1 files/,
+    );
+  });
+});
+
 // ── parseMarketplaceImport (pure, offline) ───────────────────────────────────
-// Note: the network resolver fetchMarketplaceSkills() is verified manually against a real repo,
-// like fetchGithubSkill — only the pure parser and the route's 400 path are exercised offline.
+// Note: the marketplace network resolver fetchMarketplaceSkills() is still verified manually against a
+// real repo — only its pure parser and the route's 400 path run offline. fetchGithubSkill, by contrast,
+// IS exercised offline above via a stubbed globalThis.fetch (the SYM-50 sibling-file import path).
 
 test('parseMarketplaceImport reads the two pasted /plugin commands', () => {
   const spec = parseMarketplaceImport(
@@ -174,6 +309,30 @@ test('materializeSkills cleans up its own skills when none remain, but leaves a 
   } finally {
     fs.rmSync(owned, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('materializeSkills writes nested extra files preserving their relative paths', async () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'symphony-skills-'));
+  gitInit(worktree);
+  try {
+    await materializeSkills(worktree, [
+      mkSkill({
+        name: 'Multi',
+        content: 'body',
+        files: [
+          { path: 'reference.md', content: 'ref body' },
+          { path: 'scripts/build.sh', content: 'echo build' },
+        ],
+      }),
+    ]);
+    const base = path.join(worktree, '.claude', 'skills', 'multi');
+    assert.ok(fs.existsSync(path.join(base, 'SKILL.md')), 'SKILL.md is written');
+    assert.equal(fs.readFileSync(path.join(base, 'reference.md'), 'utf8'), 'ref body');
+    // The nested directory from the relative path is created.
+    assert.equal(fs.readFileSync(path.join(base, 'scripts', 'build.sh'), 'utf8'), 'echo build');
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
   }
 });
 
