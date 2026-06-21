@@ -142,8 +142,9 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   names preserved), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
   `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
   `Select` (focus ring + `aria-invalid`), `Spinner`, plus `Modal` + `useModalDialog` (native `<dialog>`:
-  focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the `AskPanel` drawer, the
-  `PathField` picker, and IssueDetail's request-changes dialog all build on it), `PageHeader`,
+  focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the Board's New-issue form
+  (SYM-65), the `AskPanel` drawer, the `PathField` picker, and IssueDetail's request-changes dialog
+  all build on it), `PageHeader`,
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
   responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
   spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live

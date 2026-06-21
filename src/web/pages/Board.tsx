@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Ban, Check, CheckSquare, ChevronDown, ChevronRight, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
+import { Ban, Check, CheckSquare, ChevronDown, ChevronRight, FilePlus2, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
 import type { Attachment, BoardIssue, Issue, IssueStatus } from '../../shared/types';
 import { api, THINKING_EFFORT_OPTIONS, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, Field, Input, Loading, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
+import { Badge, Button, Field, Input, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
 import { PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
@@ -182,7 +182,7 @@ export function Board() {
                 <Ban className="h-4 w-4" /> Cancelled {cancelledIssues.length}
               </Button>
             )}
-            <Button variant="primary" onClick={() => setOpen((v) => !v)}>
+            <Button variant="primary" onClick={() => setOpen(true)}>
               <Plus className="h-4 w-4" /> New issue
             </Button>
           </>
@@ -191,7 +191,16 @@ export function Board() {
 
       <ProjectTabs projectId={project.id} />
 
-      {open && <NewIssueForm projectId={project.id} onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ['project', id] }); }} />}
+      {open && (
+        <NewIssueForm
+          projectId={project.id}
+          onClose={() => setOpen(false)}
+          onCreated={() => {
+            setOpen(false);
+            qc.invalidateQueries({ queryKey: ['project', id] });
+          }}
+        />
+      )}
 
       <div className="flex flex-1 gap-3 overflow-x-auto">
         {(() => {
@@ -398,7 +407,21 @@ function IssueCard({
   );
 }
 
-function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => void }) {
+// SYM-65: the "create issue" card. Redesigned onto the shared `Modal` dialog primitive (matching
+// ApproveDialog / the request-changes dialog) so it no longer shoves the board down on open and gets
+// focus-trap + Escape + scroll-lock + focus-restore for free. The body is a real <form> grouped into
+// "what" (title/type/priority/description/AC/attachments) and a labeled "Execution" fieldset
+// (mode/status/thinking effort) so the secondary run-controls stay tidy instead of crowding the
+// primary fields. The contract is unchanged — same `api.issues.create` payload.
+function NewIssueForm({
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [form, setForm] = useState({
     title: '',
     type: 'feature',
@@ -415,7 +438,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
     mutationFn: () =>
       api.issues.create({
         project_id: projectId,
-        title: form.title,
+        title: form.title.trim(),
         type: form.type as Issue['type'],
         priority: form.priority as Issue['priority'],
         mode: form.mode as Issue['mode'],
@@ -427,84 +450,126 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
       }),
     onSuccess: () => {
       toast.success('Issue created');
-      onDone();
+      onCreated();
     },
     onError: (e) => toast.error(String(e)),
   });
 
+  const canSubmit = form.title.trim().length > 0 && !create.isPending;
+  const submit = () => {
+    if (canSubmit) create.mutate();
+  };
+  // Mid-create the dialog can't be dismissed (matches the disabled controls): Escape / backdrop /
+  // close + Cancel all no-op while the mutation is in flight, so a half-built issue can't be lost.
+  const close = () => {
+    if (!create.isPending) onClose();
+  };
+
   return (
-    <Panel className="anim-card-in mb-5 p-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="col-span-2 sm:col-span-4">
-          <Field label="Title">
-            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="What needs to be done?" autoFocus />
+    <Modal
+      onClose={close}
+      size="lg"
+      icon={<FilePlus2 className="h-4 w-4 text-indigo-300" />}
+      title="New issue"
+      footer={
+        <>
+          <span className="mr-auto hidden self-center text-xs text-subtle sm:block">⌘/Ctrl + Enter to create</span>
+          <Button onClick={close} disabled={create.isPending}>Cancel</Button>
+          <Button type="submit" form="new-issue-form" variant="primary" disabled={!canSubmit} loading={create.isPending}>
+            Create issue
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="new-issue-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        // Power-user submit from anywhere in the form (incl. the textareas, where plain Enter is a newline).
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        className="space-y-4"
+      >
+        <Field label="Title" required>
+          <Input
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            placeholder="What needs to be done?"
+            autoFocus
+            required
+          />
+        </Field>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Type">
+            <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              <option value="feature">feature</option>
+              <option value="bug">bug</option>
+              <option value="chore">chore</option>
+              <option value="epic">epic</option>
+            </Select>
+          </Field>
+          <Field label="Priority">
+            <Select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}>
+              <option value={1}>Urgent</option>
+              <option value={2}>High</option>
+              <option value={3}>Medium</option>
+              <option value={4}>Low</option>
+              <option value={0}>None</option>
+            </Select>
           </Field>
         </div>
-        <Field label="Type">
-          <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-            <option value="feature">feature</option>
-            <option value="bug">bug</option>
-            <option value="chore">chore</option>
-            <option value="epic">epic</option>
-          </Select>
+
+        <Field label="Description">
+          <Textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Context, links, or anything the agent should know…" />
         </Field>
-        <Field label="Priority">
-          <Select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}>
-            <option value={1}>Urgent</option>
-            <option value={2}>High</option>
-            <option value={3}>Medium</option>
-            <option value={4}>Low</option>
-            <option value={0}>None</option>
-          </Select>
+        <Field label="Acceptance criteria">
+          <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- …" />
         </Field>
-        <Field label="Mode">
-          <Select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
-            <option value="manual">manual (run by hand)</option>
-            <option value="auto">auto (orchestrator picks up)</option>
-          </Select>
+
+        <Field label="Attachments" hint="Paste a screenshot, drop a file, or choose one — agents read them while building.">
+          <AttachmentInput
+            projectId={projectId}
+            value={attachments}
+            onChange={setAttachments}
+            disabled={create.isPending}
+          />
         </Field>
-        <Field label="Initial status">
-          <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="backlog">backlog</option>
-            <option value="todo">todo</option>
-          </Select>
-        </Field>
-        {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
-        <Field label="Thinking effort">
-          <Select value={form.thinking_effort} onChange={(e) => setForm({ ...form, thinking_effort: e.target.value })}>
-            <option value="">inherit (project default)</option>
-            {THINKING_EFFORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </Select>
-        </Field>
-        <div className="col-span-2">
-          <Field label="Description">
-            <Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          </Field>
-        </div>
-        <div className="col-span-2">
-          <Field label="Acceptance criteria">
-            <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- …" />
-          </Field>
-        </div>
-        <div className="col-span-2 sm:col-span-4">
-          <Field label="Attachments" hint="Paste a screenshot, drop a file, or choose one — agents read them while building.">
-            <AttachmentInput
-              projectId={projectId}
-              value={attachments}
-              onChange={setAttachments}
-              disabled={create.isPending}
-            />
-          </Field>
-        </div>
-      </div>
-      <div className="mt-3 flex justify-end gap-2">
-        <Button onClick={onDone}>Cancel</Button>
-        <Button variant="primary" disabled={!form.title || create.isPending} loading={create.isPending} onClick={() => create.mutate()}>
-          Create issue
-        </Button>
-      </div>
-    </Panel>
+
+        {/* SYM-65: group the secondary "how it runs" controls so they stay tidy below the primary fields. */}
+        <fieldset className="border-t border-border pt-4">
+          <legend className="mb-3 block text-xs font-semibold uppercase tracking-wide text-subtle">Execution</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="Mode">
+              <Select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+                <option value="manual">manual (run by hand)</option>
+                <option value="auto">auto (orchestrator picks up)</option>
+              </Select>
+            </Field>
+            <Field label="Initial status">
+              <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                <option value="backlog">backlog</option>
+                <option value="todo">todo</option>
+              </Select>
+            </Field>
+            {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
+            <Field label="Thinking effort">
+              <Select value={form.thinking_effort} onChange={(e) => setForm({ ...form, thinking_effort: e.target.value })}>
+                <option value="">inherit (project default)</option>
+                {THINKING_EFFORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        </fieldset>
+      </form>
+    </Modal>
   );
 }
