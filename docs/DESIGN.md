@@ -185,7 +185,12 @@ Every data-backed view renders all of these; primitives make them consistent:
   `grid-cols-2 sm:grid-cols-4`).
 - **IssueDetail:** two-column at `lg` (sticky chain/activity rail); single column stacked below on
   mobile, with the activity feed pinned to a fixed height so it doesn't collapse under flex.
-- **Tables (Ops):** wrapped in `overflow-x-auto`.
+- **Tables (Ops):** below `lg` the Running (6-col) and History (10-col) tables reflow to stacked cards
+  (`lg:hidden` card list / `hidden lg:block` table) — issue key + phase/outcome lead and stay visible,
+  with the low-priority metrics (turns/tokens/duration/…) in a `flex-wrap` `<dl>` (the shared `Metric`)
+  so nothing forces a wide horizontal scroll on phones. The `lg+` table keeps `overflow-x-auto` as a
+  safety net. The retry-queue row stacks on mobile (`flex-col sm:flex-row`) so a long error wraps onto
+  its own line instead of clipping; on `sm+` it truncates within `max-w-md`.
 - **Board:** the column row scrolls horizontally; a focused column flows its cards into a responsive
   auto-fill grid.
 

@@ -46,35 +46,58 @@ export function Ops() {
       <Panel className="mb-5">
         <SectionHeader icon={<RefreshCw className="h-3.5 w-3.5" />} title="Running" count={snap?.running.length ?? 0} />
         {snap && snap.running.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-[11px] uppercase tracking-wide text-subtle">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Issue</th>
-                  <th className="px-4 py-2 font-medium">Phase</th>
-                  <th className="px-4 py-2 font-medium">Attempt</th>
-                  <th className="px-4 py-2 font-medium">Turns</th>
-                  <th className="px-4 py-2 font-medium">Tokens</th>
-                  <th className="px-4 py-2 font-medium">Started</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snap.running.map((r) => (
-                  <tr key={r.issue_id} className="border-t border-border">
-                    <td className="px-4 py-2">
-                      <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
-                      <span className="ml-2 text-muted">{r.title}</span>
-                    </td>
-                    <td className="px-4 py-2"><Badge className="bg-amber-500/15 text-amber-300">{r.phase}</Badge></td>
-                    <td className="px-4 py-2 text-muted">{r.attempt}</td>
-                    <td className="px-4 py-2 text-muted">{r.num_turns}</td>
-                    <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-muted">{relativeTime(r.started_at)}</td>
+          <>
+            {/* SYM-75: below lg a 6-col table forces tiny horizontal scrolling, so reflow to stacked
+                cards — issue key + phase lead; the low-priority metrics fall into a wrapping <dl>. */}
+            <div className="divide-y divide-border lg:hidden">
+              {snap.running.map((r) => (
+                <article key={r.issue_id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link to={`/issues/${r.issue_id}`} className="font-mono text-sm text-indigo-300 hover:underline">
+                      {r.issue_key}
+                    </Link>
+                    <Badge className="shrink-0 bg-amber-500/15 text-amber-300">{r.phase}</Badge>
+                  </div>
+                  <p className="mt-0.5 truncate text-sm text-muted">{r.title}</p>
+                  <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                    <Metric label="Attempt" value={r.attempt} />
+                    <Metric label="Turns" value={r.num_turns} />
+                    <Metric label="Tokens" value={r.total_tokens.toLocaleString()} />
+                    <Metric label="Started" value={relativeTime(r.started_at)} />
+                  </dl>
+                </article>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead className="text-left text-[11px] uppercase tracking-wide text-subtle">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Issue</th>
+                    <th className="px-4 py-2 font-medium">Phase</th>
+                    <th className="px-4 py-2 font-medium">Attempt</th>
+                    <th className="px-4 py-2 font-medium">Turns</th>
+                    <th className="px-4 py-2 font-medium">Tokens</th>
+                    <th className="px-4 py-2 font-medium">Started</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {snap.running.map((r) => (
+                    <tr key={r.issue_id} className="border-t border-border">
+                      <td className="px-4 py-2">
+                        <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
+                        <span className="ml-2 text-muted">{r.title}</span>
+                      </td>
+                      <td className="px-4 py-2"><Badge className="bg-amber-500/15 text-amber-300">{r.phase}</Badge></td>
+                      <td className="px-4 py-2 text-muted">{r.attempt}</td>
+                      <td className="px-4 py-2 text-muted">{r.num_turns}</td>
+                      <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-muted">{relativeTime(r.started_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : (
           <Empty>Nothing running.</Empty>
         )}
@@ -85,10 +108,21 @@ export function Ops() {
           <SectionHeader title="Retry queue" count={snap.retrying.length} />
           <div className="divide-y divide-border">
             {snap.retrying.map((r) => (
-              <div key={r.issue_id} className="flex items-center justify-between px-4 py-2 text-sm">
-                <span className="font-mono text-fg">{r.issue_key}</span>
-                <span className="text-xs text-muted">attempt {r.attempt} · due {relativeFuture(r.due_at)}</span>
-                <span className="max-w-md truncate text-xs text-red-400/80">{r.error}</span>
+              // SYM-75: stack on mobile so a long error wraps onto its own line instead of colliding
+              // with / clipping the key + due meta; on sm+ it sits right-aligned and truncates.
+              <div
+                key={r.issue_id}
+                className="flex flex-col gap-1 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+              >
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="font-mono text-fg">{r.issue_key}</span>
+                  <span className="text-xs text-muted">attempt {r.attempt} · due {relativeFuture(r.due_at)}</span>
+                </div>
+                {r.error && (
+                  <span className="break-words text-xs text-red-400/80 sm:max-w-md sm:truncate sm:text-right">
+                    {r.error}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -201,53 +235,91 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
       </div>
 
       {visible.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-4 py-2 font-medium">Issue</th>
-                <th className="px-4 py-2 font-medium">Project</th>
-                <th className="px-4 py-2 font-medium">Type</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Outcome</th>
-                <th className="px-4 py-2 font-medium">Attempts</th>
-                <th className="px-4 py-2 font-medium">Turns</th>
-                <th className="px-4 py-2 font-medium">Tokens</th>
-                <th className="px-4 py-2 font-medium">Duration</th>
-                <th className="px-4 py-2 font-medium">Ended</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((r) => (
-                <tr key={r.issue_id} className="border-t border-border">
-                  <td className="px-4 py-2">
-                    <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
-                    <span className="ml-2 text-muted">{r.title}</span>
-                  </td>
-                  <td className="px-4 py-2 font-mono text-xs text-muted">{r.project_key}</td>
-                  <td className="px-4 py-2 text-muted">{r.type}</td>
-                  <td className="px-4 py-2">
-                    <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
-                  </td>
-                  <td className="px-4 py-2">
-                    {r.last_status ? (
-                      <Badge className={RUN_STATUS_CLASS[r.last_status]}>
-                        {r.last_phase ? `${r.last_phase} · ${r.last_status}` : r.last_status}
-                      </Badge>
-                    ) : (
-                      <span className="text-subtle">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-muted">{r.attempts}</td>
-                  <td className="px-4 py-2 text-muted">{r.num_turns}</td>
-                  <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-muted">{r.ended_at ? fmtDuration(durationSecs(r)) : '—'}</td>
-                  <td className="px-4 py-2 text-muted">{r.ended_at ? relativeTime(r.ended_at) : '—'}</td>
+        <>
+          {/* SYM-75: a 10-col table is unreadable on phones, so below lg each run reflows to a stacked
+              card — issue key + outcome lead (kept visible), then status/type/project, then a wrapping
+              <dl> of the low-priority metrics. The full table returns at lg+. */}
+          <div className="divide-y divide-border lg:hidden">
+            {visible.map((r) => (
+              <article key={r.issue_id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <Link to={`/issues/${r.issue_id}`} className="font-mono text-sm text-indigo-300 hover:underline">
+                    {r.issue_key}
+                  </Link>
+                  {r.last_status ? (
+                    <Badge className={`shrink-0 ${RUN_STATUS_CLASS[r.last_status]}`}>
+                      {r.last_phase ? `${r.last_phase} · ${r.last_status}` : r.last_status}
+                    </Badge>
+                  ) : (
+                    <span className="shrink-0 text-subtle">—</span>
+                  )}
+                </div>
+                <p className="mt-0.5 truncate text-sm text-muted">{r.title}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
+                  <span className="text-subtle">·</span>
+                  <span className="text-muted">{r.type}</span>
+                  <span className="text-subtle">·</span>
+                  <span className="font-mono text-subtle">{r.project_key}</span>
+                </div>
+                <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  <Metric label="Attempts" value={r.attempts} />
+                  <Metric label="Turns" value={r.num_turns} />
+                  <Metric label="Tokens" value={r.total_tokens.toLocaleString()} />
+                  <Metric label="Duration" value={r.ended_at ? fmtDuration(durationSecs(r)) : '—'} />
+                  <Metric label="Ended" value={r.ended_at ? relativeTime(r.ended_at) : '—'} />
+                </dl>
+              </article>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Issue</th>
+                  <th className="px-4 py-2 font-medium">Project</th>
+                  <th className="px-4 py-2 font-medium">Type</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Outcome</th>
+                  <th className="px-4 py-2 font-medium">Attempts</th>
+                  <th className="px-4 py-2 font-medium">Turns</th>
+                  <th className="px-4 py-2 font-medium">Tokens</th>
+                  <th className="px-4 py-2 font-medium">Duration</th>
+                  <th className="px-4 py-2 font-medium">Ended</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {visible.map((r) => (
+                  <tr key={r.issue_id} className="border-t border-border">
+                    <td className="px-4 py-2">
+                      <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
+                      <span className="ml-2 text-muted">{r.title}</span>
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs text-muted">{r.project_key}</td>
+                    <td className="px-4 py-2 text-muted">{r.type}</td>
+                    <td className="px-4 py-2">
+                      <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
+                    </td>
+                    <td className="px-4 py-2">
+                      {r.last_status ? (
+                        <Badge className={RUN_STATUS_CLASS[r.last_status]}>
+                          {r.last_phase ? `${r.last_phase} · ${r.last_status}` : r.last_status}
+                        </Badge>
+                      ) : (
+                        <span className="text-subtle">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-muted">{r.attempts}</td>
+                    <td className="px-4 py-2 text-muted">{r.num_turns}</td>
+                    <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-muted">{r.ended_at ? fmtDuration(durationSecs(r)) : '—'}</td>
+                    <td className="px-4 py-2 text-muted">{r.ended_at ? relativeTime(r.ended_at) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : (
         <Empty>{rows.length === 0 ? 'No completed runs yet.' : 'No issues match these filters.'}</Empty>
       )}
@@ -261,6 +333,19 @@ function Stat({ label, value }: { label: string; value: string | number }) {
       <p className="text-2xl font-semibold">{value}</p>
       <p className="text-xs text-muted">{label}</p>
     </Panel>
+  );
+}
+
+/**
+ * SYM-75: one labeled metric inside a mobile card's `<dl>`. The label/value sit inline and the whole
+ * cluster lives in a `flex-wrap` row, so low-priority numbers reflow instead of forcing a wide table.
+ */
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center gap-1">
+      <dt className="text-subtle">{label}</dt>
+      <dd className="text-muted">{value}</dd>
+    </div>
   );
 }
 
