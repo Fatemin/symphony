@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, History, RefreshCw, Zap } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Input, PageHeader, Panel, Select } from '../components/ui';
+import { Badge, Button, EmptyState, Input, PageHeader, Panel, Select } from '../components/ui';
 import { fmtDuration, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 import type { IssueStatus, OpsHistoryRow, RunStatus } from '../../shared/types';
 
@@ -273,5 +273,5 @@ function SectionHeader({ title, count, icon }: { title: string; count: number; i
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-4 py-6 text-center text-sm text-subtle">{children}</p>;
+  return <EmptyState compact title={children} />;
 }

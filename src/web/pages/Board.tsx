@@ -9,7 +9,7 @@ import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, Field, Input, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
+import { Badge, Button, EmptyState, Field, Input, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
 import { PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
@@ -263,9 +263,11 @@ export function Board() {
                   fills its grid cell. */}
               <div className={isFocused ? 'grid gap-2 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]' : 'flex flex-col gap-2'}>
                 {items.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-subtle">
-                    No issues
-                  </p>
+                  <EmptyState
+                    compact
+                    title="No issues"
+                    className="rounded-md border border-dashed border-border px-3 py-6 text-xs"
+                  />
                 ) : (
                   items.map((issue) => (
                     <IssueCard
