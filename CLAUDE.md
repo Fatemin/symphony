@@ -164,7 +164,12 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `REVIEW_SEVERITY_META` / scope / category / status display metadata. SYM-66 adds a per-batch
   "Create all as auto issues (N)" bar (shown when a completed batch still has drafts) behind a
   confirm `Modal` — it calls `convertAllFindings` (auto + todo) and invalidates both the reviews
-  list and the Board.
+  list and the Board. SYM-69 likewise gates the per-batch **delete** trash icon behind its own danger
+  confirm `Modal` (mirrors the SYM-66 convert confirm): it names the loss — total findings count plus
+  an emphasized not-yet-converted draft count (and a "no findings yet" variant for running/failed
+  runs) — since deleting a run destroys every finding irreversibly; the trash icon keeps its
+  spinner/disabled state, the modal's Delete button shows the same `deleting` spinner, and close is
+  blocked while in flight + auto-closes on the error path via a `wasDeleting` ref/effect.
   The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
   `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The Skills tab

@@ -133,7 +133,8 @@ primitive default (last write wins).
 | `Modal` | Centered dialog built on `useModalDialog`: header (icon + title + close), scrolling body, footer slot; Escape + backdrop-click + focus restore; `aria-labelledby`/`aria-label`. |
 
 **Migrated onto the dialog primitives:** `ApproveDialog`, the Board's **New-issue form** (SYM-65),
-the `IssueDetail` Request-changes dialog, and the `PathField` directory picker now use `Modal`; the
+the `IssueDetail` Request-changes dialog, the `PathField` directory picker, and the **Review tab**'s
+two per-batch confirms — batch-convert (SYM-66) and the danger delete (SYM-69) — now use `Modal`; the
 `AskPanel` drawer uses `useModalDialog` directly (a right-anchored `<dialog>`) so it keeps its
 drag-to-resize + persisted width while gaining focus-trap, Escape, and focus restoration.
 

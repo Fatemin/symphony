@@ -289,6 +289,9 @@ function ReviewBatch({
 }) {
   const [showDismissed, setShowDismissed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // SYM-69: deleting a batch destroys the run and every finding it produced (irreversible), so the
+  // trash icon routes through this confirm dialog instead of firing the mutation directly.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const status = REVIEW_STATUS_META[run.status];
   const active = run.findings.filter((f) => f.status !== 'dismissed');
   const dismissed = run.findings.filter((f) => f.status === 'dismissed');
@@ -303,6 +306,15 @@ function ReviewBatch({
     if (wasConverting.current && !batchConverting) setConfirmOpen(false);
     wasConverting.current = batchConverting;
   }, [batchConverting]);
+
+  // Same pending-edge close for delete. On success the parent's refetch drops this run and the whole
+  // batch unmounts, so this effect specifically covers the error path: the run stays, the toast carries
+  // the failure, and the modal should fall away rather than stranding a stale confirmation.
+  const wasDeleting = useRef(false);
+  useEffect(() => {
+    if (wasDeleting.current && !deleting) setConfirmDeleteOpen(false);
+    wasDeleting.current = deleting;
+  }, [deleting]);
 
   return (
     <Panel className="overflow-hidden">
@@ -325,7 +337,7 @@ function ReviewBatch({
           type="button"
           aria-label="Delete this review"
           title="Delete this review"
-          onClick={onDelete}
+          onClick={() => setConfirmDeleteOpen(true)}
           disabled={deleting}
           className="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-hover hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
         >
@@ -476,6 +488,51 @@ function ReviewBatch({
               );
             })}
           </ul>
+        </Modal>
+      )}
+
+      {confirmDeleteOpen && (
+        <Modal
+          size="sm"
+          onClose={() => {
+            if (!deleting) setConfirmDeleteOpen(false);
+          }}
+          icon={<AlertTriangle className="h-4 w-4 text-red-400" />}
+          title="Delete this review?"
+          footer={
+            <>
+              <Button onClick={() => setConfirmDeleteOpen(false)} disabled={deleting}>
+                Cancel
+              </Button>
+              <Button variant="danger" disabled={deleting} onClick={onDelete}>
+                {deleting ? <Spinner /> : <Trash2 className="h-4 w-4" />}
+                Delete review
+              </Button>
+            </>
+          }
+        >
+          {run.findings.length === 0 ? (
+            <p className="text-xs leading-relaxed text-muted">
+              This {REVIEW_SCOPE_META[run.scope].label} batch has no findings yet — it will be
+              removed.
+            </p>
+          ) : (
+            <p className="text-xs leading-relaxed text-muted">
+              This permanently deletes this {REVIEW_SCOPE_META[run.scope].label} batch and its{' '}
+              {run.findings.length} {run.findings.length === 1 ? 'finding' : 'findings'}. This can't
+              be undone.
+              {drafts.length > 0 && (
+                <>
+                  {' '}
+                  <span className="font-medium text-fg">
+                    {drafts.length} graded {drafts.length === 1 ? 'finding' : 'findings'} you haven't
+                    converted yet
+                  </span>{' '}
+                  will be lost.
+                </>
+              )}
+            </p>
+          )}
         </Modal>
       )}
     </Panel>
