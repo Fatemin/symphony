@@ -161,6 +161,36 @@ export function listReviewRunsWithFindings(projectId: string, limit = 20): Revie
   return runs.map((run) => ({ ...run, findings: byRun.get(run.id) ?? [] }));
 }
 
+// SYM-78: scope → the human suffix shown in an issue's board source label ('Review · <suffix>').
+// Server-side mirror of the web REVIEW_SCOPE_META labels (the server can't import web code); kept
+// here next to the run SQL so the label and the run live in one place.
+const REVIEW_SCOPE_LABEL: Record<ReviewScope, string> = {
+  docs: 'Docs',
+  code: 'Code',
+  ui_ux: 'UI / UX',
+  all: 'Full review',
+};
+
+/**
+ * Map a set of review-run ids → a human source label (e.g. 'Review · Code') for the board's
+ * "Group by source" axis (SYM-78). One `WHERE id IN (...)` keeps the board read free of N+1; an id
+ * with no surviving row (a deleted batch) is simply absent from the map, so the board falls back to
+ * a generic 'Review' label client-side while still grouping by the issue's `source_run_id`.
+ */
+export function getReviewRunLabels(ids: string[]): Map<string, string> {
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(`SELECT id, scope FROM review_runs WHERE id IN (${placeholders})`)
+    .all(...ids) as { id: string; scope: string }[];
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    const scope = whitelist<ReviewScope>(r.scope, REVIEW_SCOPES, 'all');
+    map.set(r.id, `Review · ${REVIEW_SCOPE_LABEL[scope]}`);
+  }
+  return map;
+}
+
 /** Number of in-flight batches for a project — the one-concurrent-per-project guard. */
 export function countRunningReviews(projectId: string): number {
   const row = getDb()

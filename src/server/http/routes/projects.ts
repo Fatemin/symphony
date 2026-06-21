@@ -16,6 +16,7 @@ import {
 import { fetchGithubSkill, parseGithubSkillRef, type FetchedSkill } from '../../core/githubSkill';
 import { fetchMarketplaceSkills, fetchRepoSkills, parseMarketplaceImport } from '../../core/marketplaceSkill';
 import { listIssues } from '../../repo/issues';
+import { getReviewRunLabels } from '../../repo/reviews';
 import { latestPhaseByIssue } from '../../repo/runs';
 import { listProjectRelations } from '../../repo/issueRelations';
 import { listBranches } from '../../workspace/worktree';
@@ -63,9 +64,15 @@ projectRoutes.get('/:id', (c) => {
   const issues = listIssues(project.id);
   const inProgressIds = issues.filter((i) => i.status === 'in_progress').map((i) => i.id);
   const phases = latestPhaseByIssue(inProgressIds);
+  // SYM-78: resolve a human source label ('Review · <scope>') for issues converted from a review
+  // batch, via a single id-IN lookup over review_runs (no N+1). A deleted run is absent from the map
+  // ⇒ source_label stays null and the client groups by source_run_id under a generic 'Review' label.
+  const runIds = [...new Set(issues.map((i) => i.source_run_id).filter((id): id is string => !!id))];
+  const runLabels = getReviewRunLabels(runIds);
   const boardIssues: BoardIssue[] = issues.map((i) => ({
     ...i,
     current_phase: i.status === 'in_progress' ? (phases.get(i.id) ?? null) : null,
+    source_label: i.source_run_id ? (runLabels.get(i.source_run_id) ?? null) : null,
   }));
   return c.json({ ...project, issues: boardIssues });
 });

@@ -16,6 +16,14 @@ export const TERMINAL_STATUSES: IssueStatus[] = ['done', 'cancelled'];
 
 export type IssueType = 'feature' | 'bug' | 'chore' | 'epic';
 export type IssueMode = 'auto' | 'manual';
+/**
+ * How an issue was created (SYM-78) — immutable provenance used to group the board:
+ * `manual` (the default — typed in by a human), `review` (converted from a project review finding,
+ * single or batch), `ask` (reserved for a future Ask→issue path). Orthogonal to `mode`
+ * ('orchestrator-eligibility'), which independently also uses the value 'manual'.
+ */
+export type IssueSource = 'manual' | 'review' | 'ask';
+export const ISSUE_SOURCES: IssueSource[] = ['manual', 'review', 'ask'];
 /** Which CLI agent drives a project's pipeline. */
 export type AgentType = 'claude' | 'codex';
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 = none, 1 = urgent … 4 = low
@@ -117,6 +125,17 @@ export interface Issue {
   round: number;
   /** Set when a review-gate approval failed to merge/push; null otherwise (SYM-29). */
   merge_conflict: MergeConflictInfo | null;
+  /**
+   * How this issue was created (SYM-78); 'manual' for every hand-created issue. System-set and
+   * immutable — never accepted from a PATCH/POST body, only stamped by the review-convert routes.
+   */
+  source: IssueSource;
+  /**
+   * The review run this issue was batch/single-converted from (SYM-78); null for non-review issues.
+   * A soft pointer (no FK) so it survives the run's deletion — the board keeps the batch grouped
+   * even after the originating review is gone (the label then falls back to a generic 'Review').
+   */
+  source_run_id: string | null;
   /** Files attached to this issue (SYM-35); only populated on the issue-detail read. */
   attachments?: Attachment[];
   created_at: string;
@@ -131,6 +150,13 @@ export interface Issue {
  */
 export interface BoardIssue extends Issue {
   current_phase: RunPhase | null;
+  /**
+   * Human label for the issue's origin (SYM-78), e.g. `Review · Code` — derived per-request in
+   * `GET /api/projects/:id` from `source_run_id` → the review run's scope. `null` for manual issues
+   * and for review issues whose run was deleted (the client then falls back to a generic 'Review'
+   * label while still grouping by the surviving `source_run_id`).
+   */
+  source_label: string | null;
 }
 
 /** A human "request changes" note at the review gate that starts a new revision round. */

@@ -10,9 +10,20 @@ import { AskPanel } from '../components/AskPanel';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Badge, Button, EmptyState, Field, Input, Loading, PageHeader, Panel, ProjectChip, SegmentedControl, Textarea } from '../components/ui';
-import { PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
+import { ISSUE_SOURCE_META, PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
+import { groupIssues, type BoardGroupBy } from '../lib/boardGroups';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
+
+// SYM-78: how the board buckets cards. 'status' is the original kanban; 'source'/'type' render
+// collapsible swimlanes. Persisted globally (like collapsedColumns) so the choice survives reloads.
+const GROUP_BY_KEY = 'symphony.board.groupBy';
+const GROUP_BY_VALUES: BoardGroupBy[] = ['status', 'source', 'type'];
+const GROUP_BY_OPTIONS: { value: BoardGroupBy; label: string }[] = [
+  { value: 'status', label: 'Status' },
+  { value: 'source', label: 'Source' },
+  { value: 'type', label: 'Type' },
+];
 
 // SYM-23: collapsed board columns persist globally (same 5 statuses on every project board), mirroring
 // the sidebar's global expanded-projects key. We store the *collapsed* statuses so the default empty
@@ -46,6 +57,10 @@ export function Board() {
   // flagging anything, so cards only animate on a *transition*, not on initial render.
   const prevStatus = useRef<Map<string, IssueStatus>>(new Map());
   const [moved, setMoved] = useState<Set<string>>(new Set());
+  // SYM-78: the board's grouping axis (persisted) + the collapsed swimlanes in source/type mode.
+  // collapsedGroups is transient (run-id keys churn); seeding it empty = all swimlanes expanded.
+  const [groupBy, setGroupBy] = useState<BoardGroupBy>(() => readGroupBy());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const byStatus = (status: IssueStatus) => (project?.issues ?? []).filter((i) => i.status === status);
   const reviewIssues = byStatus('review');
@@ -102,6 +117,29 @@ export function Board() {
       /* localStorage may be unavailable in hardened browser contexts */
     }
   }, [collapsedColumns]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUP_BY_KEY, groupBy);
+    } catch {
+      /* localStorage may be unavailable in hardened browser contexts */
+    }
+  }, [groupBy]);
+
+  // SYM-78: switching the axis clears the review selection (select + Approve are status-only), and
+  // 'source'/'type' get collapsible swimlanes keyed by group id.
+  const changeGroupBy = (next: BoardGroupBy) => {
+    setGroupBy(next);
+    if (next !== 'status') setSelected(new Set());
+  };
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const toggleColumn = (status: IssueStatus) => {
     setCollapsedColumns((prev) => {
@@ -166,18 +204,21 @@ export function Board() {
             <Button onClick={() => setAskOpen(true)}>
               <Sparkles className="h-4 w-4 text-indigo-300" /> Ask
             </Button>
-            {reviewIssues.length > 0 && (
+            {/* SYM-78: review select-all + approve + the cancelled drawer are bound to the kanban
+                (Status) view — the review gate is a per-status action, so they hide in source/type
+                grouping (where cards are non-selectable and cancelled issues sit inside their group). */}
+            {groupBy === 'status' && reviewIssues.length > 0 && (
               <Button onClick={toggleAllReview}>
                 {allReviewSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                 Review
               </Button>
             )}
-            {selectedReviewIssues.length > 0 && (
+            {groupBy === 'status' && selectedReviewIssues.length > 0 && (
               <Button variant="primary" disabled={approveMany.isPending} onClick={() => setApproveOpen(true)}>
                 <Check className="h-4 w-4" /> Approve selected
               </Button>
             )}
-            {cancelledIssues.length > 0 && (
+            {groupBy === 'status' && cancelledIssues.length > 0 && (
               <Button onClick={() => setShowCancelled((v) => !v)}>
                 <Ban className="h-4 w-4" /> Cancelled {cancelledIssues.length}
               </Button>
@@ -202,6 +243,21 @@ export function Board() {
         />
       )}
 
+      {/* SYM-78: choose how the board buckets cards — Status (the original kanban), Source (one
+          swimlane per review batch + a Manual catch-all), or Type (feature/bug/chore/epic).
+          Persisted across reloads; switching away from Status clears the review selection. */}
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs font-medium text-muted">Group by</span>
+        <SegmentedControl
+          size="sm"
+          aria-label="Group issues by"
+          value={groupBy}
+          onChange={changeGroupBy}
+          options={GROUP_BY_OPTIONS}
+        />
+      </div>
+
+      {groupBy === 'status' ? (
       <div className="flex flex-1 gap-3 overflow-x-auto">
         {(() => {
           // SYM-25: a column is "focused" when it is the *only* expanded one — that's the state
@@ -288,7 +344,16 @@ export function Board() {
           });
         })()}
       </div>
-      {showCancelled && cancelledIssues.length > 0 && (
+      ) : (
+        <BoardSwimlanes
+          issues={project.issues ?? []}
+          groupBy={groupBy}
+          collapsedGroups={collapsedGroups}
+          onToggleGroup={toggleGroup}
+          moved={moved}
+        />
+      )}
+      {groupBy === 'status' && showCancelled && cancelledIssues.length > 0 && (
         <div className="anim-card-in mt-4 border-t border-border pt-4">
           <div className="mb-2 flex items-center gap-2 px-1">
             <span aria-hidden className={`h-2 w-2 rounded-full ${STATUS_META['cancelled'].dot}`} />
@@ -340,6 +405,86 @@ function readCollapsed(): Set<IssueStatus> {
   } catch {
     return new Set();
   }
+}
+
+// SYM-78: seed the persisted Group-by axis, validating against the known set so a stale/hand-edited
+// key can't poison it (mirrors readCollapsed). An unreadable key falls back to the kanban ('status').
+function readGroupBy(): BoardGroupBy {
+  try {
+    const raw = localStorage.getItem(GROUP_BY_KEY);
+    return GROUP_BY_VALUES.includes(raw as BoardGroupBy) ? (raw as BoardGroupBy) : 'status';
+  } catch {
+    return 'status';
+  }
+}
+
+// SYM-78: the source/type view — a vertical stack of collapsible swimlanes (one <section> per group),
+// each body reusing the focused-column responsive grid so cards flow the same way they do on the
+// kanban. Cards are NOT selectable here (the review gate is a Status-view action); the source badge on
+// each card still shows provenance. groupIssues is pure, so all the ordering/labeling lives there.
+function BoardSwimlanes({
+  issues,
+  groupBy,
+  collapsedGroups,
+  onToggleGroup,
+  moved,
+}: {
+  issues: BoardIssue[];
+  groupBy: Exclude<BoardGroupBy, 'status'>;
+  collapsedGroups: Set<string>;
+  onToggleGroup: (key: string) => void;
+  moved: Set<string>;
+}) {
+  const groups = groupIssues(issues, groupBy);
+  if (groups.length === 0) {
+    return (
+      <EmptyState
+        title="No issues yet"
+        description="Create an issue or convert a review batch — they'll show up grouped here."
+        className="mt-6"
+      />
+    );
+  }
+  return (
+    <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-2">
+      {groups.map((group) => {
+        const collapsed = collapsedGroups.has(group.key);
+        const bodyId = `board-group-${group.key}`;
+        // Every issue in a source group shares one origin, so the first card is representative.
+        const source = group.issues[0]?.source ?? 'manual';
+        return (
+          <section key={group.key} className="anim-card-in">
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              aria-controls={bodyId}
+              onClick={() => onToggleGroup(group.key)}
+              className="mb-2 flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-hover"
+            >
+              {collapsed ? (
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+              ) : (
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+              )}
+              {groupBy === 'source' ? (
+                <Badge className={ISSUE_SOURCE_META[source].badge}>{group.label}</Badge>
+              ) : (
+                <span className="text-sm font-medium text-fg">{group.label}</span>
+              )}
+              <span className="text-xs text-subtle">{group.issues.length}</span>
+            </button>
+            {!collapsed && (
+              <div id={bodyId} className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
+                {group.issues.map((issue) => (
+                  <IssueCard key={issue.id} issue={issue} justMoved={moved.has(issue.id)} />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
 function IssueCard({
@@ -406,11 +551,22 @@ function IssueCard({
             </span>
           )}
           <span className="text-subtle">{issue.type}</span>
-          {/* SYM-29: an approved story whose merge/push failed — flag it so reviewers can resolve it. */}
-          {issue.merge_conflict && (
-            <Badge tone="danger" className="ml-auto">
-              <GitMerge className="h-3 w-3" /> git conflict
-            </Badge>
+          {/* SYM-78: provenance badge — shows in EVERY group mode so a review-converted issue reads as
+              such even on the kanban. Manual issues (the default origin) carry no badge. SYM-29: an
+              approved story whose merge/push failed sits beside it; both align to the card's right. */}
+          {(issue.source !== 'manual' || issue.merge_conflict) && (
+            <div className="ml-auto flex items-center gap-1.5">
+              {issue.source !== 'manual' && (
+                <Badge className={ISSUE_SOURCE_META[issue.source].badge}>
+                  {ISSUE_SOURCE_META[issue.source].label}
+                </Badge>
+              )}
+              {issue.merge_conflict && (
+                <Badge tone="danger">
+                  <GitMerge className="h-3 w-3" /> git conflict
+                </Badge>
+              )}
+            </div>
           )}
         </div>
       </Panel>

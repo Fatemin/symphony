@@ -80,3 +80,53 @@ test('mapRow maps the enable_workflow_tool 0/1/NULL column boundary (SYM-67)', (
   db.prepare(`UPDATE issues SET enable_workflow_tool = NULL WHERE id = ?`).run(issue.id);
   assert.equal(getIssue(issue.id)!.enable_workflow_tool, null);
 });
+
+test('issue.source/source_run_id default to manual/null and round-trip an explicit review origin (SYM-78)', () => {
+  const project = createProject({ name: 'Provenance', key: 'PRV' });
+
+  // Created without provenance ⇒ the system default 'manual' with no run pointer.
+  const manual = createIssue({ project_id: project.id, title: 'hand-made' });
+  assert.equal(manual.source, 'manual');
+  assert.equal(manual.source_run_id, null);
+
+  // The review-convert routes pass these explicitly; they persist verbatim.
+  const fromReview = createIssue({
+    project_id: project.id,
+    title: 'from a review',
+    source: 'review',
+    source_run_id: 'run-123',
+  });
+  assert.equal(fromReview.source, 'review');
+  assert.equal(fromReview.source_run_id, 'run-123');
+  assert.equal(getIssue(fromReview.id)!.source, 'review');
+  assert.equal(getIssue(fromReview.id)!.source_run_id, 'run-123');
+});
+
+test('mapRow coerces a garbage source value to manual (SYM-78 defensive boundary)', () => {
+  const project = createProject({ name: 'Garbage Source', key: 'GBS' });
+  const issue = createIssue({ project_id: project.id, title: 'garbage in', source: 'review', source_run_id: 'r1' });
+
+  // Write a value past the typed input layer, directly to the column.
+  getDb().prepare(`UPDATE issues SET source = 'wat' WHERE id = ?`).run(issue.id);
+
+  // mapRow only lets a whitelisted source through; anything else reads back as 'manual'.
+  assert.equal(getIssue(issue.id)!.source, 'manual');
+  // The soft pointer is untouched — it is not whitelisted, just passed through.
+  assert.equal(getIssue(issue.id)!.source_run_id, 'r1');
+});
+
+test('updateIssue cannot change source/source_run_id — provenance is immutable (SYM-78)', () => {
+  const project = createProject({ name: 'Immutable', key: 'IMU' });
+  const issue = createIssue({ project_id: project.id, title: 'manual', source: 'manual' });
+
+  // source/source_run_id are absent from UPDATABLE, so a PATCH-style update silently ignores them.
+  const updated = updateIssue(issue.id, {
+    title: 'renamed',
+    // @ts-expect-error — UpdateIssueInput intentionally has no source fields; assert they're ignored.
+    source: 'review',
+    source_run_id: 'spoofed',
+  })!;
+  assert.equal(updated.title, 'renamed'); // the legit field still applied
+  assert.equal(updated.source, 'manual'); // provenance unchanged
+  assert.equal(updated.source_run_id, null);
+});

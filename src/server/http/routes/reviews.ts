@@ -203,6 +203,9 @@ reviewRoutes.post('/:id/reviews/findings/:findingId/convert', async (c) => {
     status,
     mode: 'manual',
     priority: SEVERITY_PRIORITY[finding.severity],
+    // SYM-78: stamp provenance so the board can group this issue under its originating review batch.
+    source: 'review',
+    source_run_id: finding.review_run_id,
   });
   const updated = convertFinding(finding.id, issue.id);
   return c.json({ issue, finding: updated }, 201);
@@ -248,6 +251,10 @@ reviewRoutes.post('/:id/reviews/:runId/convert', async (c) => {
       status,
       mode,
       priority: SEVERITY_PRIORITY[f.severity],
+      // SYM-78: every issue from this batch carries the run id, so the board groups them together
+      // (and keeps them grouped under a generic 'Review' label even if the run is later deleted).
+      source: 'review',
+      source_run_id: run.id,
     });
     convertFinding(f.id, issue.id);
     issues.push(issue);

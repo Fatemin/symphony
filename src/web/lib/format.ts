@@ -1,5 +1,7 @@
 import type {
+  IssueSource,
   IssueStatus,
+  IssueType,
   Priority,
   ProjectSkillSource,
   ReviewCategory,
@@ -49,6 +51,29 @@ export const PRIORITY_META: Record<Priority, { label: string; color: string }> =
   2: { label: 'High', color: 'text-[var(--color-high)]' },
   3: { label: 'Medium', color: 'text-[var(--color-medium)]' },
   4: { label: 'Low', color: 'text-muted' },
+};
+
+// SYM-78: display labels for an issue's type, used by the board's "Group by type" swimlane headers
+// (the inline lowercase `issue.type` on the card stays as-is). Ordering for the axis lives in
+// lib/boardGroups.ts so the pure grouping helper owns it.
+export const ISSUE_TYPE_META: Record<IssueType, { label: string }> = {
+  feature: { label: 'Feature' },
+  bug: { label: 'Bug' },
+  chore: { label: 'Chore' },
+  epic: { label: 'Epic' },
+};
+
+/**
+ * Source styling for an issue's provenance badge AND the board's "Group by source" headers (SYM-78).
+ * Mirrors SKILL_SOURCE_META's `{ label, badge }` shape so a badge can render via the shared `Badge`
+ * primitive (`<Badge className={meta.badge}>`). `manual` is the default origin — the card shows NO
+ * badge for it (only the swimlane header does); 'review'/'ask' route through the semantic info/accent
+ * tokens (mirrors BADGE_TONES in ui.tsx) so they re-theme for light mode.
+ */
+export const ISSUE_SOURCE_META: Record<IssueSource, { label: string; badge: string }> = {
+  manual: { label: 'Manual', badge: 'bg-panel-2 text-muted' },
+  review: { label: 'Review', badge: 'bg-[color-mix(in_oklab,var(--color-info)_16%,transparent)] text-[var(--color-info)]' },
+  ask: { label: 'Ask', badge: 'bg-[color-mix(in_oklab,var(--color-accent)_16%,transparent)] text-[var(--color-accent-hover)]' },
 };
 
 export function relativeTime(iso: string | number): string {
