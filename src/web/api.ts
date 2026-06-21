@@ -188,13 +188,21 @@ async function req<T>(url: string, opts?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    // Routes return `{ error }` on failure (e.g. the 409 on a duplicate project key); surface
-    // that message directly so toasts read cleanly instead of dumping the raw status + JSON.
+    // Routes carry the human-readable failure under `error` (e.g. the 409 on a duplicate project
+    // key) or `reason` (approve / resolve-conflict / request-changes / run); prefer either so toasts
+    // read cleanly instead of dumping the raw status + JSON (a 409 approve conflict would otherwise
+    // throw "409 Conflict: {…}"). SYM-81.
     let message = `${res.status} ${res.statusText}`;
     if (body) {
       try {
-        const parsed = JSON.parse(body) as { error?: unknown };
-        message = typeof parsed.error === 'string' ? parsed.error : `${message}: ${body}`;
+        const parsed = JSON.parse(body) as { error?: unknown; reason?: unknown };
+        const detail =
+          typeof parsed.error === 'string'
+            ? parsed.error
+            : typeof parsed.reason === 'string'
+              ? parsed.reason
+              : null;
+        message = detail ?? `${message}: ${body}`;
       } catch {
         message = `${message}: ${body}`;
       }

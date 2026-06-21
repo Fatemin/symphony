@@ -41,6 +41,10 @@ export function Board() {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [approveOpen, setApproveOpen] = useState(false);
+  // SYM-81: batch-approve progress (drives the dialog's "Approving N of M…" label) + the per-issue
+  // failure list rendered inline in the dialog so a partial failure is readable, not a clipped toast.
+  const [approveProgress, setApproveProgress] = useState({ done: 0, total: 0 });
+  const [approveFailed, setApproveFailed] = useState<string[]>([]);
   const [askOpen, setAskOpen] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
   // SYM-23: which status columns are collapsed (seeded from localStorage). Mirrors Layout.tsx's
@@ -69,27 +73,42 @@ export function Board() {
   const allReviewSelected = reviewIssues.length > 0 && selectedReviewIssues.length === reviewIssues.length;
   const approveMany = useMutation({
     mutationFn: async (options: ApproveOptions) => {
+      // Re-approve only what's still in review: a prior partial run already moved the succeeded
+      // stories to `done`, so this naturally narrows to the failures on a retry.
+      const targets = selectedReviewIssues;
+      setApproveProgress({ done: 0, total: targets.length });
+      setApproveFailed([]);
       let ok = 0;
       const failed: string[] = [];
-      for (const issue of selectedReviewIssues) {
+      for (const issue of targets) {
         try {
           await api.issues.approve(issue.id, options);
           ok += 1;
         } catch (e) {
           failed.push(`${issue.key}: ${e instanceof Error ? e.message : String(e)}`);
         }
+        setApproveProgress((p) => ({ ...p, done: p.done + 1 }));
       }
       return { ok, failed };
     },
     onSuccess: ({ ok, failed }) => {
       if (ok > 0) toast.success(`Approved ${ok} ${ok === 1 ? 'story' : 'stories'}`);
-      if (failed.length > 0) toast.error(failed.slice(0, 3).join('\n'));
-      setApproveOpen(false);
-      setSelected(new Set());
+      // Always refresh so the merged stories leave the review column (and the branch list reflects
+      // any new default target), whether or not some failed.
       qc.invalidateQueries({ queryKey: ['project', id] });
       qc.invalidateQueries({ queryKey: ['branches', id] });
+      if (failed.length > 0) {
+        // SYM-81: keep the dialog open and render the full per-issue failure list inline (the old
+        // toast clipped to 3). The selection persists; the succeeded stories drop out of
+        // selectedReviewIssues on the refetch, so Approve retries just the failures.
+        setApproveFailed(failed);
+        return;
+      }
+      setApproveFailed([]);
+      setApproveOpen(false);
+      setSelected(new Set());
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
   });
 
   useEffect(() => {
@@ -214,7 +233,17 @@ export function Board() {
               </Button>
             )}
             {groupBy === 'status' && selectedReviewIssues.length > 0 && (
-              <Button variant="primary" disabled={approveMany.isPending} onClick={() => setApproveOpen(true)}>
+              <Button
+                variant="primary"
+                disabled={approveMany.isPending}
+                onClick={() => {
+                  // Clear a prior run's progress/failures so reopening shows a clean dialog.
+                  setApproveProgress({ done: 0, total: 0 });
+                  setApproveFailed([]);
+                  setApproveOpen(true);
+                }}
+              >
+
                 <Check className="h-4 w-4" /> Approve selected
               </Button>
             )}
@@ -375,6 +404,12 @@ export function Board() {
           initialBranch={project.default_branch}
           count={selectedReviewIssues.length}
           pending={approveMany.isPending}
+          pendingLabel={
+            approveProgress.total > 1
+              ? `Approving ${Math.min(approveProgress.done + 1, approveProgress.total)} of ${approveProgress.total}…`
+              : 'Merging…'
+          }
+          error={approveFailed.length > 0 ? approveFailed.join('\n') : null}
           onCancel={() => setApproveOpen(false)}
           onConfirm={(options) => approveMany.mutate(options)}
         />

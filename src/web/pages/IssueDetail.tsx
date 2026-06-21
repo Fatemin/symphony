@@ -8,7 +8,7 @@ import { api, streamIssue, THINKING_EFFORT_OPTIONS, type ApproveOptions, type Is
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { Markdown } from '../components/Markdown';
-import { Badge, Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Panel, SegmentedControl, Select, Spinner, Textarea } from '../components/ui';
+import { Badge, Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Panel, PendingIndicator, SegmentedControl, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 
 type LiveEvent = Event & { cursor: number };
@@ -125,7 +125,7 @@ function ConflictBanner({ issue }: { issue: Detail }) {
       if (r.ok) toast.success(`Conflict resolved — merged into ${r.target_branch ?? 'target branch'} and done`);
       else toast.error(r.reason ?? 'Could not resolve conflict');
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
     // Refresh on both success and the 409-into-onError path so the banner/badge reflect the latest
     // marker state (cleared on success, refreshed on a still-failing reconcile).
     onSettled: () => {
@@ -151,6 +151,9 @@ function ConflictBanner({ issue }: { issue: Detail }) {
               {conflict.files.join(', ')}
             </p>
           )}
+          {/* SYM-81: the resolver re-runs the merge with a Claude agent and can take minutes — pair
+              the disabled button with a live elapsed counter so the wait reads as in-progress. */}
+          {resolve.isPending && <PendingIndicator label="Resolving…" className="mt-2" />}
         </div>
         <Button
           variant="danger"
@@ -197,7 +200,9 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
       setApproveOpen(false);
       onChange();
     },
-    onError: (e) => toast.error(String(e)),
+    // SYM-81: a 409 conflict throws here (not onSuccess); req() now surfaces the server `reason`, so
+    // show that message verbatim (the dialog stays open and also renders it inline via `error`).
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
     // SYM-29: a 409 throws into onError (not onSuccess), so refresh here too — otherwise the
     // server-persisted git-conflict marker (badge + banner) wouldn't show until the next poll.
     onSettled: () => {
@@ -288,7 +293,16 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
               >
                 {requestChanges.isPending ? <Spinner /> : <MessageSquarePlus className="h-4 w-4" />} Request changes
               </Button>
-              <Button variant="primary" disabled={approve.isPending} onClick={() => setApproveOpen(true)} title={`Merge ${issue.branch_name} and mark done`}>
+              <Button
+                variant="primary"
+                disabled={approve.isPending}
+                onClick={() => {
+                  // Clear any prior failure so a stale conflict message can't flash on reopen.
+                  approve.reset();
+                  setApproveOpen(true);
+                }}
+                title={`Merge ${issue.branch_name} and mark done`}
+              >
                 {approve.isPending ? <Spinner /> : <Check className="h-4 w-4" />} Approve & merge
               </Button>
             </>
@@ -315,6 +329,11 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
           initialBranch={issue.base_branch ?? 'main'}
           count={1}
           pending={approve.isPending}
+          sourceBranch={issue.branch_name}
+          pendingLabel="Merging…"
+          // Surface a settled failure inline; while a retry is pending the dialog shows the
+          // PendingIndicator instead. approve.reset() on (re)open clears a stale message.
+          error={approve.isError && !approve.isPending ? (approve.error instanceof Error ? approve.error.message : String(approve.error)) : null}
           onCancel={() => setApproveOpen(false)}
           onConfirm={(options) => approve.mutate(options)}
         />
