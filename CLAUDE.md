@@ -147,7 +147,11 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   / `--color-danger` / `--color-info`, plus themed `--elev-1/2/3` elevation vars — all existing token
   names preserved), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
   `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
-  `Select` (focus ring + `aria-invalid`), `Spinner`, plus `Modal` + `useModalDialog` (native `<dialog>`:
+  `Select` (focus ring + `aria-invalid`), `Spinner`, `PendingIndicator` + `useElapsedSeconds` (SYM-77:
+  long async waits — spinner + label + a live elapsed counter; the elapsed span is `aria-hidden` inside
+  the `role=status` region so it announces once, not per tick; the ticking text doubles as the
+  reduced-motion activity signal — wired into Ask's "Thinking…" and Review's "Reviewing…"), plus
+  `Modal` + `useModalDialog` (native `<dialog>`:
   focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the Board's New-issue form
   (SYM-65), the `AskPanel` drawer, the `PathField` picker, and IssueDetail's request-changes dialog
   all build on it) and `ConfirmDialog` (SYM-72; the shared destructive-action confirm built on
