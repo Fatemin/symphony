@@ -415,3 +415,78 @@ export function Modal({
     </dialog>
   );
 }
+
+/**
+ * SYM-72: the shared destructive-action confirm dialog. Built on Modal so it inherits focus-trap,
+ * Escape, backdrop-click, scroll-lock, and focus restore — the one place destructive guards (skill
+ * delete, review-batch delete) live so they stay themed + a11y-consistent instead of the native
+ * `confirm()`. Mount it while open (`{open && <ConfirmDialog …>}`); on success the caller's mutation
+ * invalidates and unmounts it, on error `pending` falls back to false and the auto-close fires.
+ *
+ * The confirm button defaults to the `danger` variant; `autoFocus` is on the SAFE Cancel button so a
+ * reflexive Enter cancels rather than destroys. While `pending` the dialog can't be dismissed (Escape
+ * / backdrop / X / Cancel all no-op, matching the disabled controls) and the confirm button shows a
+ * spinner; it auto-closes on the `pending` true→false edge so the spinner stays visible for the whole
+ * request and the toast carries the outcome.
+ */
+export function ConfirmDialog({
+  title,
+  description,
+  children,
+  confirmLabel = 'Delete',
+  cancelLabel = 'Cancel',
+  confirmVariant = 'danger',
+  confirmIcon,
+  icon,
+  pending = false,
+  onConfirm,
+  onClose,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  /** Custom body; overrides `description`. */
+  children?: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  confirmVariant?: Variant;
+  confirmIcon?: ReactNode;
+  /** Header icon; defaults to a danger-tinted warning triangle. */
+  icon?: ReactNode;
+  pending?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const close = () => {
+    if (!pending) onClose();
+  };
+  // Auto-close on the pending true→false edge (settle). A stable onClose ref keeps the effect deps at
+  // [pending] so it never re-fires on an unrelated onClose identity change (satisfies exhaustive-deps).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) onCloseRef.current();
+    wasPending.current = pending;
+  }, [pending]);
+
+  return (
+    <Modal
+      size="sm"
+      onClose={close}
+      icon={icon ?? <AlertTriangle className="h-4 w-4 text-[var(--color-danger)]" />}
+      title={title}
+      footer={
+        <>
+          <Button autoFocus onClick={close} disabled={pending}>
+            {cancelLabel}
+          </Button>
+          <Button variant={confirmVariant} disabled={pending} onClick={onConfirm}>
+            {pending ? <Spinner /> : confirmIcon} {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {children ?? <p className="text-sm leading-relaxed text-muted">{description}</p>}
+    </Modal>
+  );
+}

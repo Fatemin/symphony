@@ -131,11 +131,14 @@ primitive default (last write wins).
 | `ErrorState` | Danger-tinted icon + title + description + optional **Retry** (recovery path). |
 | `useModalDialog(onClose)` | Native-`<dialog>` lifecycle: `showModal()` on mount, scroll-lock, `close()` in cleanup (restores focus to the opener), Escape routed through React via `onCancel`. |
 | `Modal` | Centered dialog built on `useModalDialog`: header (icon + title + close), scrolling body, footer slot; Escape + backdrop-click + focus restore; `aria-labelledby`/`aria-label`. |
+| `ConfirmDialog` (SYM-72) | The shared destructive-action confirm, built on `Modal`. `danger` confirm button (overridable via `confirmVariant`) + safe-action `autoFocus` on Cancel; danger warning-triangle header `icon` by default; `pending`-aware (controls disable, confirm shows a `Spinner`, dismissal no-ops); auto-closes on the `pending` true→false edge so the spinner spans the request and a toast carries the outcome. `description` or a custom `children` body. |
 
 **Migrated onto the dialog primitives:** `ApproveDialog`, the Board's **New-issue form** (SYM-65),
 the `IssueDetail` Request-changes dialog, and the `PathField` directory picker now use `Modal`; the
 `AskPanel` drawer uses `useModalDialog` directly (a right-anchored `<dialog>`) so it keeps its
-drag-to-resize + persisted width while gaining focus-trap, Escape, and focus restoration.
+drag-to-resize + persisted width while gaining focus-trap, Escape, and focus restoration. **All
+destructive confirms route through `ConfirmDialog`** (SYM-72) — skill delete and review-batch delete;
+the native `confirm()` is gone from the client.
 
 ---
 
@@ -234,3 +237,10 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   swaps its rail for a success tint, and replaces the footer with a success affordance — the resting
   rail color is the only per-grade value that ever changes, so the pattern stays data-driven from one
   metadata field.
+- **Destructive confirm** (SYM-72, `ConfirmDialog`) — never call the native `confirm()` and never
+  fire an irreversible action straight off a click. Hold the target in page/component state
+  (`skillToDelete`, `confirmDeleteOpen`) and mount `{open && <ConfirmDialog … />}` so the dialog
+  unmounts on cancel/settle. Pass the mutation's `isPending` as `pending` (the confirm spinner spans
+  the request; the dialog auto-closes on settle, the toast reports the result); the confirm button
+  stays `danger`, Cancel keeps `autoFocus`. The state lives where it survives the list refetch the
+  action triggers — at the page for a list-row delete, on the row component for a self-contained one.

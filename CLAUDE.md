@@ -150,7 +150,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `Select` (focus ring + `aria-invalid`), `Spinner`, plus `Modal` + `useModalDialog` (native `<dialog>`:
   focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the Board's New-issue form
   (SYM-65), the `AskPanel` drawer, the `PathField` picker, and IssueDetail's request-changes dialog
-  all build on it), `PageHeader`,
+  all build on it) and `ConfirmDialog` (SYM-72; the shared destructive-action confirm built on
+  `Modal` — `danger` confirm button, safe-action `autoFocus` on Cancel, `pending`-aware with
+  auto-close-on-settle — now the ONLY destructive guard: skill delete + review-batch delete route
+  through it and the native `confirm()` is gone from the client), `PageHeader`,
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
   responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
   spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live
