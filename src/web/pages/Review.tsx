@@ -289,7 +289,9 @@ function ReviewBatch({
 }) {
   const [showDismissed, setShowDismissed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // SYM-72: guard the previously-unguarded batch delete with the shared destructive ConfirmDialog.
+  // SYM-69 / SYM-72: deleting a batch destroys the run and every finding it produced (irreversible),
+  // so the previously-unguarded trash icon routes through the shared destructive ConfirmDialog —
+  // whose body names the findings count — instead of firing the mutation directly.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const status = REVIEW_STATUS_META[run.status];
   const active = run.findings.filter((f) => f.status !== 'dismissed');
@@ -305,6 +307,15 @@ function ReviewBatch({
     if (wasConverting.current && !batchConverting) setConfirmOpen(false);
     wasConverting.current = batchConverting;
   }, [batchConverting]);
+
+  // Same pending-edge close for delete. On success the parent's refetch drops this run and the whole
+  // batch unmounts, so this effect specifically covers the error path: the run stays, the toast carries
+  // the failure, and the modal should fall away rather than stranding a stale confirmation.
+  const wasDeleting = useRef(false);
+  useEffect(() => {
+    if (wasDeleting.current && !deleting) setConfirmDeleteOpen(false);
+    wasDeleting.current = deleting;
+  }, [deleting]);
 
   return (
     <Panel className="overflow-hidden">
@@ -484,12 +495,37 @@ function ReviewBatch({
       {confirmDeleteOpen && (
         <ConfirmDialog
           title="Delete this review?"
-          description="The whole review batch and its findings are removed. Converted issues already on the board stay."
           confirmLabel="Delete review"
+          confirmIcon={<Trash2 className="h-4 w-4" />}
           pending={deleting}
           onConfirm={onDelete}
           onClose={() => setConfirmDeleteOpen(false)}
-        />
+        >
+          {/* SYM-69: name what the irreversible delete destroys — total findings plus the graded
+              drafts not yet converted (or a "no findings yet" variant for running/failed runs). */}
+          {run.findings.length === 0 ? (
+            <p className="text-sm leading-relaxed text-muted">
+              This {REVIEW_SCOPE_META[run.scope].label} batch has no findings yet — it will be
+              removed.
+            </p>
+          ) : (
+            <p className="text-sm leading-relaxed text-muted">
+              This permanently deletes this {REVIEW_SCOPE_META[run.scope].label} batch and its{' '}
+              {run.findings.length} {run.findings.length === 1 ? 'finding' : 'findings'}. This can't
+              be undone.
+              {drafts.length > 0 && (
+                <>
+                  {' '}
+                  <span className="font-medium text-fg">
+                    {drafts.length} graded {drafts.length === 1 ? 'finding' : 'findings'} you haven't
+                    converted yet
+                  </span>{' '}
+                  will be lost.
+                </>
+              )}
+            </p>
+          )}
+        </ConfirmDialog>
       )}
     </Panel>
   );

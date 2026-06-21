@@ -134,7 +134,8 @@ primitive default (last write wins).
 | `ConfirmDialog` (SYM-72) | The shared destructive-action confirm, built on `Modal`. `danger` confirm button (overridable via `confirmVariant`) + safe-action `autoFocus` on Cancel; danger warning-triangle header `icon` by default; `pending`-aware (controls disable, confirm shows a `Spinner`, dismissal no-ops); auto-closes on the `pending` true→false edge so the spinner spans the request and a toast carries the outcome. `description` or a custom `children` body. |
 
 **Migrated onto the dialog primitives:** `ApproveDialog`, the Board's **New-issue form** (SYM-65),
-the `IssueDetail` Request-changes dialog, and the `PathField` directory picker now use `Modal`; the
+the `IssueDetail` Request-changes dialog, the `PathField` directory picker, and the **Review tab**'s
+two per-batch confirms — batch-convert (SYM-66) and the danger delete (SYM-69) — now use `Modal`; the
 `AskPanel` drawer uses `useModalDialog` directly (a right-anchored `<dialog>`) so it keeps its
 drag-to-resize + persisted width while gaining focus-trap, Escape, and focus restoration. **All
 destructive confirms route through `ConfirmDialog`** (SYM-72) — skill delete and review-batch delete;
