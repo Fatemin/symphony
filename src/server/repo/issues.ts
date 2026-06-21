@@ -35,6 +35,7 @@ interface IssueRow {
   round: number;
   merge_conflict: string | null;
   thinking_effort: string | null;
+  enable_workflow_tool: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +81,8 @@ function mapRow(r: IssueRow): Issue {
       r.thinking_effort && (THINKING_EFFORTS as readonly string[]).includes(r.thinking_effort)
         ? (r.thinking_effort as ThinkingEffort)
         : null,
+    // SYM-67: stored as 0/1/NULL — NULL reads back as null (= inherit project ?? engine).
+    enable_workflow_tool: r.enable_workflow_tool === null ? null : r.enable_workflow_tool !== 0,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -99,6 +102,8 @@ export interface CreateIssueInput {
   require_review?: boolean;
   /** Per-issue extended-thinking override (SYM-46); null/undefined ⇒ inherit project ?? engine. */
   thinking_effort?: ThinkingEffort | null;
+  /** Per-issue Workflow-tool override (SYM-67); null/undefined ⇒ inherit project ?? engine. */
+  enable_workflow_tool?: boolean | null;
   /** Ids of previously-uploaded attachments to link to the new issue (SYM-35). */
   attachment_ids?: string[];
 }
@@ -119,8 +124,9 @@ export function createIssue(input: CreateIssueInput): Issue {
   db.prepare(
     `INSERT INTO issues
        (id, project_id, parent_id, seq, key, type, title, description,
-        acceptance_criteria, labels, priority, status, mode, require_review, thinking_effort)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        acceptance_criteria, labels, priority, status, mode, require_review, thinking_effort,
+        enable_workflow_tool)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.project_id,
@@ -137,6 +143,8 @@ export function createIssue(input: CreateIssueInput): Issue {
     input.mode ?? 'manual',
     input.require_review === false ? 0 : 1,
     input.thinking_effort ?? null,
+    // SYM-67: node:sqlite rejects a JS boolean bind — store 0/1, NULL = inherit.
+    input.enable_workflow_tool == null ? null : input.enable_workflow_tool ? 1 : 0,
   );
   if (input.attachment_ids?.length) linkAttachmentsToIssue(input.attachment_ids, id);
   return getIssue(id)!;
@@ -223,6 +231,8 @@ export interface UpdateIssueInput {
   require_review?: boolean;
   /** Per-issue extended-thinking override (SYM-46); pass null to clear it back to inherit. */
   thinking_effort?: ThinkingEffort | null;
+  /** Per-issue Workflow-tool override (SYM-67); pass null to clear it back to inherit. */
+  enable_workflow_tool?: boolean | null;
   base_branch?: string | null;
   branch_name?: string | null;
   worktree_path?: string | null;
@@ -246,6 +256,12 @@ export function updateIssue(id: string, patch: UpdateIssueInput): Issue | null {
   if ('require_review' in patch) {
     sets.push(`require_review = ?`);
     params.push(patch.require_review ? 1 : 0);
+  }
+  // SYM-67: kept OUT of the generic UPDATABLE loop — node:sqlite rejects a JS boolean bind, and a
+  // null (clear-to-inherit) must round-trip as a real NULL, not 0. Store 0/1/NULL explicitly.
+  if ('enable_workflow_tool' in patch) {
+    sets.push(`enable_workflow_tool = ?`);
+    params.push(patch.enable_workflow_tool == null ? null : patch.enable_workflow_tool ? 1 : 0);
   }
   sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`);
   params.push(id);

@@ -429,6 +429,7 @@ function NewIssueForm({
     mode: 'auto',
     status: 'todo',
     thinking_effort: '', // SYM-46: '' = inherit the project/engine default
+    enable_workflow_tool: '', // SYM-67: '' = inherit, 'false' = off, 'true' = on
     description: '',
     acceptance_criteria: '',
   });
@@ -444,6 +445,8 @@ function NewIssueForm({
         mode: form.mode as Issue['mode'],
         status: form.status as IssueStatus,
         thinking_effort: (form.thinking_effort || null) as Issue['thinking_effort'],
+        enable_workflow_tool:
+          form.enable_workflow_tool === '' ? null : form.enable_workflow_tool === 'true',
         description: form.description || null,
         acceptance_criteria: form.acceptance_criteria || null,
         attachment_ids: attachments.map((a) => a.id),
@@ -545,7 +548,7 @@ function NewIssueForm({
         {/* SYM-65: group the secondary "how it runs" controls so they stay tidy below the primary fields. */}
         <fieldset className="border-t border-border pt-4">
           <legend className="mb-3 block text-xs font-semibold uppercase tracking-wide text-subtle">Execution</legend>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Mode">
               <Select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
                 <option value="manual">manual (run by hand)</option>
@@ -565,6 +568,14 @@ function NewIssueForm({
                 {THINKING_EFFORT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
+              </Select>
+            </Field>
+            {/* SYM-67: per-issue Workflow-tool override; inherit = the project/engine default. */}
+            <Field label="Workflow tool">
+              <Select value={form.enable_workflow_tool} onChange={(e) => setForm({ ...form, enable_workflow_tool: e.target.value })}>
+                <option value="">inherit (project default)</option>
+                <option value="false">off</option>
+                <option value="true">on (advanced)</option>
               </Select>
             </Field>
           </div>

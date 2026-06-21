@@ -107,6 +107,8 @@ export interface Issue {
   mode: IssueMode;
   /** Per-issue extended-thinking override (SYM-46); null ⇒ inherit project ?? engine default. */
   thinking_effort: ThinkingEffort | null;
+  /** Per-issue Workflow-tool override (SYM-67); null ⇒ inherit project ?? engine default. */
+  enable_workflow_tool: boolean | null;
   require_review: boolean;
   base_branch: string | null;
   branch_name: string | null;

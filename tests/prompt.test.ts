@@ -45,6 +45,7 @@ const issue: Issue = {
   status: 'in_progress',
   mode: 'auto',
   thinking_effort: null,
+  enable_workflow_tool: null,
   require_review: true,
   base_branch: 'main',
   branch_name: 'agent/pr-1',

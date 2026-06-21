@@ -159,13 +159,16 @@ What it can set (`WorkflowPolicy` / `ProjectConfig`):
 - `agent.model`, `agent.permission_mode`, `agent.max_turns` (a single number **or** a per-phase
   `{plan, implement, qa, delivery, merge}` map), `agent.type` (`claude`/`codex`).
 - `agent.enable_workflow_tool` (boolean) and `agent.thinking_effort` (`none`/`think`/`think-hard`/
-  `ultrathink`) — the SYM-41 agent-execution controls. **Project config only** (engine default +
-  project layers; `WorkflowPolicy` has no field for them, so WORKFLOW.md can't set them yet).
-  `thinking_effort` additionally has a per-issue layer (SYM-46, `Issue.thinking_effort`), resolved
-  as issue ?? project ?? engine — set it from the new-issue form or the issue detail header. The
-  header control is hidden on terminal (`done`/`cancelled`) issues (SYM-60): `resolveThinkingEffort`
-  is read only by the pipeline phases, so the override is a no-op once an issue can never re-run (it
-  stays visible at `review`, where Request changes starts a new round that reads it).
+  `ultrathink`) — the SYM-41 agent-execution controls. Engine default + project layers (`WorkflowPolicy`
+  has no field for them, so WORKFLOW.md can't set them yet). **Both also have a per-issue layer**,
+  resolved as **issue ?? project ?? engine** — `thinking_effort` (SYM-46, `Issue.thinking_effort`) via
+  `resolveThinkingEffort`, and `enable_workflow_tool` (SYM-67, `Issue.enable_workflow_tool`) via
+  `agentInput`'s `enableWf` chain (`disableWorkflows: !enableWf`). `??` (not `||`) so an explicit
+  per-issue `false`/`none` overrides a project/engine `true`/non-default. Set both from the new-issue
+  form, the follow-up form, or the issue detail header. The header controls are hidden on terminal
+  (`done`/`cancelled`) issues (SYM-60): the overrides are read only by the pipeline phases, so they're
+  no-ops once an issue can never re-run (they stay visible at `review`, where Request changes starts a
+  new round that reads them).
 - `prompts.{plan,implement,qa,delivery,merge}` — appended to that phase's baseline (§3).
 - `verification.commands` — objective gate (see §7).
 - `promotion` — `direct-merge` (default) or `pull-request`, plus `remote`, `base_branch`,

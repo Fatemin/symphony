@@ -98,6 +98,7 @@ One unit of tracked work — the thing the user manages.
 | `status` | TEXT | the lifecycle status (see [state machine](#status-state-machine)); default `backlog` |
 | `mode` | TEXT | `auto` \| `manual` (default `manual`) — gates poll-loop pickup |
 | `thinking_effort` | TEXT | per-issue extended-thinking override `none`/`think`/`think-hard`/`ultrathink` (SYM-46); NULL ⇒ inherit project ?? engine. Whitelist-guarded on read in `mapRow` |
+| `enable_workflow_tool` | INTEGER (bool) | per-issue Workflow-tool override (SYM-67); `1`/`0` = on/off, NULL ⇒ inherit project ?? engine. Stored as 0/1 (node:sqlite rejects boolean binds), `mapRow` reads NULL ⇒ null |
 | `require_review` | INTEGER (bool) | default `1`; off ⇒ a passing issue goes straight to `done` |
 | `base_branch`, `branch_name`, `worktree_path` | TEXT | set when work starts |
 | `round` | INTEGER | current revision round; `1`=first build, `2+`=after "request changes" |
@@ -293,10 +294,11 @@ default and a `NUMERIC_KEYS` entry, or `resolveConfig` won't coerce it. Non-nume
 `resolveConfig` branch: booleans (`enabled`, `enable_workflow_tool`) use a `Boolean()` case, and the
 `thinking_effort` enum uses a value-whitelist branch placed BEFORE the loose string fallback (SYM-41).
 `enable_workflow_tool` (default off) and `thinking_effort` (default `none`) are also per-project
-overridable via the project `config.agent` blob. `thinking_effort` additionally has a per-issue layer
-(SYM-46): `resolveThinkingEffort` (`phases/types.ts`) resolves it as **issue ?? project ?? engine**
-from the nullable `issues.thinking_effort` column, so an explicit per-issue keyword (including `none`)
-overrides both lower layers and NULL inherits them.
+overridable via the project `config.agent` blob. Both additionally have a per-issue layer:
+`thinking_effort` (SYM-46) via `resolveThinkingEffort` and `enable_workflow_tool` (SYM-67) via
+`agentInput`'s `enableWf` chain (both in `phases/types.ts`) resolve as **issue ?? project ?? engine**
+from the nullable `issues.thinking_effort` / `issues.enable_workflow_tool` columns, so an explicit
+per-issue value (including `none` / `false`) overrides both lower layers and NULL inherits them.
 
 ### 12. `ask_messages`
 

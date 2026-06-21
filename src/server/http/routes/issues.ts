@@ -91,6 +91,7 @@ issueRoutes.post('/:id/follow-ups', async (c) => {
     mode: body.mode,
     require_review: body.require_review,
     thinking_effort: body.thinking_effort, // SYM-46: carry the per-issue override onto the follow-up
+    enable_workflow_tool: body.enable_workflow_tool, // SYM-67: carry the per-issue Workflow-tool override onto the follow-up
     include_context: body.include_context !== false,
   });
   return c.json(result, 201);

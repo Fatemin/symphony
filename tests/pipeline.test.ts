@@ -231,6 +231,53 @@ test('a project that enables the Workflow tool flips disableWorkflows to false a
   assert.ok(inputs.every((i) => i.disableWorkflows === false), 'the project override reaches every phase');
 });
 
+test('a per-issue enable_workflow_tool=true flips disableWorkflows off over a default-off project (SYM-67)', async () => {
+  const project = createProject({ name: 'WF Issue On', key: 'WFIO', repo_path: env.repoPath });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Issue opts in',
+    status: 'todo',
+    mode: 'auto',
+    enable_workflow_tool: true, // wins over the project/engine default (off)
+  });
+
+  const inputs: AgentRunInput[] = [];
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', inputs }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(inputs.length, 4);
+  assert.ok(inputs.every((i) => i.disableWorkflows === false), 'the per-issue true reaches every phase');
+});
+
+test('a per-issue enable_workflow_tool=false forces disableWorkflows on over a project that enabled it (SYM-67)', async () => {
+  const project = createProject({
+    name: 'WF Issue Off',
+    key: 'WFIF',
+    repo_path: env.repoPath,
+    config: { agent: { enable_workflow_tool: true } }, // project enables it…
+  });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Issue opts out',
+    status: 'todo',
+    mode: 'auto',
+    enable_workflow_tool: false, // …but the per-issue false overrides it (?? not ||)
+  });
+
+  const inputs: AgentRunInput[] = [];
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', inputs }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(inputs.length, 4);
+  assert.ok(inputs.every((i) => i.disableWorkflows === true), 'the per-issue false overrides the project on');
+});
+
 test('autonomous done path runs a merge phase to push the branch (SYM-16)', async () => {
   const project = createProject({ name: 'Auto Merge', key: 'AM', repo_path: env.repoPath });
   const issue = createIssue({
