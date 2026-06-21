@@ -74,6 +74,36 @@ foregrounds darken in the light block so they keep AA on white. Subtle tone surf
 a single foreground token via `color-mix(... <token> 16%, transparent)`, so each tone re-themes from
 one source.
 
+### Routing status/semantic call sites through tokens (SYM-73)
+
+Status text/dots, badge surfaces, focus rings, and accent emphasis must consume the tokens above (or
+the `Badge tone` API), never raw Tailwind palette classes (`bg-amber-500/15`, `text-emerald-400`,
+`ring-indigo-500`): only tokens carry the light-mode override, and a hand-rolled
+`focus-visible:ring-indigo-500` both hardcodes `#6366f1` and re-suppresses the global ring with
+`outline-none`. SYM-73 routed the remaining call sites through tokens:
+
+- **`lib/format.ts`** — `STATUS_META` dots, `PHASE_META`, `REVIEW_STATUS_META`, and `SKILL_SOURCE_META`
+  use `var(--color-*)` solids/tints (status dots mirror their `color` label token; phase/running →
+  `warning`, completed → `success`, failed → `danger`; github → `accent`, marketplace → `success`,
+  manual → neutral surface). One edit here re-themes every consuming view.
+- **Call sites** — `Ops` run-outcome + phase badges use `Badge tone`; `Board` moved/selected card
+  emphasis + git-conflict badge, `ProjectTabs` active tab, `Review` active scope / draft banner /
+  success text / converted rail, `Documentation` selected item, `ProjectSkills` disabled badges +
+  checkbox `accent-[var(--color-accent)]`, and the `AskPanel` resize handle route through
+  `--color-accent` / `-ring` / `-success` / `-danger` / `-warning`. Hand-rolled
+  `focus-visible:ring-indigo-500` rings were deleted so the elements inherit the §3 global ring — the
+  one exception is the 1.5px `AskPanel` resize handle, which keeps `ring-1 ring-inset
+  ring-[var(--color-ring)]` because an offset outline would draw outside the thin handle.
+
+**Intentionally raw — no 1:1 token exists (AC#4 exclusions).** Two `lib/format.ts` scales stay on raw
+palette classes, commented in place: `REVIEW_SEVERITY_META` (a critical→low **grade ramp** of
+red→orange→amber→slate — only red/amber have tokens, so converting the subset would fracture the ramp)
+and `REVIEW_CATEGORY_META` (docs/code/ui_ux **categorical** hues sky/violet/teal — only sky has a near
+token). Both await a dedicated grade/category token set. The brand `bg-indigo-600` button/message-bubble
+fills stay raw by design (the `-600` shade keeps white text AA, see the AA paragraph above), as do
+decorative standalone accent glyphs (`text-indigo-300` page/modal header icons) — a future consistency
+pass can fold those icons in.
+
 ### Elevation (themed, not in `@theme`)
 
 Three levels as `--elev-1/2/3`, kept as plain `:root` variables so each is re-themed per mode (dark
@@ -231,6 +261,7 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   **one primary CTA**; secondary actions are subordinate (`variant="ghost"`) and any quiet/reversible
   action (dismiss) is an icon-only `aria-label`'d button pushed to `ml-auto`, all on a `flex-wrap`
   row so they reflow on narrow widths. A resolved item (converted) de-emphasizes (`opacity-90`),
-  swaps its rail for a success tint, and replaces the footer with a success affordance — the resting
-  rail color is the only per-grade value that ever changes, so the pattern stays data-driven from one
-  metadata field.
+  swaps its rail for the `--color-success` token (SYM-73 — a status signal, distinct from the raw
+  severity grade ramp it replaces; see §2), and replaces the footer with a success affordance — the
+  resting rail color is the only per-grade value that ever changes, so the pattern stays data-driven
+  from one metadata field.

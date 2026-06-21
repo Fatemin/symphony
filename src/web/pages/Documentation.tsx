@@ -243,11 +243,13 @@ function FileButton({
       type="button"
       onClick={onSelect}
       aria-current={selected ? 'true' : undefined}
-      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-        selected ? 'bg-indigo-500/15 text-fg' : 'text-muted hover:bg-panel-2 hover:text-fg'
+      // SYM-73: drop the hand-rolled ring (inherits the global :focus-visible ring) and route the
+      // selected accent surface + icon through the `--color-accent` token so they re-theme for light mode.
+      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition ${
+        selected ? 'bg-[color-mix(in_oklab,var(--color-accent)_15%,transparent)] text-fg' : 'text-muted hover:bg-panel-2 hover:text-fg'
       }`}
     >
-      <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? 'text-indigo-300' : ''}`} />
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? 'text-[var(--color-accent-hover)]' : ''}`} />
       <span className="truncate">{label}</span>
     </button>
   );
@@ -297,7 +299,7 @@ function DirectoryEditor({
               aria-label={`Remove ${dir}`}
               onClick={() => remove(dir)}
               disabled={saving}
-              className="rounded text-muted transition hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+              className="rounded text-muted transition hover:text-[var(--color-danger)] disabled:opacity-50"
             >
               <X className="h-3 w-3" />
             </button>
@@ -327,7 +329,7 @@ function DirectoryEditor({
           type="button"
           onClick={() => onChange([...DEFAULT_DOC_DIRECTORIES])}
           disabled={saving}
-          className="mt-2 inline-flex items-center gap-1 text-xs text-muted transition hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          className="mt-2 inline-flex items-center gap-1 text-xs text-muted transition hover:text-fg disabled:opacity-50"
         >
           <RotateCcw className="h-3 w-3" /> Reset to default (docs)
         </button>

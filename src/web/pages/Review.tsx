@@ -223,9 +223,11 @@ function RunControl({
               type="button"
               aria-pressed={active}
               onClick={() => onScope(s)}
-              className={`rounded-md border px-3 py-1.5 text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+              // SYM-73: drop the hand-rolled ring (inherits the global :focus-visible ring) and route
+              // the active accent border/surface through the `--color-accent` token for light mode.
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
                 active
-                  ? 'border-indigo-400 bg-indigo-500/15 text-fg'
+                  ? 'border-[var(--color-accent)] bg-[color-mix(in_oklab,var(--color-accent)_15%,transparent)] text-fg'
                   : 'border-border text-muted hover:bg-panel-2 hover:text-fg'
               }`}
             >
@@ -327,7 +329,7 @@ function ReviewBatch({
           title="Delete this review"
           onClick={onDelete}
           disabled={deleting}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-hover hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-hover hover:text-[var(--color-danger)] disabled:opacity-50"
         >
           {deleting ? <Spinner /> : <Trash2 className="h-3.5 w-3.5" />}
         </button>
@@ -339,7 +341,7 @@ function ReviewBatch({
             <Spinner /> Reviewing… this runs in the background, so you can leave this page.
           </div>
         ) : run.status === 'failed' ? (
-          <div className="flex items-start gap-2 text-sm text-red-400">
+          <div className="flex items-start gap-2 text-sm text-[var(--color-danger)]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{run.error || 'The review failed.'}</span>
           </div>
@@ -352,9 +354,10 @@ function ReviewBatch({
             )}
 
             {drafts.length > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-accent)]/30 bg-indigo-500/5 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-accent)]/30 bg-[color-mix(in_oklab,var(--color-accent)_5%,transparent)] px-3 py-2">
                 <div className="flex items-center gap-1.5 text-xs text-muted">
-                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-300" />
+                  {/* SYM-73: accent-tinted draft banner — surface bg + icon route through --color-accent so the whole strip re-themes for light mode. */}
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent-hover)]" />
                   <span>
                     {drafts.length} {drafts.length === 1 ? 'draft is' : 'drafts are'} ready — hand the
                     whole batch to the orchestrator in one click.
@@ -373,7 +376,7 @@ function ReviewBatch({
             )}
 
             {active.length === 0 ? (
-              <div className="flex items-center gap-2 text-sm text-emerald-400">
+              <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
                 <CheckCircle2 className="h-4 w-4" />
                 No issues found — this scope looks healthy.
               </div>
@@ -505,8 +508,9 @@ function FindingCard({
   const Icon = finding.type === 'bug' ? Bug : Sparkles;
   const converted = finding.status === 'converted';
   // Converted cards de-emphasise (a decision was made) and swap the grade rail for a success tint so
-  // the eye lands on findings still awaiting a call.
-  const rail = converted ? 'border-l-emerald-500/60' : severity.rail;
+  // the eye lands on findings still awaiting a call. SYM-73: the success rail is a status signal (not
+  // part of the raw severity grade ramp), so it routes through the `--color-success` token.
+  const rail = converted ? 'border-l-[var(--color-success)]/60' : severity.rail;
 
   return (
     <div
@@ -557,7 +561,7 @@ function FindingCard({
         {converted ? (
           <Link
             to={`/issues/${finding.issue_id}`}
-            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-success)] hover:underline"
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Created {finding.issue_key ?? 'issue'}
           </Link>

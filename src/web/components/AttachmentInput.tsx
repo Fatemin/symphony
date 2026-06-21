@@ -140,14 +140,16 @@ export function AttachmentInput({
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
-        className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-3 py-3 text-xs transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 ${
-          dragging ? 'border-indigo-500 bg-indigo-500/10 text-indigo-200' : 'border-border bg-bg-2 text-muted hover:border-indigo-500/50 hover:text-fg'
+        // SYM-73: drop the hand-rolled ring (inherits the global :focus-visible ring on this large
+        // dropzone) and route the dragging/hover accent border + fill + label through --color-accent.
+        className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-3 py-3 text-xs transition-colors ${
+          dragging ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent-hover)]' : 'border-border bg-bg-2 text-muted hover:border-[var(--color-accent)]/50 hover:text-fg'
         }`}
       >
         {dragging ? <Upload className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
         <span>
           {dragging ? 'Drop to attach' : 'Paste, drop, or '}
-          {!dragging && <span className="font-medium text-indigo-300">choose files</span>}
+          {!dragging && <span className="font-medium text-[var(--color-accent-hover)]">choose files</span>}
         </span>
       </div>
       <input
@@ -226,7 +228,7 @@ function AttachmentChip({ att, disabled, onRemove }: { att: Attachment; disabled
 function PendingChip({ pending, onDismiss }: { pending: Pending; onDismiss: () => void }) {
   if (pending.error) {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 py-1.5 pl-2 pr-1.5 text-xs text-red-300">
+      <div className="flex items-center gap-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 py-1.5 pl-2 pr-1.5 text-xs text-[var(--color-danger)]">
         <span className="min-w-0 max-w-[12rem] truncate" title={`${pending.name}: ${pending.error}`}>
           <span className="font-medium">{pending.name}</span> — {pending.error}
         </span>
@@ -234,7 +236,7 @@ function PendingChip({ pending, onDismiss }: { pending: Pending; onDismiss: () =
           type="button"
           aria-label={`Dismiss error for ${pending.name}`}
           onClick={onDismiss}
-          className="grid h-5 w-5 shrink-0 place-items-center rounded text-red-300 hover:bg-red-500/20"
+          className="grid h-5 w-5 shrink-0 place-items-center rounded text-[var(--color-danger)] hover:bg-[var(--color-danger)]/20"
         >
           <X className="h-3.5 w-3.5" />
         </button>
