@@ -62,7 +62,10 @@ export function ApproveDialog({
     } else if (exists) {
       stateMsg = 'Merges into existing branch';
     } else if (createBranch) {
-      stateMsg = `Will create ${targetLabel} from ${sourceBranch ?? fallbackBranch}`;
+      // The server forks a brand-new target from the base/default branch (ensureBranch's `fromBranch`
+      // = issue.base_branch ?? default_branch), NOT from the feature branch — so name `initialBranch`
+      // (the base/default target both call sites pass in), never `sourceBranch`.
+      stateMsg = `Will create ${targetLabel} from ${initialBranch || fallbackBranch}`;
     } else {
       stateMsg = "Branch doesn't exist — enable Create branch to create it";
       stateTone = 'text-[var(--color-danger)]';
