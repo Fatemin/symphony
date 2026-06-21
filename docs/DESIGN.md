@@ -309,7 +309,12 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   manages its own escape route: a header close `X`, a Cancel button, and an `onKeyDown` Escape — all
   no-op while the mutation is in flight. ⌘·Ctrl+Enter submits from anywhere; success/error toast.
   Reach for this (over the dialog pattern) when the form should stay in context and not steal the
-  viewport.
+  viewport. **SYM-79** brought the second issue-create surface — IssueDetail's `FollowUpForm` (shown
+  below the header of a `done` story) — onto this same pattern: identical chips + progressive
+  disclosure, with the source-story reference standing in for the "New issue" heading and the
+  "Reference context" toggle kept in its always-visible footer slot. The per-issue Workflow-tool
+  override (SYM-67) renders as a chip group here too, so both create cards expose the full execution
+  controls identically.
 - **Graded item card** (SYM-61, Review tab `FindingCard`) — for a list of graded, actionable items
   the user triages. The grade is *labeled* by the section/group header it sits under (dot + label +
   count); the card reinforces it with a quiet **left grade-rail** (`border-l-2` + a per-grade
