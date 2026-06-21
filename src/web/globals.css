@@ -16,10 +16,13 @@
   --color-panel-2: #1b1f2a;
   --color-border: #262b38;
   --color-hover: #222735;
-  /* foreground, brightest → dimmest */
+  /* foreground, brightest → dimmest. SYM-70: subtle carries real content (column counts, "No issues",
+     timestamps, input placeholders), so it must clear WCAG AA (≥4.5:1) as text — the old #475569 was
+     ~2.2:1 on panel-2. #7e8ca3 = 4.83:1 on the lightest dark surface (panel-2) and stays dimmer than
+     muted (L 0.258 < 0.292), so the brightest→dimmest hierarchy holds. Guarded by tests/contrast.test.ts. */
   --color-fg: #e7e9ee;
   --color-muted: #8b93a7;
-  --color-subtle: #475569;
+  --color-subtle: #7e8ca3;
   /* accent is theme-independent */
   --color-accent: #6366f1;
   /* SYM-59: accent hover (a notch brighter on dark, darker on light — see the light block) and a
@@ -57,8 +60,12 @@
   --color-border: #e2e8f0;
   --color-hover: #e2e8f0;
   --color-fg: #1e293b;
-  --color-muted: #64748b;
-  --color-subtle: #94a3b8;
+  /* SYM-70: both secondary tokens also failed AA on white (the issue title flagged only dark, but the
+     AC requires AA in BOTH themes). On the darkest light surface (panel-2 #f1f5f9) the old muted
+     #64748b was 4.34:1 and subtle #94a3b8 was 2.34:1. muted #54637a = 5.57:1, subtle #5b6b82 = 4.95:1;
+     muted stays darker than subtle (L 0.122 < 0.144) so the darkest→lightest hierarchy is preserved. */
+  --color-muted: #54637a;
+  --color-subtle: #5b6b82;
   /* SYM-59: darker accent-hover / ring / semantic foregrounds so accents + focus stay AA on white */
   --color-accent-hover: #4f46e5;
   --color-ring: #4f46e5;

@@ -145,7 +145,9 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   tokens + a global `@layer base` `:focus-visible` ring + native-`<dialog>` base in `globals.css`
   (new `@theme` tokens `--color-accent-hover` / `--color-ring` / `--color-success` / `--color-warning`
   / `--color-danger` / `--color-info`, plus themed `--elev-1/2/3` elevation vars — all existing token
-  names preserved), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
+  names preserved; SYM-70 raised the neutral text tokens `--color-subtle` (both themes) and light
+  `--color-muted` to clear WCAG AA on every surface, enforced by `tests/contrast.test.ts` which
+  recomputes the ratios from `globals.css`), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
   `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
   `Select` (focus ring + `aria-invalid`), `Spinner`, plus `Modal` + `useModalDialog` (native `<dialog>`:
   focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the Board's New-issue form
