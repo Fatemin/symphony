@@ -689,7 +689,10 @@ function ReviewPanel({ issue }: { issue: Detail }) {
   const qaActivity = issue.events.filter((e) => phaseOf(e) === 'qa' && e.kind === 'agent.tool');
 
   // ── diff (item 1) ──
-  const { data: diff, isLoading } = useQuery({
+  // isError/error/refetch are load-bearing: on a failed fetch `diff` is undefined, so without an
+  // explicit error branch the render falls through to `!diff?.available` and mislabels the failure
+  // as "No diff" (SYM-71). Surface a real error state with retry instead.
+  const { data: diff, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['diff', issue.id],
     queryFn: () => api.issues.diff(issue.id),
   });
@@ -744,10 +747,18 @@ function ReviewPanel({ issue }: { issue: Detail }) {
       {/* Live preview (only while the worktree still exists, i.e. before approval) */}
       {issue.status === 'review' && <Preview issueId={issue.id} />}
 
-      {/* Diff */}
+      {/* Diff — order is load-bearing: loading → error → empty → success. The error branch MUST
+          precede `!diff?.available`, because on a failed fetch `diff` is undefined and the empty
+          check would otherwise swallow the failure as "No diff" (SYM-71). */}
       <div className="text-xs">
         {isLoading ? (
           <span className="text-subtle">Loading diff…</span>
+        ) : isError ? (
+          <ErrorState
+            title="Couldn't load the diff"
+            description={error instanceof Error ? error.message : 'The server is unreachable or returned an error.'}
+            onRetry={() => refetch()}
+          />
         ) : !diff?.available ? (
           <span className="text-subtle">No diff (no committed changes on the agent branch).</span>
         ) : (
