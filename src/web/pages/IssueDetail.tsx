@@ -242,19 +242,25 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
           {/* SYM-47: the auto/manual mode toggle is gone from the detail page — dispatch mode is
               chosen only at creation (Board "New issue" / Follow-up forms); flipping it here had no
               effect given listAutoCandidates' status filter and the always-available Run button. */}
-          {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
-          <Select
-            value={issue.thinking_effort ?? ''}
-            onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
-            className="w-auto"
-            aria-label="Thinking effort"
-            title="Extended-thinking budget for this issue (inherit = project/engine default)"
-          >
-            <option value="">inherit</option>
-            {THINKING_EFFORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </Select>
+          {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default.
+              SYM-60: hidden on terminal (done/cancelled) issues — thinking_effort is consumed only by
+              resolveThinkingEffort in the plan/implement/qa/delivery/merge phases, so the control is a
+              no-op once an issue can never re-run. Kept at 'review' (still !terminal) because Request
+              changes starts a new round that reads it. */}
+          {!terminal && (
+            <Select
+              value={issue.thinking_effort ?? ''}
+              onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
+              className="w-auto"
+              aria-label="Thinking effort"
+              title="Extended-thinking budget for this issue (inherit = project/engine default)"
+            >
+              <option value="">inherit</option>
+              {THINKING_EFFORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </Select>
+          )}
           {issue.status === 'review' ? (
             <>
               <Button

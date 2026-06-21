@@ -152,7 +152,10 @@ What it can set (`WorkflowPolicy` / `ProjectConfig`):
   `ultrathink`) — the SYM-41 agent-execution controls. **Project config only** (engine default +
   project layers; `WorkflowPolicy` has no field for them, so WORKFLOW.md can't set them yet).
   `thinking_effort` additionally has a per-issue layer (SYM-46, `Issue.thinking_effort`), resolved
-  as issue ?? project ?? engine — set it from the new-issue form or the issue detail header.
+  as issue ?? project ?? engine — set it from the new-issue form or the issue detail header. The
+  header control is hidden on terminal (`done`/`cancelled`) issues (SYM-60): `resolveThinkingEffort`
+  is read only by the pipeline phases, so the override is a no-op once an issue can never re-run (it
+  stays visible at `review`, where Request changes starts a new round that reads it).
 - `prompts.{plan,implement,qa,delivery,merge}` — appended to that phase's baseline (§3).
 - `verification.commands` — objective gate (see §7).
 - `promotion` — `direct-merge` (default) or `pull-request`, plus `remote`, `base_branch`,
