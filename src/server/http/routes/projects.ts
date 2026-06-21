@@ -21,7 +21,14 @@ import { listProjectRelations } from '../../repo/issueRelations';
 import { listBranches } from '../../workspace/worktree';
 import { listProjectDocs, readProjectDoc } from '../../workspace/docs';
 import { parseProjectConfig } from '../../core/projectConfig';
-import type { BoardIssue, DocListing, MarketplaceInstallResult, ProjectSkill } from '../../../shared/types';
+import type {
+  BoardIssue,
+  DocListing,
+  MarketplaceInstallResult,
+  ProjectSkill,
+  SkillCopyResult,
+  SkillCopyTargetResult,
+} from '../../../shared/types';
 
 export const projectRoutes = new Hono();
 
@@ -212,6 +219,67 @@ projectRoutes.post('/:id/skills/install', async (c) => {
   }
   const result: MarketplaceInstallResult = { imported, skipped };
   return c.json(result, imported.length ? 201 : 422);
+});
+
+// Copy this project's skills into one or more OTHER projects (SYM-64). `:id` is the SOURCE; the body
+// is `{ target_project_ids: string[]; skill_ids?: string[] }`. Each selected skill is re-created in
+// every target as a fresh row preserving provenance (name/description/content/files/source/source_url/
+// enabled) — a push, so the source list is untouched. The source id is silently dropped from the
+// target list (no self-copy) and the list is de-duped; a target id that no longer exists is reported
+// with an `error` note rather than failing the batch; per-skill name collisions land in that target's
+// `skipped` (same unique-name mapping as the create/import routes). 201 when any skill landed in any
+// target, else 422; 400 on an empty/invalid target list, 404 on an unknown source project.
+projectRoutes.post('/:id/skills/copy', async (c) => {
+  const source = getProject(c.req.param('id'));
+  if (!source) return c.json({ error: 'not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const targetIds: unknown = body.target_project_ids;
+  if (!Array.isArray(targetIds) || targetIds.length === 0 || !targetIds.every((t) => typeof t === 'string')) {
+    return c.json({ error: 'target_project_ids must be a non-empty array of project ids' }, 400);
+  }
+  // Load the source skills once; when skill_ids is present, copy only that subset (ids not belonging
+  // to the source are silently ignored, mirroring how the import routes tolerate partial input).
+  let skills = listProjectSkills(source.id);
+  if (Array.isArray(body.skill_ids)) {
+    const wanted = new Set((body.skill_ids as unknown[]).map((s) => String(s)));
+    skills = skills.filter((s) => wanted.has(s.id));
+  }
+  const results: SkillCopyTargetResult[] = [];
+  let importedAny = false;
+  // De-dupe the target list and drop the source itself, so [source, t, t] copies to t exactly once.
+  for (const targetId of new Set(targetIds as string[])) {
+    if (targetId === source.id) continue; // never copy a project's skills onto itself
+    const target = getProject(targetId);
+    if (!target) {
+      results.push({ project_id: targetId, project_name: '', imported: [], skipped: [], error: 'project not found' });
+      continue;
+    }
+    const imported: ProjectSkill[] = [];
+    const skipped: { name: string; reason: string }[] = [];
+    for (const skill of skills) {
+      try {
+        imported.push(
+          createProjectSkill({
+            project_id: target.id,
+            name: skill.name,
+            description: skill.description,
+            content: skill.content,
+            files: skill.files,
+            source: skill.source,
+            source_url: skill.source_url,
+            enabled: skill.enabled,
+          }),
+        );
+      } catch (e) {
+        // The (project_id, name) unique index throws when the target already has that skill.
+        skipped.push({ name: skill.name, reason: skillErrorMessage(e) });
+      }
+    }
+    if (imported.length) importedAny = true;
+    results.push({ project_id: target.id, project_name: target.name, imported, skipped });
+  }
+  const result: SkillCopyResult = { results };
+  return c.json(result, importedAny ? 201 : 422);
 });
 
 projectRoutes.patch('/:id/skills/:skillId', async (c) => {

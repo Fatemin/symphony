@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, Github, Package, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { Copy, Download, FolderPlus, Github, Package, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
 import type { ProjectSkill } from '../../shared/types';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, EmptyState, Field, Input, Loading, PageHeader, Panel, ProjectChip, Textarea } from '../components/ui';
+import { Badge, Button, EmptyState, Field, Input, Loading, Modal, PageHeader, Panel, ProjectChip, Textarea } from '../components/ui';
 
 interface SkillForm {
   name: string;
@@ -39,6 +39,7 @@ export function ProjectSkills() {
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<SkillForm>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['project-skills', projectId] });
 
@@ -115,9 +116,18 @@ export function ProjectSkills() {
         icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
         title={project.name}
         actions={
-          <Button variant="primary" onClick={() => setCreating((v) => !v)}>
-            <Plus className="h-4 w-4" /> New skill
-          </Button>
+          <>
+            <Button
+              onClick={() => setSyncing(true)}
+              disabled={!skills || skills.length === 0}
+              title={!skills || skills.length === 0 ? 'Add a skill before syncing' : undefined}
+            >
+              <Copy className="h-4 w-4" /> Sync to projects
+            </Button>
+            <Button variant="primary" onClick={() => setCreating((v) => !v)}>
+              <Plus className="h-4 w-4" /> New skill
+            </Button>
+          </>
         }
       />
 
@@ -271,7 +281,146 @@ export function ProjectSkills() {
           />
         )}
       </div>
+
+      {syncing && skills && skills.length > 0 && (
+        <SyncSkillsModal projectId={projectId} skills={skills} onClose={() => setSyncing(false)} />
+      )}
     </div>
+  );
+}
+
+/**
+ * SYM-64: "Sync skills to projects" — pick target projects + skills and copy them in one push. The
+ * source list is unchanged (each copy is a fresh row in the target); name collisions in a target are
+ * reported as skips. A separate component so its selection state resets on every open (fresh mount).
+ */
+function SyncSkillsModal({
+  projectId,
+  skills,
+  onClose,
+}: {
+  projectId: string;
+  skills: ProjectSkill[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  // Gate the projects fetch on the modal being open (this component only mounts while open).
+  const { data: projects, isLoading } = useQuery({ queryKey: ['projects'], queryFn: () => api.projects.list() });
+  const otherProjects = (projects ?? []).filter((p) => p.id !== projectId);
+
+  const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
+  // Default to copying every skill — the common case is "push them all to the other project".
+  const [selectedSkills, setSelectedSkills] = useState<Set<string>>(() => new Set(skills.map((s) => s.id)));
+
+  const toggle = (set: Set<string>, key: string): Set<string> => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+
+  const copy = useMutation({
+    mutationFn: () =>
+      api.projects.skills.copy(projectId, {
+        target_project_ids: [...selectedTargets],
+        skill_ids: [...selectedSkills],
+      }),
+    onSuccess: (result) => {
+      // The source list is unchanged; refresh each target's cache so a later visit shows the copies.
+      for (const t of selectedTargets) qc.invalidateQueries({ queryKey: ['project-skills', t] });
+      const imported = result.results.reduce((n, r) => n + r.imported.length, 0);
+      const skippedCount = result.results.reduce((n, r) => n + r.skipped.length, 0);
+      const into = result.results.filter((r) => r.imported.length > 0).length;
+      const summary = `Copied ${imported} skill${imported === 1 ? '' : 's'} to ${into} project${into === 1 ? '' : 's'}`;
+      toast.success(
+        skippedCount ? `${summary} · skipped ${skippedCount} duplicate${skippedCount === 1 ? '' : 's'}` : summary,
+      );
+      onClose();
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const canCopy = selectedTargets.size > 0 && selectedSkills.size > 0 && !copy.isPending;
+
+  return (
+    <Modal
+      title="Sync skills to projects"
+      icon={<Copy className="h-4 w-4" />}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={copy.isPending}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={copy.isPending} disabled={!canCopy} onClick={() => copy.mutate()}>
+            <Copy className="h-4 w-4" /> Copy
+          </Button>
+        </>
+      }
+    >
+      {isLoading ? (
+        <Loading />
+      ) : otherProjects.length === 0 ? (
+        <EmptyState
+          icon={<FolderPlus />}
+          title="No other projects"
+          description="Create another project first — skills are pushed into the projects you pick here."
+        />
+      ) : (
+        <div className="space-y-5">
+          <section>
+            <div className="mb-2 text-xs font-medium text-muted">
+              Copy to ({selectedTargets.size}/{otherProjects.length})
+            </div>
+            <div className="space-y-1">
+              {otherProjects.map((p) => (
+                <label
+                  key={p.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-panel-2"
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-indigo-500"
+                    checked={selectedTargets.has(p.id)}
+                    onChange={() => setSelectedTargets((s) => toggle(s, p.id))}
+                  />
+                  <ProjectChip color={p.color}>{p.key}</ProjectChip>
+                  <span className="truncate text-sm">{p.name}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-2 text-xs font-medium text-muted">
+              Skills ({selectedSkills.size}/{skills.length})
+            </div>
+            <div className="space-y-1">
+              {skills.map((skill) => (
+                <label
+                  key={skill.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-panel-2"
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-indigo-500"
+                    checked={selectedSkills.has(skill.id)}
+                    onChange={() => setSelectedSkills((s) => toggle(s, skill.id))}
+                  />
+                  <span className="truncate text-sm">{skill.name}</span>
+                  {!skill.enabled && <Badge className="bg-amber-500/15 text-amber-400">disabled</Badge>}
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <p className="text-xs text-muted">
+            Copies are new skills in each target (provenance preserved); this project's skills are unchanged.
+            A skill whose name already exists in a target is skipped.
+          </p>
+        </div>
+      )}
+    </Modal>
   );
 }
 

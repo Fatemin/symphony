@@ -23,6 +23,7 @@ import type {
   ReviewRunWithFindings,
   ReviewScope,
   Run,
+  SkillCopyResult,
   Snapshot,
   ThinkingEffort,
 } from '../shared/types';
@@ -265,6 +266,9 @@ export const api = {
           method: 'POST',
           ...body({ command }),
         }),
+      // SYM-64: push this project's skills into other projects. Omit skill_ids to copy them all.
+      copy: (projectId: string, data: { target_project_ids: string[]; skill_ids?: string[] }) =>
+        req<SkillCopyResult>(`/api/projects/${projectId}/skills/copy`, { method: 'POST', ...body(data) }),
       update: (projectId: string, skillId: string, data: Partial<ProjectSkill>) =>
         req<ProjectSkill>(`/api/projects/${projectId}/skills/${skillId}`, { method: 'PATCH', ...body(data) }),
       remove: (projectId: string, skillId: string) =>
