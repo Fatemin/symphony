@@ -223,11 +223,13 @@ export function Board() {
                 aria-label={`Expand ${meta.label}`}
                 aria-expanded={false}
                 onClick={() => toggleColumn(status)}
-                className="flex w-10 shrink-0 flex-col items-center gap-2 rounded-md py-2 text-muted transition-all hover:bg-hover hover:text-fg"
+                className="group flex w-10 shrink-0 flex-col items-center gap-2 rounded-md py-2 text-muted transition-all hover:bg-hover hover:text-fg"
               >
                 <ChevronRight className="h-4 w-4 shrink-0" />
                 <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
-                <span className="text-xs text-subtle">{items.length}</span>
+                {/* SYM-70: pinned text-subtle on the hover wash (#222735 dark / #e2e8f0 light) is 4.38:1 —
+                    just under AA. Flip to fg on hover like the sibling label/chevron already do. */}
+                <span className="text-xs text-subtle group-hover:text-fg">{items.length}</span>
                 <span className="text-xs font-medium [writing-mode:vertical-rl]">{meta.label}</span>
               </button>
             );

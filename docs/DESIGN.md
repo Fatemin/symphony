@@ -49,8 +49,8 @@ across every file. Extend the block; never rename.
 | `--color-border` | `#262b38` | `#e2e8f0` | Hairline borders / dividers |
 | `--color-hover` | `#222735` | `#e2e8f0` | Hover wash on ghost controls |
 | `--color-fg` | `#e7e9ee` | `#1e293b` | Primary text (≥ AA on every surface) |
-| `--color-muted` | `#8b93a7` | `#64748b` | Secondary text |
-| `--color-subtle` | `#475569` | `#94a3b8` | Tertiary / placeholder text |
+| `--color-muted` | `#8b93a7` | `#54637a` | Secondary text |
+| `--color-subtle` | `#7e8ca3` | `#5b6b82` | Tertiary / placeholder text |
 
 ### Color — accent, focus & semantics (SYM-59 additions)
 
@@ -73,6 +73,27 @@ and remain the source of truth for `lib/format.ts` badge/dot metadata.
 foregrounds darken in the light block so they keep AA on white. Subtle tone surfaces are derived from
 a single foreground token via `color-mix(... <token> 16%, transparent)`, so each tone re-themes from
 one source.
+
+**Neutral text tokens meet AA on every surface (SYM-70).** `fg`/`muted`/`subtle` carry real content
+(column counts, "No issues"/"No activity yet." placeholders, timestamps, input placeholders), so each
+must clear 4.5:1 on the worst-case surface it can land on — the *lightest* dark surface (`panel-2`
+`#1b1f2a`) and the *darkest* light surface (`panel-2` `#f1f5f9`). The pre-SYM-70 values failed: dark
+`subtle` ≈ 2.2:1, and (despite the issue flagging only dark) light `muted` 4.34:1 and light `subtle`
+2.34:1. Corrected, with the worst-case ratio on the binding `panel-2` surface:
+
+| Token | Theme | Old → New | Ratio on `panel-2` |
+|-------|-------|-----------|--------------------|
+| `--color-subtle` | dark | `#475569` → `#7e8ca3` | 2.17 → **4.83** |
+| `--color-muted` | light | `#64748b` → `#54637a` | 4.34 → **5.57** |
+| `--color-subtle` | light | `#94a3b8` → `#5b6b82` | 2.34 → **4.95** |
+
+The fix is a pure token-value change — every consumer reads the CSS variable (`text-subtle` /
+`placeholder:text-subtle`), so all sites update at once. The legibility hierarchy is preserved
+(`subtle` stays dimmer than `muted` in dark, lighter than `muted` in light). `tests/contrast.test.ts`
+recomputes the WCAG ratios from `globals.css` on every `npm test`, so any token edit that drops a
+neutral text token below AA — or inverts the hierarchy — fails CI. (Colored semantic/status tokens
+render on derived `color-mix` tints, not raw surfaces, and are out of that test's scope; they were
+AA-tuned under SYM-59.)
 
 ### Routing status/semantic call sites through tokens (SYM-73)
 
@@ -200,7 +221,8 @@ Every data-backed view renders all of these; primitives make them consistent:
 ## 6. Accessibility rules
 
 - **Contrast:** body/label text ≥ 4.5:1, large/secondary ≥ 3:1, in **both** themes. Verify light
-  independently — never infer it from dark.
+  independently — never infer it from dark. The neutral text tokens (`fg`/`muted`/`subtle`) are
+  AA-enforced automatically by `tests/contrast.test.ts` (SYM-70; see §2 "Neutral text tokens meet AA").
 - **Keyboard:** every interactive element is reachable and shows the focus ring. Modals trap focus
   (native `<dialog>`), close on Escape, and restore focus to the trigger on close.
 - **Landmarks:** the shell has a "Skip to content" link, an `aria-label`'d primary `<aside>`/`<nav>`,
