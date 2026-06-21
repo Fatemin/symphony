@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Ban, Check, CheckSquare, ChevronDown, ChevronRight, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
+import { Ban, Check, CheckSquare, ChevronDown, ChevronRight, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
 import type { Attachment, BoardIssue, Issue, IssueStatus } from '../../shared/types';
 import { api, THINKING_EFFORT_OPTIONS, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, Field, Input, Panel, Select, Textarea } from '../components/ui';
+import { Badge, Button, Field, Input, Loading, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
 import { PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
@@ -133,7 +133,7 @@ export function Board() {
     }
   };
 
-  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!project) return <Loading />;
 
   const toggleIssue = (issueId: string) => {
     setSelected((prev) => {
@@ -157,41 +157,37 @@ export function Board() {
 
   return (
     <div className="flex h-full flex-col p-6">
-      <header className="mb-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-muted hover:text-fg">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <span className="grid h-7 w-7 place-items-center rounded text-xs font-bold" style={{ background: project.color + '33', color: project.color }}>
-            {project.key}
-          </span>
-          <h1 className="text-lg font-semibold">{project.name}</h1>
-          <Button className="ml-1" onClick={() => setAskOpen(true)}>
-            <Sparkles className="h-4 w-4 text-indigo-300" /> Ask
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          {reviewIssues.length > 0 && (
-            <Button onClick={toggleAllReview}>
-              {allReviewSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-              Review
+      <PageHeader
+        back={{ to: '/' }}
+        icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
+        title={project.name}
+        actions={
+          <>
+            <Button onClick={() => setAskOpen(true)}>
+              <Sparkles className="h-4 w-4 text-indigo-300" /> Ask
             </Button>
-          )}
-          {selectedReviewIssues.length > 0 && (
-            <Button variant="primary" disabled={approveMany.isPending} onClick={() => setApproveOpen(true)}>
-              <Check className="h-4 w-4" /> Approve selected
+            {reviewIssues.length > 0 && (
+              <Button onClick={toggleAllReview}>
+                {allReviewSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                Review
+              </Button>
+            )}
+            {selectedReviewIssues.length > 0 && (
+              <Button variant="primary" disabled={approveMany.isPending} onClick={() => setApproveOpen(true)}>
+                <Check className="h-4 w-4" /> Approve selected
+              </Button>
+            )}
+            {cancelledIssues.length > 0 && (
+              <Button onClick={() => setShowCancelled((v) => !v)}>
+                <Ban className="h-4 w-4" /> Cancelled {cancelledIssues.length}
+              </Button>
+            )}
+            <Button variant="primary" onClick={() => setOpen((v) => !v)}>
+              <Plus className="h-4 w-4" /> New issue
             </Button>
-          )}
-          {cancelledIssues.length > 0 && (
-            <Button onClick={() => setShowCancelled((v) => !v)}>
-              <Ban className="h-4 w-4" /> Cancelled {cancelledIssues.length}
-            </Button>
-          )}
-          <Button variant="primary" onClick={() => setOpen((v) => !v)}>
-            <Plus className="h-4 w-4" /> New issue
-          </Button>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <ProjectTabs projectId={project.id} />
 
@@ -257,16 +253,22 @@ export function Board() {
                   (narrow) columns keep the single vertical stack. IssueCard has no fixed width, so it
                   fills its grid cell. */}
               <div className={isFocused ? 'grid gap-2 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]' : 'flex flex-col gap-2'}>
-                {items.map((issue) => (
-                  <IssueCard
-                    key={issue.id}
-                    issue={issue}
-                    selectable={status === 'review'}
-                    selected={selected.has(issue.id)}
-                    justMoved={moved.has(issue.id)}
-                    onToggle={() => toggleIssue(issue.id)}
-                  />
-                ))}
+                {items.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-subtle">
+                    No issues
+                  </p>
+                ) : (
+                  items.map((issue) => (
+                    <IssueCard
+                      key={issue.id}
+                      issue={issue}
+                      selectable={status === 'review'}
+                      selected={selected.has(issue.id)}
+                      justMoved={moved.has(issue.id)}
+                      onToggle={() => toggleIssue(issue.id)}
+                    />
+                  ))
+                )}
               </div>
             </div>
           );
@@ -350,7 +352,7 @@ function IssueCard({
   const movedRing = justMoved ? 'border-indigo-400/70 ring-2 ring-indigo-400/60' : '';
   return (
     <Link to={`/issues/${issue.id}`} className="block">
-      <Panel className={`${anim} ${movedRing} p-3 transition hover:border-indigo-500/60 ${selected ? 'border-indigo-500/80' : ''}`}>
+      <Panel interactive className={`${anim} ${movedRing} p-3 ${selected ? 'border-indigo-500/80' : ''}`}>
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             {issue.status === 'in_progress' && (
@@ -432,8 +434,8 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
 
   return (
     <Panel className="anim-card-in mb-5 p-4">
-      <div className="grid grid-cols-4 gap-3">
-        <div className="col-span-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="col-span-2 sm:col-span-4">
           <Field label="Title">
             <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="What needs to be done?" autoFocus />
           </Field>
@@ -486,7 +488,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
             <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- …" />
           </Field>
         </div>
-        <div className="col-span-4">
+        <div className="col-span-2 sm:col-span-4">
           <Field label="Attachments" hint="Paste a screenshot, drop a file, or choose one — agents read them while building.">
             <AttachmentInput
               projectId={projectId}
@@ -499,7 +501,7 @@ function NewIssueForm({ projectId, onDone }: { projectId: string; onDone: () => 
       </div>
       <div className="mt-3 flex justify-end gap-2">
         <Button onClick={onDone}>Cancel</Button>
-        <Button variant="primary" disabled={!form.title || create.isPending} onClick={() => create.mutate()}>
+        <Button variant="primary" disabled={!form.title || create.isPending} loading={create.isPending} onClick={() => create.mutate()}>
           Create issue
         </Button>
       </div>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, THINKING_EFFORT_OPTIONS, type EngineConfig } from '../api';
-import { Button, Field, Input, Panel, Select } from '../components/ui';
+import { Button, Field, Input, Loading, PageHeader, Panel, Select } from '../components/ui';
 import { AGENT_OPTIONS, AVAILABLE_MODELS } from '../../shared/models';
 
 const NUMERIC: (keyof EngineConfig)[] = [
@@ -27,16 +27,15 @@ export function Settings() {
     onError: (e) => toast.error(String(e)),
   });
 
-  if (!form) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!form) return <Loading />;
   const set = (k: keyof EngineConfig, v: unknown) => setForm({ ...form, [k]: v });
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <h1 className="mb-1 text-xl font-semibold">Settings</h1>
-      <p className="mb-6 text-sm text-muted">Engine configuration. Changes apply to future dispatches.</p>
+    <div className="mx-auto max-w-2xl p-6 sm:p-8">
+      <PageHeader title="Settings" subtitle="Engine configuration. Changes apply to future dispatches." />
 
       <Panel className="space-y-4 p-5">
-        <div className="flex items-center justify-between rounded-md bg-bg-2 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3 rounded-md bg-bg-2 px-3 py-2.5">
           <div>
             <p className="text-sm font-medium">Orchestrator enabled</p>
             <p className="text-xs text-muted">Master switch for auto-dispatch.</p>
@@ -47,7 +46,7 @@ export function Settings() {
           </Select>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Default agent">
             <Select value={form.agent ?? 'claude'} onChange={(e) => set('agent', e.target.value)}>
               {AGENT_OPTIONS.map((a) => (
@@ -131,7 +130,7 @@ export function Settings() {
         </Field>
 
         <div className="flex justify-end pt-2">
-          <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate(coerce(form))}>
+          <Button variant="primary" disabled={save.isPending} loading={save.isPending} onClick={() => save.mutate(coerce(form))}>
             Save
           </Button>
         </div>

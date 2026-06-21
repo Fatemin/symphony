@@ -22,6 +22,19 @@
   --color-subtle: #475569;
   /* accent is theme-independent */
   --color-accent: #6366f1;
+  /* SYM-59: accent hover (a notch brighter on dark, darker on light — see the light block) and a
+     dedicated focus-ring token (matches the accent) consumed by the @layer base :focus-visible rule
+     and the form primitives. NEVER drop the accent fills below AA — the primary Button keeps its
+     indigo-600 fill (white text ≈ 5.5:1); accent-hover is for accents on surfaces, not button text. */
+  --color-accent-hover: #818cf8;
+  --color-ring: #6366f1;
+  /* SYM-59: semantic foregrounds for inline status text + the Badge tone API. Mirror the Tailwind
+     shades the app already uses for chips (emerald/amber/red/sky); the light block darkens them so
+     they keep AA on white. Subtle tone surfaces are derived from these via color-mix in ui.tsx. */
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-info: #7dd3fc;
   /* status + priority label accents (SYM-5): dark keeps the original -300/-400 shades; the light
      block below darkens them to -600/-700 so the colored pills/labels stay legible on white. */
   --color-todo: #7dd3fc;
@@ -46,6 +59,13 @@
   --color-fg: #1e293b;
   --color-muted: #64748b;
   --color-subtle: #94a3b8;
+  /* SYM-59: darker accent-hover / ring / semantic foregrounds so accents + focus stay AA on white */
+  --color-accent-hover: #4f46e5;
+  --color-ring: #4f46e5;
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #0284c7;
   /* SYM-5: darker label accents (-600/-700) so status pills / priority labels read on white */
   --color-todo: #0284c7;
   --color-progress: #d97706;
@@ -54,6 +74,19 @@
   --color-urgent: #dc2626;
   --color-high: #ea580c;
   --color-medium: #a16207;
+  /* SYM-59: lighter, lower-opacity elevation on light surfaces (dark needs deeper shadows) */
+  --elev-1: 0 1px 2px rgb(15 23 42 / 0.08);
+  --elev-2: 0 8px 24px rgb(15 23 42 / 0.10);
+  --elev-3: 0 24px 50px -12px rgb(15 23 42 / 0.22);
+}
+
+/* SYM-59: elevation scale. Kept OUT of @theme so each level is re-themed per mode (the light block
+   above overrides these). Consumed via shadow-[var(--elev-N)]: --elev-1 cards/popovers on hover,
+   --elev-2 elevated panels/drawers, --elev-3 modals. */
+:root {
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.35);
+  --elev-2: 0 6px 18px rgb(0 0 0 / 0.40);
+  --elev-3: 0 24px 50px -12px rgb(0 0 0 / 0.65);
 }
 
 html,
@@ -73,6 +106,36 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
+}
+
+/* SYM-59: base accessibility + affordance defaults. In @layer base (below the utilities layer) so any
+   element carrying its own `outline-*`/`ring-*` utility still wins — this is the safety-net focus ring
+   for every interactive element that doesn't manage its own, satisfying the keyboard-focus AC. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  /* Tailwind v4 preflight no longer sets pointer cursor on buttons — restore the affordance. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  }
+}
+
+/* SYM-59: native <dialog> base for the Modal/drawer primitives. Top-layer rendering escapes the
+   .anim-page-in transform's containing block (so modals are never clipped/offset by it) and gives
+   focus-trap + Escape + ::backdrop for free. The visible scrim is applied per-call via `backdrop:`. */
+dialog {
+  color: var(--color-fg);
+  max-height: 100dvh;
+}
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
 }
 
 /* SYM-13: motion. All keyframes + helper classes live here so animations are defined once and
@@ -158,11 +221,46 @@ body {
   animation: pageIn 0.24s ease-out backwards;
 }
 
+/* SYM-59: modal + drawer entrances. Opacity/transform-only and short (<=200ms); the modal ends at
+   transform:none for the same containing-block hygiene as pageIn. modalMotion is honored by the
+   reduced-motion guard below. */
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawerIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.anim-modal-in {
+  animation: modalIn 0.18s ease-out;
+}
+
+.anim-drawer-in {
+  animation: drawerIn 0.2s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .anim-card-in,
   .anim-lift-drop,
   .anim-pulse-dot,
-  .anim-page-in {
+  .anim-page-in,
+  .anim-modal-in,
+  .anim-drawer-in {
     animation: none !important;
   }
 }

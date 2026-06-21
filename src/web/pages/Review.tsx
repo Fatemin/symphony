@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
-  ArrowLeft,
   Bug,
   CheckCircle2,
   ChevronDown,
@@ -24,7 +23,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Markdown } from '../components/Markdown';
-import { Button, Panel, Select, Spinner } from '../components/ui';
+import { Button, EmptyState, ErrorState, Loading, PageHeader, Panel, ProjectChip, Select, Spinner } from '../components/ui';
 import {
   REVIEW_CATEGORY_META,
   REVIEW_SCOPE_META,
@@ -104,22 +103,15 @@ export function Review() {
 
   const busy = convert.isPending || setStatus.isPending;
 
-  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!project) return <Loading />;
 
   return (
     <div className="flex h-full flex-col p-6">
-      <header className="mb-5 flex items-center gap-3">
-        <Link to="/" className="text-muted hover:text-fg">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <span
-          className="grid h-7 w-7 place-items-center rounded text-xs font-bold"
-          style={{ background: project.color + '33', color: project.color }}
-        >
-          {project.key}
-        </span>
-        <h1 className="text-lg font-semibold">{project.name}</h1>
-      </header>
+      <PageHeader
+        back={{ to: '/' }}
+        icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
+        title={project.name}
+      />
 
       <ProjectTabs projectId={project.id} />
 
@@ -139,13 +131,13 @@ export function Review() {
             />
 
             {isLoading ? (
-              <div className="flex items-center gap-2 p-6 text-sm text-muted">
-                <Spinner /> Loading reviews…
-              </div>
+              <Loading label="Loading reviews…" />
             ) : isError ? (
-              <Panel className="p-6 text-sm text-red-400">
-                Couldn't load reviews{error instanceof Error ? `: ${error.message}` : ''}.
-              </Panel>
+              <ErrorState
+                title="Couldn't load reviews"
+                description={error instanceof Error ? error.message : undefined}
+                onRetry={invalidate}
+              />
             ) : !runs || runs.length === 0 ? (
               <EmptyReviews />
             ) : (
@@ -467,22 +459,22 @@ function FindingCard({
 
 function EmptyReviews() {
   return (
-    <Panel className="p-8 text-center text-sm text-muted">
-      <ScanSearch className="mx-auto mb-2 h-5 w-5 text-muted" />
-      No reviews yet. Pick a scope above and run one — findings show up here graded by severity, ready
-      to convert into issues.
-    </Panel>
+    <EmptyState
+      icon={<ScanSearch />}
+      title="No reviews yet"
+      description="Pick a scope above and run one — findings show up here graded by severity, ready to convert into issues."
+    />
   );
 }
 
 function NoRepo() {
   return (
     <div className="mx-auto mt-10 w-full max-w-md">
-      <Panel className="p-8 text-center text-sm text-muted">
-        <ScanSearch className="mx-auto mb-2 h-5 w-5 text-muted" />
-        This project has no linked repo, so there is nothing to review. Link a repository in the Agent
-        settings first.
-      </Panel>
+      <EmptyState
+        icon={<ScanSearch />}
+        title="No linked repo"
+        description="This project has no linked repo, so there is nothing to review. Link a repository in the Agent settings first."
+      />
     </div>
   );
 }

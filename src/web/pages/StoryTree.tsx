@@ -1,9 +1,9 @@
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, GitBranch, Link2, Network } from 'lucide-react';
+import { GitBranch, Link2, Network } from 'lucide-react';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Panel } from '../components/ui';
+import { Badge, EmptyState, ErrorState, Loading, PageHeader, ProjectChip } from '../components/ui';
 import { PRIORITY_META, STATUS_META } from '../lib/format';
 import { buildStoryTrees, type StoryTreeNode } from '../lib/storyTree';
 
@@ -24,24 +24,17 @@ export function StoryTree() {
     refetchInterval: 5_000,
   });
 
-  if (!project) return <div className="p-8 text-sm text-muted">Loading…</div>;
+  if (!project) return <Loading />;
 
   const trees = relations ? buildStoryTrees(relations) : [];
 
   return (
     <div className="flex h-full flex-col p-6">
-      <header className="mb-5 flex items-center gap-3">
-        <Link to="/" className="text-muted hover:text-fg">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <span
-          className="grid h-7 w-7 place-items-center rounded text-xs font-bold"
-          style={{ background: project.color + '33', color: project.color }}
-        >
-          {project.key}
-        </span>
-        <h1 className="text-lg font-semibold">{project.name}</h1>
-      </header>
+      <PageHeader
+        back={{ to: '/' }}
+        icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
+        title={project.name}
+      />
 
       <ProjectTabs projectId={project.id} />
 
@@ -55,11 +48,12 @@ export function StoryTree() {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-muted">Loading…</p>
+          <Loading />
         ) : isError ? (
-          <Panel className="p-8 text-center text-sm text-red-400">
-            Couldn't load the story tree{error instanceof Error ? `: ${error.message}` : ''}.
-          </Panel>
+          <ErrorState
+            title="Couldn't load the story tree"
+            description={error instanceof Error ? error.message : undefined}
+          />
         ) : trees.length > 0 ? (
           <ul className="space-y-3">
             {trees.map((node) => (
@@ -69,10 +63,11 @@ export function StoryTree() {
             ))}
           </ul>
         ) : (
-          <Panel className="p-8 text-center text-sm text-muted">
-            <Network className="mx-auto mb-2 h-5 w-5 text-muted" />
-            No story trees yet. When an issue spawns a follow-up or is linked to another, the chain shows up here.
-          </Panel>
+          <EmptyState
+            icon={<Network />}
+            title="No story trees yet"
+            description="When an issue spawns a follow-up or is linked to another, the chain shows up here."
+          />
         )}
       </div>
     </div>

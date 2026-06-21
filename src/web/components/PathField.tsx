@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowUp, Check, Folder, FolderGit2, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import type { FsValidate } from '../api';
-import { Button, Input } from './ui';
+import { Button, Input, Modal } from './ui';
 
 /**
  * Server-backed directory picker. The browser can't get an absolute folder path
@@ -38,14 +38,32 @@ function DirectoryPicker({
   const current = data?.path ?? cwd ?? '~';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-xl rounded-lg border border-border bg-panel p-4 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-3 text-sm font-semibold text-fg">Choose project folder</h2>
-
-        <div className="flex flex-col gap-3">
+    <Modal
+      onClose={onClose}
+      size="lg"
+      icon={<FolderOpen className="h-4 w-4 text-indigo-300" />}
+      title="Choose project folder"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!data?.path}
+            onClick={() => {
+              if (data?.path) {
+                onSelect(data.path);
+                onClose();
+              }
+            }}
+          >
+            <Check className="h-3.5 w-3.5" /> Use this folder
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <Button
               variant="subtle"
@@ -114,27 +132,8 @@ function DirectoryPicker({
               <span className="text-muted">This folder is not a git repository (agents need one to run)</span>
             )}
           </div>
-        </div>
-
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!data?.path}
-            onClick={() => {
-              if (data?.path) {
-                onSelect(data.path);
-                onClose();
-              }
-            }}
-          >
-            <Check className="h-3.5 w-3.5" /> Use this folder
-          </Button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -300,6 +300,10 @@ query when the issues' status/`updated_at` signature changes. It renders every s
 and `error` → "检测失败".
 
 The frontend is documented at module level only; its components are not part of the server contract.
+The **visual** layer — design tokens (`globals.css`), the shared primitives in `components/ui.tsx`
+(`Button`/`Badge`/`Panel`/`Field`/inputs/`Spinner` plus SYM-59's `cn`, `Modal`, `PageHeader`,
+`EmptyState`, `ErrorState`, `Skeleton`, `Loading`, `ProjectChip`), the canonical UI states, and the
+accessibility/responsive rules — is specified in [DESIGN.md](DESIGN.md).
 
 ## 9. Design rationale
 
