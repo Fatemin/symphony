@@ -1,15 +1,25 @@
 import { NavLink } from 'react-router-dom';
-import { Bot, Columns3, FileText, Network, ScanSearch, Sparkles } from 'lucide-react';
+import { Bot, Columns3, FileText, Network, ScanSearch, Sparkles, type LucideIcon } from 'lucide-react';
+import { PROJECT_TABS, projectTabTo, type ProjectTabKey } from '../lib/projectTabs';
+
+// SYM-82: the tab definitions (label/path/end) moved to the pure lib/projectTabs.ts so the command
+// palette navigates to the exact same set. Icons stay here in the view layer (keyed by tab).
+const TAB_ICONS: Record<ProjectTabKey, LucideIcon> = {
+  board: Columns3,
+  agent: Bot,
+  review: ScanSearch,
+  'story-tree': Network,
+  docs: FileText,
+  skills: Sparkles,
+};
 
 export function ProjectTabs({ projectId }: { projectId: string }) {
-  const tabs = [
-    { to: `/projects/${projectId}`, label: 'Board', icon: Columns3, end: true },
-    { to: `/projects/${projectId}/agent`, label: 'Agent', icon: Bot, end: false },
-    { to: `/projects/${projectId}/review`, label: 'Review', icon: ScanSearch, end: false },
-    { to: `/projects/${projectId}/story-tree`, label: 'Story Tree', icon: Network, end: false },
-    { to: `/projects/${projectId}/docs`, label: 'Docs', icon: FileText, end: false },
-    { to: `/projects/${projectId}/skills`, label: 'Skills', icon: Sparkles, end: false },
-  ];
+  const tabs = PROJECT_TABS.map((tab) => ({
+    to: projectTabTo(projectId, tab),
+    label: tab.label,
+    icon: TAB_ICONS[tab.key],
+    end: tab.end,
+  }));
 
   return (
     // SYM-59: scrolls horizontally on narrow viewports instead of wrapping/overflowing — the tabs

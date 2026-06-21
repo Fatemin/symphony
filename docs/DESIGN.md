@@ -227,6 +227,15 @@ Every data-backed view renders all of these; primitives make them consistent:
   AA-enforced automatically by `tests/contrast.test.ts` (SYM-70; see §2 "Neutral text tokens meet AA").
 - **Keyboard:** every interactive element is reachable and shows the focus ring. Modals trap focus
   (native `<dialog>`), close on Escape, and restore focus to the trigger on close.
+- **Global keyboard layer (SYM-82):** `⌘K` / `Ctrl+K` toggles the command palette from anywhere —
+  even inside an input (the `Layout.tsx` listener `preventDefault`s) — while a bare `?` opens the
+  keyboard-shortcuts overlay only when focus is NOT in a text field and no `<dialog>` is already open.
+  The palette is a WAI-ARIA combobox (`role=combobox` + `aria-expanded`/`-controls`/
+  `-activedescendant`, `aria-autocomplete=list`) over a `role=listbox` of `role=option` rows: ↑/↓ move
+  the active option (wrapping) and scroll it into view, Enter runs it, Escape closes via the `<dialog>`
+  `onCancel`, hover syncs the active index, decorative group headers / lucide icons are `aria-hidden`.
+  The overlay and the listener share ONE `SHORTCUTS` const (`KeyboardShortcutsHelp.tsx`) so the
+  documented keys can't drift from the wired behavior.
 - **Landmarks:** the shell has a "Skip to content" link, an `aria-label`'d primary `<aside>`/`<nav>`,
   and a single `<main id="main-content">`.
 - **Color is never the only signal:** status/severity always pair a dot/icon with a label. The
@@ -362,3 +371,22 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   the request; the dialog auto-closes on settle, the toast reports the result); the confirm button
   stays `danger`, Cancel keeps `autoFocus`. The state lives where it survives the list refetch the
   action triggers — at the page for a list-row delete, on the row component for a self-contained one.
+- **Command palette / global overlay** (SYM-82, `CommandPalette` + `KeyboardShortcutsHelp`) — a
+  keyboard-first launcher mounted ONCE in the always-on shell (`Layout.tsx`) so `⌘K`/`?` reach it from
+  every route (see the §6 keyboard contract). Build on `useModalDialog` directly — a **top-anchored**
+  native `<dialog>` (`mt-[10vh]` + `mx-auto`), NOT the centered `Modal` whose `m-auto` + header shape
+  fight a combobox; the top layer still escapes the `.anim-page-in` containing block (invariant #2),
+  and the entrance reuses `anim-modal-in` (already reduced-motion-guarded). The command SET and its
+  fuzzy ranking are a PURE, React-free helper (`lib/commandPalette.ts#buildCommands`/`filterCommands`,
+  unit-tested from a node:test like `lib/boardGroups.ts`): build it from the live
+  `['projects']`/`['issues']` queries Layout already holds (zero extra network — TanStack dedupes),
+  memoize the build, and CAP the rendered rows (`MAX_RESULTS` = 50). `buildCommands` is **callback-free**
+  — each non-nav action is a stable `actionId` the component dispatches against the real callbacks
+  (navigate / `toggleTheme` / kick / open composer) — so it depends only on data and memoizes cleanly.
+  Per-project nav reads the shared `lib/projectTabs.ts#PROJECT_TABS` list (the SAME source
+  `ProjectTabs.tsx` renders) so palette and tab strip never drift. Ranking: exact > prefix >
+  word-boundary > substring > subsequence, with group then shorter-title breaking ties; an empty query
+  returns a curated default (primary actions + nav, not every issue). Icons live in the view layer (an
+  `iconKey` string → lucide map), never in the pure helper. A discoverable `⌘K` button in the sidebar
+  header + a search icon in the mobile top bar are the mouse/touch entry points. No new `--color-*`
+  token, no new `localStorage` key.

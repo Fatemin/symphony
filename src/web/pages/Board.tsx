@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Ban, Check, CheckSquare, ChevronDown, ChevronRight, FilePlus2, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square, X } from 'lucide-react';
@@ -32,6 +32,8 @@ const COLLAPSED_KEY = 'symphony.board.collapsedColumns';
 
 export function Board() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -65,6 +67,16 @@ export function Board() {
   // collapsedGroups is transient (run-id keys churn); seeding it empty = all swimlanes expanded.
   const [groupBy, setGroupBy] = useState<BoardGroupBy>(() => readGroupBy());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // SYM-82: the command palette's "New issue in <project>" navigates here with router state
+  // `{ compose: true }`; open the inline composer once, then consume the one-shot so a back/refresh
+  // doesn't reopen it. Same-pathname navigation doesn't remount Board, so `open` stays set.
+  useEffect(() => {
+    if ((location.state as { compose?: boolean } | null)?.compose) {
+      setOpen(true);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   const byStatus = (status: IssueStatus) => (project?.issues ?? []).filter((i) => i.status === status);
   const reviewIssues = byStatus('review');

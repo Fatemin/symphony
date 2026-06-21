@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   Activity,
   Bot,
@@ -12,15 +13,26 @@ import {
   Menu,
   Moon,
   Music4,
+  Search,
   Settings as SettingsIcon,
   Sun,
   X,
 } from 'lucide-react';
 import { api } from '../api';
 import { STATUS_META } from '../lib/format';
+import { buildCommands, type Command } from '../lib/commandPalette';
+import { CommandPalette } from './CommandPalette';
+import { KeyboardShortcutsHelp, Kbd } from './KeyboardShortcutsHelp';
 import { SidebarUsage } from './SidebarUsage';
 import { cn } from './ui';
 import { useTheme } from '../theme';
+
+/** True for inputs/textareas/selects/contenteditable — where a bare `?` should type, not open help. */
+function isTypingTarget(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
 
 const links = [
   { to: '/', label: 'All projects', icon: Layers3, end: true },
@@ -32,6 +44,8 @@ const STORAGE_KEY = 'symphony.sidebar.expandedProjects';
 
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const { theme, toggleTheme } = useTheme();
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: api.projects.list });
   const { data: issues = [] } = useQuery({
@@ -50,6 +64,76 @@ export function Layout() {
     return map;
   }, [issues]);
   const currentProjectId = useMemo(() => location.pathname.match(/^\/projects\/([^/]+)/)?.[1], [location.pathname]);
+
+  // SYM-82: the global command palette + keyboard-shortcuts overlay live here, in the always-mounted
+  // shell, so ⌘K/? work from every route. The command set is built from the SAME ['projects']/['issues']
+  // queries above (TanStack dedupes ⇒ zero extra network) and memoized so it only rebuilds on data change.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const modKey = useMemo(
+    () => (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl'),
+    [],
+  );
+  const commands = useMemo(
+    () => buildCommands(projects, issues, currentProjectId),
+    [projects, issues, currentProjectId],
+  );
+  const kick = useMutation({
+    mutationFn: api.ops.kick,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['snapshot'] });
+      toast.success('Orchestrator kicked');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to kick orchestrator'),
+  });
+
+  // Run the chosen command: navigate, or dispatch a non-nav action. "New issue" routes to the current
+  // project's board with router state so the Board opens its inline composer (else to All projects).
+  const runCommand = useCallback(
+    (cmd: Command) => {
+      setPaletteOpen(false);
+      if (cmd.to) {
+        navigate(cmd.to);
+        return;
+      }
+      switch (cmd.actionId) {
+        case 'new-issue':
+          if (currentProjectId) navigate(`/projects/${currentProjectId}`, { state: { compose: true } });
+          else navigate('/');
+          break;
+        case 'toggle-theme':
+          toggleTheme();
+          break;
+        case 'kick-orchestrator':
+          kick.mutate();
+          break;
+        case 'show-shortcuts':
+          setShortcutsOpen(true);
+          break;
+      }
+    },
+    [navigate, currentProjectId, toggleTheme, kick],
+  );
+
+  // ⌘K/Ctrl+K toggles the palette from anywhere (even inside an input); `?` opens the shortcuts overlay
+  // only when not typing and no dialog is already open. Functional updates + a DOM guard keep deps empty
+  // so the listener is registered once.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+        return;
+      }
+      if (e.key === '?' && !isTypingTarget(e.target) && !document.querySelector('dialog[open]')) {
+        e.preventDefault();
+        setShortcutsOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded());
   // SYM-59: below `lg` the sidebar is an off-canvas drawer. Closes on navigation (route change) and on
   // Escape; a backdrop covers the page while it's open. On `lg+` it's a persistent static rail.
@@ -138,6 +222,22 @@ export function Layout() {
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* SYM-82: the discoverable command-palette trigger — also the mouse/touch entry point. */}
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          aria-label="Open command palette"
+          aria-keyshortcuts="Meta+K Control+K"
+          className="mb-3 flex w-full items-center gap-2 rounded-md border border-border bg-bg px-2.5 py-1.5 text-sm text-subtle transition hover:border-[var(--color-accent)]/50 hover:text-fg"
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">Search…</span>
+          <span className="flex shrink-0 items-center gap-0.5">
+            <Kbd>{modKey}</Kbd>
+            <Kbd>K</Kbd>
+          </span>
+        </button>
 
         <nav aria-label="Main" className="space-y-0.5">
           {links.map(({ to, label, icon: Icon, end }) => (
@@ -243,9 +343,18 @@ export function Layout() {
           </Link>
           <button
             type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Open command palette"
+            aria-keyshortcuts="Meta+K Control+K"
+            className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={toggleTheme}
             aria-label="Toggle theme"
-            className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg"
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
@@ -259,6 +368,13 @@ export function Layout() {
           </div>
         </main>
       </div>
+
+      {/* SYM-82: global overlays — mounted once here so ⌘K/? reach them from any route. Native
+          <dialog>s render in the top layer regardless of their position in this tree. */}
+      {paletteOpen && (
+        <CommandPalette commands={commands} onSelect={runCommand} onClose={() => setPaletteOpen(false)} />
+      )}
+      {shortcutsOpen && <KeyboardShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }

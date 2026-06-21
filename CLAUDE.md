@@ -169,7 +169,19 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   with auto-close-on-settle — now the ONLY destructive guard: skill delete + review-batch delete route
   through it and the native `confirm()` is gone from the client), `PageHeader`,
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
-  responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
+  responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow.
+  SYM-82: `Layout.tsx` also hosts the **global command palette** — mounted once so `⌘K`/`Ctrl+K` (toggle)
+  and `?` (the `KeyboardShortcutsHelp` overlay) work from every route via one guarded window keydown
+  listener. The palette (`components/CommandPalette.tsx`, a top-anchored native `<dialog>` on
+  `useModalDialog` — a WAI-ARIA combobox/listbox, NOT the centered `Modal`) renders a command set built
+  by the PURE, React-free `lib/commandPalette.ts#buildCommands`/`filterCommands` (offline-unit-tested
+  like `lib/boardGroups.ts`) from the SAME `['projects']`/`['issues']` queries the shell already polls
+  (zero extra network), memoized + capped at `MAX_RESULTS` (50). `buildCommands` is callback-free (each
+  non-nav action is a stable `actionId` the component dispatches: navigate / toggle theme / kick
+  orchestrator / open the New-issue composer via router `state.compose`); per-project nav reads the
+  shared `lib/projectTabs.ts#PROJECT_TABS` list that `ProjectTabs.tsx` also renders, so the two never
+  drift. Both the overlay and the listener share one `SHORTCUTS` const. No new `--color-*` token, no new
+  `localStorage` key. Full
   spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live
   in [`docs/DESIGN.md`](docs/DESIGN.md). The Board (`pages/Board.tsx`) has a persisted **Group-by**
   `SegmentedControl` (SYM-78, localStorage `symphony.board.groupBy`): `status` is the original kanban

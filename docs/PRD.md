@@ -121,6 +121,9 @@ Explicit non-audience (today): teams, multi-tenant/hosted use, and untrusted-rep
   draft issue.
 - **Observability.** Live activity stream (SSE) per issue, an Ops page with a runtime snapshot + token
   totals + run history.
+- **Command palette.** A keyboard-first global navigation layer (⌘K / Ctrl+K) that fuzzy-searches every
+  project, project section, issue, and quick action (new issue, toggle theme, kick orchestrator) from
+  any page; a `?` overlay documents the keyboard contract. See [DESIGN.md §9](DESIGN.md).
 
 ### Out of scope (today)
 
