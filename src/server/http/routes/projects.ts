@@ -13,8 +13,8 @@ import {
   listProjectSkills,
   updateProjectSkill,
 } from '../../repo/projectSkills';
-import { fetchGithubSkill } from '../../core/githubSkill';
-import { fetchMarketplaceSkills, parseMarketplaceImport } from '../../core/marketplaceSkill';
+import { fetchGithubSkill, parseGithubSkillRef, type FetchedSkill } from '../../core/githubSkill';
+import { fetchMarketplaceSkills, fetchRepoSkills, parseMarketplaceImport } from '../../core/marketplaceSkill';
 import { listIssues } from '../../repo/issues';
 import { latestPhaseByIssue } from '../../repo/runs';
 import { listProjectRelations } from '../../repo/issueRelations';
@@ -125,34 +125,48 @@ projectRoutes.post('/:id/skills', async (c) => {
   }
 });
 
-// Pull a skill's SKILL.md from GitHub and store it. Fetch failures → 502; duplicate name → 409.
+// Pull a skill (or skills) from GitHub and store them. A bare github.com/<owner>/<repo> URL resolves
+// EVERY skill in the repo across the root, flat skills/, and skills/<name>/ layouts (SYM-58, via
+// fetchRepoSkills) — unifying this panel with /skills/install; an explicit blob/tree/raw link stays
+// single-skill (the SYM-52 contract). Parse/fetch failures → 502; per-skill duplicates are collected
+// into `skipped` (mirrors /skills/install), 201 when any skill landed, else 422.
 projectRoutes.post('/:id/skills/import', async (c) => {
   const project = getProject(c.req.param('id'));
   if (!project) return c.json({ error: 'not found' }, 404);
   const body = await c.req.json().catch(() => ({}));
   if (!body.url || typeof body.url !== 'string') return c.json({ error: 'url is required' }, 400);
-  let fetched;
+  let fetched: FetchedSkill[];
   try {
-    fetched = await fetchGithubSkill(body.url);
+    // parseGithubSkillRef is pure but throws on a malformed/unsupported URL — same 502 surface as a
+    // fetch failure. A bare repo fans out to all layouts; any other shape stays a single skill.
+    const ref = parseGithubSkillRef(body.url);
+    fetched = ref.bareRepo
+      ? await fetchRepoSkills(ref.owner, ref.repo, body.url)
+      : [await fetchGithubSkill(body.url)];
   } catch (e) {
     return c.json({ error: skillErrorMessage(e) }, 502);
   }
-  try {
-    return c.json(
-      createProjectSkill({
-        project_id: project.id,
-        name: fetched.name,
-        description: fetched.description,
-        content: fetched.content,
-        files: fetched.files,
-        source: 'github',
-        source_url: fetched.source_url,
-      }),
-      201,
-    );
-  } catch (e) {
-    return c.json({ error: skillErrorMessage(e) }, 409);
+  const imported: ProjectSkill[] = [];
+  const skipped: { name: string; reason: string }[] = [];
+  for (const skill of fetched) {
+    try {
+      imported.push(
+        createProjectSkill({
+          project_id: project.id,
+          name: skill.name,
+          description: skill.description,
+          content: skill.content,
+          files: skill.files,
+          source: 'github',
+          source_url: skill.source_url,
+        }),
+      );
+    } catch (e) {
+      skipped.push({ name: skill.name, reason: skillErrorMessage(e) });
+    }
   }
+  const result: MarketplaceInstallResult = { imported, skipped };
+  return c.json(result, imported.length ? 201 : 422);
 });
 
 // Install the skills of a Claude Code marketplace plugin from the pasted /plugin commands (SYM-17).

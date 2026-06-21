@@ -255,7 +255,11 @@ export const api = {
       create: (projectId: string, data: Partial<ProjectSkill>) =>
         req<ProjectSkill>(`/api/projects/${projectId}/skills`, { method: 'POST', ...body(data) }),
       import: (projectId: string, url: string) =>
-        req<ProjectSkill>(`/api/projects/${projectId}/skills/import`, { method: 'POST', ...body({ url }) }),
+        // SYM-58: a bare repo URL can import several skills, so this mirrors install's batch result.
+        req<MarketplaceInstallResult>(`/api/projects/${projectId}/skills/import`, {
+          method: 'POST',
+          ...body({ url }),
+        }),
       install: (projectId: string, command: string) =>
         req<MarketplaceInstallResult>(`/api/projects/${projectId}/skills/install`, {
           method: 'POST',
