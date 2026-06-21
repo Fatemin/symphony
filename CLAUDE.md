@@ -149,16 +149,19 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `--color-muted` to clear WCAG AA on every surface, enforced by `tests/contrast.test.ts` which
   recomputes the ratios from `globals.css`), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
   `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
-  `Select` (focus ring + `aria-invalid`), `Spinner`, `PendingIndicator` + `useElapsedSeconds` (SYM-77:
+  `Select` (focus ring + `aria-invalid`), `SegmentedControl` (SYM-68: single-select chip group for
+  low-cardinality enums — `role="group"`/`aria-pressed`, accent-tinted active, flex-wraps), `Spinner`,
+  `PendingIndicator` + `useElapsedSeconds` (SYM-77:
   long async waits — spinner + label + a live elapsed counter; the elapsed span is `aria-hidden` inside
   the `role=status` region so it announces once, not per tick; the ticking text doubles as the
   reduced-motion activity signal — wired into Ask's "Thinking…" and Review's "Reviewing…"), plus
   `Modal` + `useModalDialog` (native `<dialog>`:
-  focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the Board's New-issue form
-  (SYM-65), the `AskPanel` drawer, the `PathField` picker, and IssueDetail's request-changes dialog
-  all build on it) and `ConfirmDialog` (SYM-72; the shared destructive-action confirm built on
-  `Modal` — `danger` confirm button, safe-action `autoFocus` on Cancel, `pending`-aware with
-  auto-close-on-settle — now the ONLY destructive guard: skill delete + review-batch delete route
+  focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the `AskPanel` drawer, the
+  `PathField` picker, and IssueDetail's request-changes dialog all build on it; the Board's New-issue
+  card used `Modal` in SYM-65 but SYM-68 returned it to an inline no-popup composer — `Panel` +
+  progressive-disclosure, not a dialog) and `ConfirmDialog` (SYM-72; the shared destructive-action
+  confirm built on `Modal` — `danger` confirm button, safe-action `autoFocus` on Cancel, `pending`-aware
+  with auto-close-on-settle — now the ONLY destructive guard: skill delete + review-batch delete route
   through it and the native `confirm()` is gone from the client), `PageHeader`,
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
   responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full

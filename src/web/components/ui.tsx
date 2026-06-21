@@ -168,6 +168,60 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={cn(inputClass, 'cursor-pointer', props.className)} />;
 }
 
+/**
+ * SYM-68: single-select segmented control — a compact, tactile alternative to a `<Select>` for
+ * low-cardinality enums (issue type, priority, run mode/status). Formalizes the chip-group pattern
+ * the Review-scope picker grew inline (`role="group"` + `aria-pressed`): every option is a real
+ * `<button>` (so it inherits the @layer base focus ring + keyboard activation), the active one is
+ * tinted with the accent token (re-themes light/dark, never color-only — the label always shows),
+ * and the group `flex-wrap`s so a 5-way control reflows instead of overflowing on narrow widths.
+ * Touch height matches the other controls (`md` ≈ the 36px Input; `sm` for dense rows).
+ */
+export function SegmentedControl<T extends string | number>({
+  options,
+  value,
+  onChange,
+  size = 'md',
+  disabled = false,
+  className = '',
+  'aria-label': ariaLabel,
+}: {
+  options: { value: T; label: ReactNode; hint?: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  size?: 'sm' | 'md';
+  disabled?: boolean;
+  className?: string;
+  'aria-label'?: string;
+}) {
+  return (
+    <div role="group" aria-label={ariaLabel} className={cn('flex flex-wrap gap-1.5', className)}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={String(o.value)}
+            type="button"
+            aria-pressed={active}
+            title={o.hint}
+            disabled={disabled}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              'rounded-md border font-medium transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50',
+              size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
+              active
+                ? 'border-[var(--color-accent)] bg-[color-mix(in_oklab,var(--color-accent)_16%,transparent)] text-fg'
+                : 'border-border text-muted hover:bg-panel-2 hover:text-fg',
+            )}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Spinner({ className = '' }: { className?: string }) {
   return (
     <span

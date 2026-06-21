@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Ban, Check, CheckSquare, ChevronDown, ChevronRight, FilePlus2, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square } from 'lucide-react';
+import { Ban, Check, CheckSquare, ChevronDown, ChevronRight, FilePlus2, GitMerge, Maximize2, Minimize2, Plus, Sparkles, Square, X } from 'lucide-react';
 import type { Attachment, BoardIssue, Issue, IssueStatus } from '../../shared/types';
 import { api, THINKING_EFFORT_OPTIONS, type ApproveOptions } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AskPanel } from '../components/AskPanel';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, EmptyState, Field, Input, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Textarea } from '../components/ui';
+import { Badge, Button, EmptyState, Field, Input, Loading, PageHeader, Panel, ProjectChip, SegmentedControl, Textarea } from '../components/ui';
 import { PHASE_META, PRIORITY_META, STATUS_META } from '../lib/format';
 
 const COLUMNS: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
@@ -418,12 +418,15 @@ function IssueCard({
   );
 }
 
-// SYM-65: the "create issue" card. Redesigned onto the shared `Modal` dialog primitive (matching
-// ApproveDialog / the request-changes dialog) so it no longer shoves the board down on open and gets
-// focus-trap + Escape + scroll-lock + focus-restore for free. The body is a real <form> grouped into
-// "what" (title/type/priority/description/AC/attachments) and a labeled "Execution" fieldset
-// (mode/status/thinking effort) so the secondary run-controls stay tidy instead of crowding the
-// primary fields. The contract is unchanged — same `api.issues.create` payload.
+// SYM-68: the "create issue" card. Redesigned back to an INLINE (no-popup) composer — SYM-65 had
+// moved it into a centered `Modal`, but the acceptance criteria here is to keep the no-popup mode.
+// To pay for the inline footprint that originally pushed the board down, the card uses
+// progressive-disclosure: the title + the two classifiers it almost always needs (type / priority)
+// lead, and the heavier fields (description, acceptance criteria, attachments, the Execution
+// run-controls) collapse behind an "Add details" toggle — so a quick add is one compact card, while
+// power users expand in place. The enum controls are now tactile `SegmentedControl` chips instead of
+// native `<Select>`s (all options visible, one tap, accent-tinted active state). The contract is
+// unchanged — same `api.issues.create` payload.
 function NewIssueForm({
   projectId,
   onClose,
@@ -445,6 +448,9 @@ function NewIssueForm({
     acceptance_criteria: '',
   });
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Progressive disclosure: keep the resting card small (the original inline form shoved the whole
+  // board down). The secondary fields stay one click away, not gone.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const create = useMutation({
     mutationFn: () =>
@@ -473,43 +479,47 @@ function NewIssueForm({
   const submit = () => {
     if (canSubmit) create.mutate();
   };
-  // Mid-create the dialog can't be dismissed (matches the disabled controls): Escape / backdrop /
-  // close + Cancel all no-op while the mutation is in flight, so a half-built issue can't be lost.
+  // Mid-create the card can't be dismissed (matches the disabled controls): Escape / close / Cancel
+  // all no-op while the mutation is in flight, so a half-built issue can't be lost.
   const close = () => {
     if (!create.isPending) onClose();
   };
 
   return (
-    <Modal
-      onClose={close}
-      size="lg"
-      icon={<FilePlus2 className="h-4 w-4 text-indigo-300" />}
-      title="New issue"
-      footer={
-        <>
-          <span className="mr-auto hidden self-center text-xs text-subtle sm:block">⌘/Ctrl + Enter to create</span>
-          <Button onClick={close} disabled={create.isPending}>Cancel</Button>
-          <Button type="submit" form="new-issue-form" variant="primary" disabled={!canSubmit} loading={create.isPending}>
-            Create issue
-          </Button>
-        </>
-      }
-    >
+    <Panel elevated className="anim-card-in mb-4 p-4">
       <form
-        id="new-issue-form"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
-        // Power-user submit from anywhere in the form (incl. the textareas, where plain Enter is a newline).
+        // Power-user submit from anywhere in the form (incl. the textareas, where plain Enter is a
+        // newline); Escape dismisses the inline card the way it would a dialog.
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             submit();
+          } else if (e.key === 'Escape' && !create.isPending) {
+            e.preventDefault();
+            close();
           }
         }}
         className="space-y-4"
       >
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2 text-sm font-semibold text-fg">
+            <FilePlus2 className="h-4 w-4 text-indigo-300" /> New issue
+          </span>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={close}
+            disabled={create.isPending}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted transition hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
         <Field label="Title" required>
           <Input
             value={form.title}
@@ -522,76 +532,138 @@ function NewIssueForm({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Type">
-            <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-              <option value="feature">feature</option>
-              <option value="bug">bug</option>
-              <option value="chore">chore</option>
-              <option value="epic">epic</option>
-            </Select>
+            <SegmentedControl
+              aria-label="Type"
+              value={form.type}
+              onChange={(v) => setForm({ ...form, type: v })}
+              options={[
+                { value: 'feature', label: 'Feature' },
+                { value: 'bug', label: 'Bug' },
+                { value: 'chore', label: 'Chore' },
+                { value: 'epic', label: 'Epic' },
+              ]}
+            />
           </Field>
           <Field label="Priority">
-            <Select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}>
-              <option value={1}>Urgent</option>
-              <option value={2}>High</option>
-              <option value={3}>Medium</option>
-              <option value={4}>Low</option>
-              <option value={0}>None</option>
-            </Select>
+            <SegmentedControl
+              aria-label="Priority"
+              value={form.priority}
+              onChange={(v) => setForm({ ...form, priority: v })}
+              options={[
+                { value: 1, label: 'Urgent' },
+                { value: 2, label: 'High' },
+                { value: 3, label: 'Medium' },
+                { value: 4, label: 'Low' },
+                { value: 0, label: 'None' },
+              ]}
+            />
           </Field>
         </div>
 
-        <Field label="Description">
-          <Textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Context, links, or anything the agent should know…" />
-        </Field>
-        <Field label="Acceptance criteria">
-          <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- …" />
-        </Field>
+        <button
+          type="button"
+          aria-expanded={detailsOpen}
+          aria-controls="new-issue-details"
+          onClick={() => setDetailsOpen((v) => !v)}
+          className="flex items-center gap-1.5 rounded text-xs font-medium text-muted transition hover:text-fg"
+        >
+          {detailsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          {detailsOpen ? 'Hide details' : 'Add details'}
+          <span className="font-normal text-subtle">— description, attachments, execution</span>
+        </button>
 
-        <Field label="Attachments" hint="Paste a screenshot, drop a file, or choose one — agents read them while building.">
-          <AttachmentInput
-            projectId={projectId}
-            value={attachments}
-            onChange={setAttachments}
-            disabled={create.isPending}
-          />
-        </Field>
+        {detailsOpen && (
+          <div id="new-issue-details" className="anim-card-in space-y-4">
+            <Field label="Description">
+              <Textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Context, links, or anything the agent should know…" />
+            </Field>
+            <Field label="Acceptance criteria">
+              <Textarea rows={3} value={form.acceptance_criteria} onChange={(e) => setForm({ ...form, acceptance_criteria: e.target.value })} placeholder="- …" />
+            </Field>
 
-        {/* SYM-65: group the secondary "how it runs" controls so they stay tidy below the primary fields. */}
-        <fieldset className="border-t border-border pt-4">
-          <legend className="mb-3 block text-xs font-semibold uppercase tracking-wide text-subtle">Execution</legend>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Mode">
-              <Select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
-                <option value="manual">manual (run by hand)</option>
-                <option value="auto">auto (orchestrator picks up)</option>
-              </Select>
+            <Field label="Attachments" hint="Paste a screenshot, drop a file, or choose one — agents read them while building.">
+              <AttachmentInput
+                projectId={projectId}
+                value={attachments}
+                onChange={setAttachments}
+                disabled={create.isPending}
+              />
             </Field>
-            <Field label="Initial status">
-              <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                <option value="backlog">backlog</option>
-                <option value="todo">todo</option>
-              </Select>
-            </Field>
-            {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default. */}
-            <Field label="Thinking effort">
-              <Select value={form.thinking_effort} onChange={(e) => setForm({ ...form, thinking_effort: e.target.value })}>
-                <option value="">inherit (project default)</option>
-                {THINKING_EFFORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </Select>
-            </Field>
-            {/* SYM-67: per-issue Workflow-tool override; inherit = the project/engine default. */}
-            <Field label="Workflow tool">
-              <Select value={form.enable_workflow_tool} onChange={(e) => setForm({ ...form, enable_workflow_tool: e.target.value })}>
-                <option value="">inherit (project default)</option>
-                <option value="false">off</option>
-                <option value="true">on (advanced)</option>
-              </Select>
-            </Field>
+
+            {/* Group the secondary "how it runs" controls so they stay tidy below the primary fields. */}
+            <fieldset className="border-t border-border pt-4">
+              <legend className="mb-3 block text-xs font-semibold uppercase tracking-wide text-subtle">Execution</legend>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Mode">
+                  <SegmentedControl
+                    aria-label="Mode"
+                    value={form.mode}
+                    onChange={(v) => setForm({ ...form, mode: v })}
+                    options={[
+                      { value: 'manual', label: 'Manual', hint: 'Run by hand' },
+                      { value: 'auto', label: 'Auto', hint: 'Orchestrator picks it up' },
+                    ]}
+                  />
+                </Field>
+                <Field label="Initial status">
+                  <SegmentedControl
+                    aria-label="Initial status"
+                    value={form.status}
+                    onChange={(v) => setForm({ ...form, status: v })}
+                    options={[
+                      { value: 'backlog', label: 'Backlog' },
+                      { value: 'todo', label: 'Todo' },
+                    ]}
+                  />
+                </Field>
+              </div>
+              {/* SYM-46: per-issue extended-thinking override; '' (inherit) = the project/engine default.
+                  SYM-68: render as a SegmentedControl like the other enum pickers so every control in the
+                  card speaks the same chip language. Labels stay lowercase — these are literal Claude Code
+                  thinking keywords (think / think-hard / ultrathink), not free-form enums. */}
+              <div className="mt-3">
+                <Field label="Thinking effort">
+                  <SegmentedControl
+                    aria-label="Thinking effort"
+                    size="sm"
+                    value={form.thinking_effort}
+                    onChange={(v) => setForm({ ...form, thinking_effort: v })}
+                    options={[
+                      { value: '', label: 'inherit', hint: 'Use the project / engine default' },
+                      ...THINKING_EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                    ]}
+                  />
+                </Field>
+              </div>
+              {/* SYM-67: per-issue Workflow-tool override; '' (inherit) = the project/engine default.
+                  SYM-68: render as a SegmentedControl to match the other enum pickers in this card. */}
+              <div className="mt-3">
+                <Field label="Workflow tool">
+                  <SegmentedControl
+                    aria-label="Workflow tool"
+                    size="sm"
+                    value={form.enable_workflow_tool}
+                    onChange={(v) => setForm({ ...form, enable_workflow_tool: v })}
+                    options={[
+                      { value: '', label: 'inherit', hint: 'Use the project / engine default' },
+                      { value: 'false', label: 'off' },
+                      { value: 'true', label: 'on', hint: 'Advanced' },
+                    ]}
+                  />
+                </Field>
+              </div>
+            </fieldset>
           </div>
-        </fieldset>
+        )}
+
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+          <span className="mr-auto hidden self-center text-xs text-subtle sm:block">⌘/Ctrl + Enter to create</span>
+          <Button type="button" onClick={close} disabled={create.isPending}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={!canSubmit} loading={create.isPending}>
+            Create issue
+          </Button>
+        </div>
       </form>
-    </Modal>
+    </Panel>
   );
 }
