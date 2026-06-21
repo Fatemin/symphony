@@ -390,8 +390,11 @@ and the priority of a converted issue (`critical→1 … low→4`).
 | `created_at` / `updated_at` | TEXT | |
 
 **Finding lifecycle:** `draft` ──convert──▶ `converted` (creates + links an issue; idempotent —
-a second convert is a 409) and `draft` ⇄ `dismissed` (reversible). `converted` is terminal — its
-status can't be changed once an issue is linked. Indexed `(review_run_id)`, `(project_id)`,
+a second per-finding convert is a 409) and `draft` ⇄ `dismissed` (reversible). `converted` is
+terminal — its status can't be changed once an issue is linked. SYM-66 adds a **batch** convert
+(`POST /:id/reviews/:runId/convert`) that walks a run's still-`draft` findings → `converted` in one
+call, creating `auto` issues by default; because it only touches `draft` rows it's idempotent at the
+run level (re-running creates no duplicates). Indexed `(review_run_id)`, `(project_id)`,
 `(status)`. Reads `LEFT JOIN issues` to surface the converted issue's `key`. Mapped to
 `ReviewFinding`. Repo: `repo/reviews.ts`.
 

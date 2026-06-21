@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import {
   REVIEW_SCOPES,
   type AgentType,
+  type Issue,
+  type IssueMode,
   type IssueStatus,
   type Priority,
   type Project,
@@ -15,6 +17,7 @@ import { loadWorkflow } from '../../core/workflow';
 import { runAgent } from '../../agent/runAgent';
 import type { AgentRunner } from '../../agent/types';
 import { createIssue } from '../../repo/issues';
+import { getOrchestrator } from '../../orchestrator/orchestrator';
 import { getProject } from '../../repo/projects';
 import {
   completeReviewRun,
@@ -26,6 +29,7 @@ import {
   failReviewRun,
   getReviewFinding,
   getReviewRun,
+  getReviewRunWithFindings,
   listReviewRunsWithFindings,
   setFindingStatus,
 } from '../../repo/reviews';
@@ -202,6 +206,56 @@ reviewRoutes.post('/:id/reviews/findings/:findingId/convert', async (c) => {
   });
   const updated = convertFinding(finding.id, issue.id);
   return c.json({ issue, finding: updated }, 201);
+});
+
+// Batch-convert a whole run's still-draft findings in one click (SYM-66). Defaults to mode='auto' so
+// the created issues are immediately orchestrator-eligible and get worked through automatically (most
+// critical first) — the feature's whole point. Route arity (4 segments) differs from the per-finding
+// convert (5: /reviews/findings/:findingId/convert), so they never collide.
+//
+// Idempotency is structural: only `draft` findings are converted, and convertFinding flips them to
+// `converted`, so a re-click finds nothing left and creates no duplicates. This makes the op safe to
+// retry and lets it mop up any drafts a prior partial run missed.
+reviewRoutes.post('/:id/reviews/:runId/convert', async (c) => {
+  const project = getProject(c.req.param('id'));
+  if (!project) return c.json({ error: 'not found' }, 404);
+  const run = getReviewRunWithFindings(c.req.param('runId'));
+  if (!run || run.project_id !== project.id) return c.json({ error: 'not found' }, 404);
+
+  const body = (await c.req.json().catch(() => ({}))) as {
+    status?: unknown;
+    mode?: unknown;
+    finding_ids?: unknown;
+  };
+  // AUTO + Todo by default (the feature): auto+todo issues match listAutoCandidates() and dispatch
+  // promptly. A caller can still opt into manual triage (mode='manual') or parking (status='backlog').
+  const status: IssueStatus = body.status === 'backlog' ? 'backlog' : 'todo';
+  const mode: IssueMode = body.mode === 'manual' ? 'manual' : 'auto';
+  // Optional allow-list: convert only the named findings (e.g. one severity group). Absent ⇒ all drafts.
+  const filter = Array.isArray(body.finding_ids)
+    ? new Set(body.finding_ids.filter((x): x is string => typeof x === 'string'))
+    : null;
+
+  const drafts = run.findings.filter((f) => f.status === 'draft' && (!filter || filter.has(f.id)));
+  const issues: Issue[] = [];
+  for (const f of drafts) {
+    const issue = createIssue({
+      project_id: project.id,
+      title: f.title,
+      type: f.type,
+      description: f.description,
+      acceptance_criteria: f.acceptance_criteria,
+      status,
+      mode,
+      priority: SEVERITY_PRIORITY[f.severity],
+    });
+    convertFinding(f.id, issue.id);
+    issues.push(issue);
+  }
+  // Wake the dispatch loop so the new auto issues start without waiting for the next poll (mirrors
+  // issues.ts). Manual issues just sit on the board, so no kick is needed for them.
+  if (mode === 'auto' && issues.length) void getOrchestrator().kick();
+  return c.json({ issues, converted: issues.length }, 201);
 });
 
 // Toggle a finding between draft and dismissed. 'converted' is owned by the convert endpoint (it

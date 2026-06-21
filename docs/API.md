@@ -95,14 +95,16 @@ Read-only agent **audit** of a project scope (`docs` / `code` / `ui_ux` / `all`)
 repo** (not a worktree, `plan` mode, `disableWorkflows`). Modeled on Ask but **asynchronous**: the
 POST starts a background run and returns `202` immediately; the agent finishes regardless of the
 client (no `AbortSignal`). One in-flight run per project; the agent's graded findings are persisted as
-draft **issue cards** the user converts into real issues (`createIssue`, severity→priority) or
-dismisses. A restart fails any orphaned `running` run at boot.
+draft **issue cards** the user converts into real issues (`createIssue`, severity→priority) —
+one at a time, or a whole run's drafts at once as `auto` issues (SYM-66) — or dismisses. A restart
+fails any orphaned `running` run at boot.
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/projects/:id/reviews` | Start a review. Body: `{ scope, agent? }`. → the `running` `ReviewRun`, **`202`**. Invalid scope → `400`; no `repo_path` → `400`; a review already running → `409`; missing project → `404`. |
 | `GET` | `/api/projects/:id/reviews` | Recent batches (newest first) with their findings — `ReviewRunWithFindings[]`. The Review tab polls this while a batch is `running`. |
-| `POST` | `/api/projects/:id/reviews/findings/:findingId/convert` | Convert a draft finding into an issue. Body: `{ status: 'todo' \| 'backlog' }`. → `{ issue, finding }`, **`201`**. Type/priority/status mapped from the finding; idempotent — a re-convert is `409`. |
+| `POST` | `/api/projects/:id/reviews/findings/:findingId/convert` | Convert a draft finding into an issue. Body: `{ status: 'todo' \| 'backlog' }`. → `{ issue, finding }`, **`201`**. Type/priority/status mapped from the finding (always `mode: 'manual'`); idempotent — a re-convert is `409`. |
+| `POST` | `/api/projects/:id/reviews/:runId/convert` | **Batch**-convert a run's still-draft findings in one click (SYM-66). Body: `{ mode?, status?, finding_ids? }` — defaults `mode: 'auto'` (orchestrator-eligible) + `status: 'todo'`; `finding_ids` narrows the set; `mode: 'manual'` / `status: 'backlog'` override. → `{ issues, converted }`, **`201`**. Idempotent: converted/dismissed findings are skipped (re-clicking only mops up remaining drafts, no duplicates); when ≥1 `auto` issue is created it kicks the orchestrator so they dispatch promptly. Unknown/foreign run → `404`. |
 | `PATCH` | `/api/projects/:id/reviews/findings/:findingId` | Set a finding's status. Body: `{ status: 'draft' \| 'dismissed' }` (dismiss / restore). A `converted` finding can't change → `409`. |
 | `DELETE` | `/api/projects/:id/reviews/:runId` | Delete a batch (cascades its findings; converted issues are untouched). → `204`. |
 

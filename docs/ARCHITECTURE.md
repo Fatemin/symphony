@@ -272,8 +272,9 @@ the built-in professional-team prompt, never replacing it. Default values are ta
 - **StoryTree.tsx** — the per-project story forest folded from `issue_relations` (SYM-30).
 - **Review.tsx** — the Review tab (SYM-51): runs a standalone, read-only agent **audit** of a chosen
   scope (`docs` / `code` / `ui_ux` / `all`) and lists each completed batch with its graded findings as
-  draft issue cards (grouped by severity), each convertible to a Todo/Backlog issue or dismissible. It
-  polls `GET /:id/reviews` while a batch is `running`. The agent path is `http/routes/reviews.ts` —
+  draft issue cards (grouped by severity), each convertible to a Todo/Backlog issue or dismissible — or
+  the whole batch's drafts at once via the SYM-66 "Create all as auto issues" bar (confirm Modal →
+  `auto`/`todo` issues the orchestrator picks up). It polls `GET /:id/reviews` while a batch is `running`. The agent path is `http/routes/reviews.ts` —
   modeled on Ask (live repo, `plan` mode, `disableWorkflows`, no worktree, no `AbortSignal`) but
   **asynchronous**: POST returns `202` and the run finishes in the background; a restart fails any
   orphaned `running` batch at boot.

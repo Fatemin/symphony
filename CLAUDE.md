@@ -82,7 +82,13 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   agent emits a single `symphony-review` fence (`buildReviewPrompt`/`parseReview` in `core/prompt.ts`,
   next to the Ask fence; whitelist + bound + `MAX_REVIEW_FINDINGS` cap, malformed ⇒ `findings: []`,
   non-fatal). Findings surface as draft "issue cards": convert (severity→priority via `createIssue`,
-  idempotent — re-convert is `409`) or dismiss (reversible). Two tables (`review_runs`,
+  always `mode='manual'`, idempotent — re-convert is `409`) or dismiss (reversible). SYM-66 adds a
+  one-click **batch convert** (`POST /:id/reviews/:runId/convert`, arity 4 so it never collides with
+  the per-finding convert) that turns a run's remaining draft findings into `mode='auto'` issues
+  (default; `status='todo'` ⇒ orchestrator-eligible via `listAutoCandidates`) and `void
+  getOrchestrator().kick()`s so they dispatch promptly; `body.mode='manual'` / `status='backlog'` /
+  `finding_ids` override the defaults. Structurally idempotent (only `draft` findings convert), so
+  re-clicking mops up leftovers without duplicating issues. Two tables (`review_runs`,
   `review_findings`) via idempotent `schema.ts` — no `migrate.ts` ALTER. `index.ts` mounts
   `reviewRoutes` and calls `failInterruptedReviewRuns()` at boot so a restart never leaves a run stuck
   `running`. The route reads a `__setReviewBackgroundRunner` test seam (undefined in prod ⇒ real
@@ -154,7 +160,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   The Review tab (`pages/Review.tsx`, SYM-51) runs the standalone read-only project audit and lists
   each batch's graded findings as draft issue cards (grouped by severity), backed by
   `GET /api/projects/:id/reviews` (polled while a batch is `running`); `lib/format.ts` holds the
-  `REVIEW_SEVERITY_META` / scope / category / status display metadata.
+  `REVIEW_SEVERITY_META` / scope / category / status display metadata. SYM-66 adds a per-batch
+  "Create all as auto issues (N)" bar (shown when a completed batch still has drafts) behind a
+  confirm `Modal` — it calls `convertAllFindings` (auto + todo) and invalidates both the reviews
+  list and the Board.
   The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
   `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The Skills tab
