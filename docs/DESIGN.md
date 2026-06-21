@@ -122,6 +122,7 @@ primitive default (last write wins).
 | `Panel` | `interactive` (hover border + transition for clickable cards) · `elevated` (`--elev-2` shadow). |
 | `Field` | Label + optional hint (and a `required` danger-tinted asterisk) wrapping a control. |
 | `Input` / `Textarea` / `Select` | Token focus ring, `aria-[invalid=true]` danger styling, disabled state. |
+| `SegmentedControl` | (SYM-68) Single-select chip group for low-cardinality enums — a tactile alternative to `Select` (all options visible, one tap). `role="group"` + per-option `aria-pressed`; accent-tinted active state (token-driven, label always shows ⇒ never color-only); `flex-wrap`s on narrow widths; `size` sm/md matches the other control heights. |
 | `Spinner` | `border-current` so it tints to its context; honours reduced-motion. |
 | `Loading` | Centered spinner + label — the standard page/section load state (replaces ad-hoc "Loading…"). |
 | `Skeleton` | Shimmer placeholder; `animate-pulse` + `motion-reduce:animate-none`. |
@@ -132,10 +133,11 @@ primitive default (last write wins).
 | `useModalDialog(onClose)` | Native-`<dialog>` lifecycle: `showModal()` on mount, scroll-lock, `close()` in cleanup (restores focus to the opener), Escape routed through React via `onCancel`. |
 | `Modal` | Centered dialog built on `useModalDialog`: header (icon + title + close), scrolling body, footer slot; Escape + backdrop-click + focus restore; `aria-labelledby`/`aria-label`. |
 
-**Migrated onto the dialog primitives:** `ApproveDialog`, the Board's **New-issue form** (SYM-65),
-the `IssueDetail` Request-changes dialog, and the `PathField` directory picker now use `Modal`; the
-`AskPanel` drawer uses `useModalDialog` directly (a right-anchored `<dialog>`) so it keeps its
-drag-to-resize + persisted width while gaining focus-trap, Escape, and focus restoration.
+**Migrated onto the dialog primitives:** `ApproveDialog`, the `IssueDetail` Request-changes dialog,
+and the `PathField` directory picker now use `Modal`; the `AskPanel` drawer uses `useModalDialog`
+directly (a right-anchored `<dialog>`) so it keeps its drag-to-resize + persisted width while gaining
+focus-trap, Escape, and focus restoration. (The Board's **New-issue form** briefly used `Modal` in
+SYM-65 but SYM-68 moved it back to an inline composer — see the "Inline composer card" pattern in §9.)
 
 ---
 
@@ -212,14 +214,24 @@ Every data-backed view renders all of these; primitives make them consistent:
 
 Reusable layouts that compose the primitives above; reach for one before inventing a new shape.
 
-- **Create / edit form dialog** (SYM-65, Board `NewIssueForm`; also `ApproveDialog`) — a `Modal`
-  whose body is a real `<form id="…">` so the footer's submit `<Button type="submit" form="…">`
-  drives it (the footer lives outside the body slot). Primary fields lead; secondary/run controls are
-  grouped into a labeled `<fieldset>`/`<legend>` separated by a `border-t` divider (`field-grouping`,
-  not progressive-disclosure — workflow controls stay visible). Required inputs get `Field required` +
+- **Create / edit form dialog** (`ApproveDialog`) — a `Modal` whose body is a real `<form id="…">`
+  so the footer's submit `<Button type="submit" form="…">` drives it (the footer lives outside the
+  body slot). Primary fields lead; secondary/run controls are grouped into a labeled
+  `<fieldset>`/`<legend>` separated by a `border-t` divider. Required inputs get `Field required` +
   the input's own `required`. `onSubmit`/⌘·Ctrl+Enter submit; the close handler no-ops while the
   mutation is in flight so a half-built form can't be lost; success/error go to a toast. The grids
   collapse to one column on mobile (`grid-cols-1 sm:grid-cols-2|3`).
+- **Inline composer card** (SYM-68, Board `NewIssueForm`) — a create form that lives **in the page
+  flow, not a popup** (the acceptance criteria's "no-popup mode"). To keep the resting footprint
+  small (the original inline form shoved the whole board down), it uses **progressive-disclosure**:
+  an `elevated` `Panel` whose `<form>` leads with the title + the two classifiers it almost always
+  needs (type / priority), with the heavier fields (description, AC, attachments, the Execution
+  `<fieldset>`) collapsed behind an `<button aria-expanded aria-controls>` "Add details" toggle. The
+  enum controls are `SegmentedControl` chips, not `<Select>`s. There's no `<dialog>`, so the card
+  manages its own escape route: a header close `X`, a Cancel button, and an `onKeyDown` Escape — all
+  no-op while the mutation is in flight. ⌘·Ctrl+Enter submits from anywhere; success/error toast.
+  Reach for this (over the dialog pattern) when the form should stay in context and not steal the
+  viewport.
 - **Graded item card** (SYM-61, Review tab `FindingCard`) — for a list of graded, actionable items
   the user triages. The grade is *labeled* by the section/group header it sits under (dot + label +
   count); the card reinforces it with a quiet **left grade-rail** (`border-l-2` + a per-grade

@@ -147,10 +147,12 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   / `--color-danger` / `--color-info`, plus themed `--elev-1/2/3` elevation vars — all existing token
   names preserved), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
   `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
-  `Select` (focus ring + `aria-invalid`), `Spinner`, plus `Modal` + `useModalDialog` (native `<dialog>`:
-  focus-trap, Escape, scroll-lock, focus restore — `ApproveDialog`, the Board's New-issue form
-  (SYM-65), the `AskPanel` drawer, the `PathField` picker, and IssueDetail's request-changes dialog
-  all build on it), `PageHeader`,
+  `Select` (focus ring + `aria-invalid`), `SegmentedControl` (SYM-68: single-select chip group for
+  low-cardinality enums — `role="group"`/`aria-pressed`, accent-tinted active, flex-wraps), `Spinner`,
+  plus `Modal` + `useModalDialog` (native `<dialog>`: focus-trap, Escape, scroll-lock, focus restore —
+  `ApproveDialog`, the `AskPanel` drawer, the `PathField` picker, and IssueDetail's request-changes
+  dialog all build on it; the Board's New-issue card used `Modal` in SYM-65 but SYM-68 returned it to
+  an inline no-popup composer — `Panel` + progressive-disclosure, not a dialog), `PageHeader`,
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
   responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
   spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live
