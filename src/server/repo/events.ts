@@ -77,6 +77,38 @@ export interface ListEventsQuery {
   limit?: number;
 }
 
+/**
+ * SYM-62: distinct skill slugs an issue invoked during a given round, harvested from that round's
+ * `agent.tool` events (each `Skill` tool_use persists `data.skill` — see `phases/index.ts`). The
+ * delivery sequencer uses this to append a "Skills used" tail to its summary. Reading the event log
+ * (not in-memory state) keeps it durable across retries, where a fresh pipeline call skips
+ * already-succeeded phases and would otherwise lose earlier-attempt skill use. Sorted for a stable,
+ * deterministic ordering.
+ */
+export function listSkillsUsed(issueId: string, round: number): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT e.data AS data
+         FROM events e
+         JOIN runs r ON e.run_id = r.id
+        WHERE e.issue_id = ? AND r.round = ? AND e.kind = 'agent.tool'`,
+    )
+    .all(issueId, round) as unknown as { data: string | null }[];
+  const skills = new Set<string>();
+  for (const row of rows) {
+    if (row.data == null) continue;
+    try {
+      const parsed = JSON.parse(row.data) as { skill?: unknown };
+      if (typeof parsed.skill === 'string' && parsed.skill.trim()) {
+        skills.add(parsed.skill.trim());
+      }
+    } catch {
+      // A malformed event payload is non-fatal — skip it (matches mapRow's tolerant parse).
+    }
+  }
+  return [...skills].sort();
+}
+
 export function listEvents(query: ListEventsQuery = {}): EventWithCursor[] {
   const where: string[] = [];
   const params: (string | number)[] = [];

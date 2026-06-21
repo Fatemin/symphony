@@ -211,6 +211,11 @@ The activity feed behind the live SSE stream and the issue detail timeline.
 Indexes: `idx_events_issue (issue_id,id)`, `idx_events_run (run_id,id)`. Mapped to `Event`. Repo:
 `repo/events.ts` (exposes a monotonic `cursor` used by SSE `?since=`).
 
+For `agent.tool` events `data` carries `{ phase, name }`, plus `skill` (the slug) when the agent
+invoked the built-in `Skill` tool (SYM-62). `repo/events.ts#listSkillsUsed(issueId, round)` harvests
+those `data.skill` values round-scoped so the delivery phase can append its "Skills used" summary
+(see [AGENT_GUIDE.md §1](AGENT_GUIDE.md#1-phases--the-pipeline)).
+
 ### 9. `project_notes`
 
 Distilled learnings from completed issues, injected (newest-first) into future agent prompts.

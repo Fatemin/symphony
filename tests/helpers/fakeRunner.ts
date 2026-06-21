@@ -20,6 +20,12 @@ export interface FakeRunnerOptions {
   fileName?: string;
   fileContent?: string;
   implementReport?: string;
+  /**
+   * SYM-62: simulate the implement phase invoking a Claude Code skill (emits a `Skill` tool_use so
+   * the pipeline records `agent.tool` `data.skill`). Default-off so the existing baseline tests,
+   * which expect no skill usage, stay unchanged.
+   */
+  skill?: string;
   /** Count of calls per phase, for assertions (merge only present once that phase runs). */
   calls?: { plan: number; implement: number; qa: number; delivery?: number; merge?: number };
   /** Captured runner inputs in call order, for assertions. */
@@ -110,6 +116,8 @@ export function makeFakeRunner(opts: FakeRunnerOptions = {}): AgentRunner {
     if (phase === 'implement') {
       const file = path.join(input.cwd, opts.fileName ?? 'AGENT_OUTPUT.md');
       onEvent?.({ type: 'tool_use', name: 'Write', input: { file_path: file } });
+      // SYM-62: optionally simulate a Claude Code skill invocation (the built-in `Skill` tool).
+      if (opts.skill) onEvent?.({ type: 'tool_use', name: 'Skill', input: { skill: opts.skill } });
       fs.writeFileSync(file, opts.fileContent ?? '# done by fake agent\n');
       return result(opts.implementReport ?? 'Implemented and wrote the file.');
     }

@@ -72,6 +72,60 @@ test('full pipeline drives an issue todo → review with a real commit', async (
   assert.ok(fs.existsSync(path.join(wt, 'HEALTH.txt')), 'agent file should exist in worktree');
 });
 
+test('delivery report appends a Skills-used section listing the skills the issue invoked (SYM-62)', async () => {
+  const project = createProject({
+    name: 'Skills Used',
+    key: 'SU',
+    repo_path: env.repoPath,
+    default_branch: 'main',
+  });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Uses a skill',
+    type: 'feature',
+    status: 'todo',
+    mode: 'auto',
+  });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass', skill: 'ckm:design' }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  const delivery = listRuns(issue.id).find((r) => r.phase === 'delivery');
+  // The agent's own summary is preserved, with the deterministic Skills-used tail appended after it.
+  assert.match(delivery?.report ?? '', /## What's new/);
+  assert.match(delivery?.report ?? '', /## Skills used/);
+  assert.match(delivery?.report ?? '', /`ckm:design`/);
+});
+
+test('delivery report omits the Skills-used section when the issue used no skill (SYM-62)', async () => {
+  const project = createProject({
+    name: 'No Skills',
+    key: 'NS',
+    repo_path: env.repoPath,
+    default_branch: 'main',
+  });
+  const issue = createIssue({
+    project_id: project.id,
+    title: 'Uses no skill',
+    type: 'feature',
+    status: 'todo',
+    mode: 'auto',
+  });
+
+  const result = await runIssuePipeline(issue.id, {
+    runner: makeFakeRunner({ qa: 'pass' }),
+    config: getConfig(),
+  });
+
+  assert.equal(result.ok, true);
+  const delivery = listRuns(issue.id).find((r) => r.phase === 'delivery');
+  assert.match(delivery?.report ?? '', /## What's new/);
+  assert.doesNotMatch(delivery?.report ?? '', /## Skills used/);
+});
+
 test('WORKFLOW.md per-phase max_turns overrides only the named phase', async () => {
   const wf = path.join(env.repoPath, 'WORKFLOW.md');
   fs.writeFileSync(wf, ['---', 'agent:', '  max_turns:', '    implement: 7', '---', ''].join('\n'));

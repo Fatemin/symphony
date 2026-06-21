@@ -21,7 +21,8 @@ import { listProjectSkills } from '../repo/projectSkills';
 import { getRevision } from '../repo/revisions';
 import { listStoryReferenceContexts } from '../repo/issueRelations';
 import { listTasks } from '../repo/tasks';
-import { appendEvent, type EventWithCursor } from '../repo/events';
+import { appendEvent, listSkillsUsed, type EventWithCursor } from '../repo/events';
+import { appendSkillsUsedSection, extractSkillName, SKILL_TOOL_NAME } from '../core/skillUsage';
 import { ensureWorktree, installCommitGuardHook, worktreePathFor } from '../workspace/worktree';
 import { materializeSkills } from '../workspace/skills';
 import { runVerificationCommands } from '../workspace/verification';
@@ -191,7 +192,17 @@ export async function runIssuePipeline(
     updateRunUsage(run.id, { session_id: outcome.sessionId, ...outcome.usage });
     const auxiliaryQa = phase === 'qa' && objectiveVerification && !outcome.ok;
     const runStatus = runStatusForOutcome(issueId, outcome);
-    finishRun(run.id, runStatus, outcome.error ?? null, outcome.report ?? null);
+    // SYM-62: on a successful delivery, append a deterministic "Skills used" tail listing every
+    // skill the issue invoked this round (across plan/implement/qa/delivery). Delivery's own skill
+    // events are already persisted synchronously via onAgentEvent, so the round-scoped query sees
+    // them. Done here in the sequencer — not in delivery.ts — so it captures every phase's skill use
+    // and stays out of the agent's free-text report. The implement branch below reads `outcome.report`
+    // directly, so it is intentionally untouched.
+    let report = outcome.report ?? null;
+    if (phase === 'delivery' && outcome.ok) {
+      report = appendSkillsUsedSection(report, listSkillsUsed(issueId, round));
+    }
+    finishRun(run.id, runStatus, outcome.error ?? null, report);
     emit(opts, {
       issue_id: issueId,
       run_id: run.id,
@@ -368,7 +379,17 @@ function persistAgentEvent(
 
   if (event.type === 'tool_use') {
     const input = JSON.stringify(event.input ?? {}).slice(0, 200);
-    emit(opts, { issue_id: issueId, run_id: runId, kind: 'agent.tool', message: `${phase}: ${event.name} ${input}`, data: { phase, name: event.name } });
+    // SYM-62: tag the durable `agent.tool` event with the skill slug when this is a `Skill` call,
+    // so the delivery sequencer can report which skills the issue used. Additive — `message` and
+    // the existing `name` field are untouched, so older consumers (ReviewPanel) keep working.
+    const skill = event.name === SKILL_TOOL_NAME ? extractSkillName(event.input) : null;
+    emit(opts, {
+      issue_id: issueId,
+      run_id: runId,
+      kind: 'agent.tool',
+      message: `${phase}: ${event.name} ${input}`,
+      data: { phase, name: event.name, ...(skill ? { skill } : {}) },
+    });
   } else if (event.type === 'tool_result') {
     emit(opts, { issue_id: issueId, run_id: runId, kind: 'agent.tool_result', level: 'debug', message: event.text.slice(0, 300), data: { phase } });
   } else if (event.type === 'init') {
