@@ -27,7 +27,14 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   in-memory runtime state; `orchestrator.ts` owns dispatch / retry / give-up; `worker.ts` bridges
   to the pipeline. Nothing else mutates `RuntimeState`.
 - `src/server/phases/` — execution layer for one issue: `index.ts` (sequencer, persists run rows +
-  events) and one module per phase. Each phase is ONE agent session.
+  events) and one module per phase. Each phase is ONE agent session. SYM-62: `index.ts`
+  `persistAgentEvent` tags the durable `agent.tool` event with `data.skill` (the slug) whenever the
+  agent calls the built-in `Skill` tool, and right before `finishRun` for a successful `delivery`
+  phase it appends a deterministic `## Skills used` tail to the report via the pure
+  `core/skillUsage.ts` (`extractSkillName` + `appendSkillsUsedSection`) fed by
+  `repo/events.ts#listSkillsUsed(issueId, round)` — round-scoped over `agent.tool` events so it stays
+  durable across retries (an in-memory set would miss skills from a skipped earlier attempt). Append
+  only when ≥1 skill was used; no section otherwise.
 - `src/server/agent/` — the DI seam. `types.ts` defines `AgentRunner`; `claudeRunner.ts` spawns
   `claude --print --output-format stream-json`. Orchestrator/phases never import the CLI directly;
   tests inject a fake runner instead. `AgentRunInput.disableWorkflows` (SYM-41, required) gates

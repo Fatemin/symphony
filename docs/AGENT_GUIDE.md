@@ -32,6 +32,14 @@ running `merge` there would double-merge.
 review gate (`phases/index.ts`, the `phase === 'delivery'` guard). All prompt assembly lives in
 [`src/server/core/prompt.ts`](../src/server/core/prompt.ts).
 
+> **Skills-used tail (SYM-62).** After a *successful* delivery, the sequencer appends a deterministic
+> `## Skills used` section to the report, listing every Claude Code skill the issue invoked **this
+> round** (across plan/implement/qa/delivery). The list comes from the round's persisted `agent.tool`
+> events (`data.skill`, written by `persistAgentEvent` for every `Skill` tool call), de-duplicated and
+> sorted by `repo/events.ts#listSkillsUsed` and formatted by the pure `core/skillUsage.ts`. It is
+> appended by `phases/index.ts` (not the agent and not `delivery.ts`) so it stays out of the agent's
+> free-text report and captures every phase's skill use. No skills used → no section.
+
 > **Phase vs. task role.** `delivery` is *also* a `TaskRole` (`src/shared/types.ts:TaskRole`) the plan
 > can emit, executed *inside* the implement phase as a handoff/summary task — distinct from the
 > `delivery` *phase* that runs after QA. Both exist; don't conflate them.
@@ -90,7 +98,8 @@ to:
 - **qa** — build/test/lint failures are an automatic FAIL; check each acceptance criterion explicitly;
   watch regressions + non-functional bar; **stale docs for a behavior change are a FAIL**.
 - **delivery** — read-only, friendly summary (What's new / How to use it / Files changed / Docs
-  updated).
+  updated). The sequencer then appends a deterministic `## Skills used` tail (SYM-62) when the issue
+  invoked any Claude Code skill this round — see the Skills-used note in §1.
 - **merge** — push + integrate only; never rewrite code.
 
 Per-repo and per-project prompt additions are **appended** under a `## Repository policy` heading
