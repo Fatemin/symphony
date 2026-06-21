@@ -248,18 +248,35 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
               no-op once an issue can never re-run. Kept at 'review' (still !terminal) because Request
               changes starts a new round that reads it. */}
           {!terminal && (
-            <Select
-              value={issue.thinking_effort ?? ''}
-              onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
-              className="w-auto"
-              aria-label="Thinking effort"
-              title="Extended-thinking budget for this issue (inherit = project/engine default)"
-            >
-              <option value="">inherit</option>
-              {THINKING_EFFORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
+            <>
+              <Select
+                value={issue.thinking_effort ?? ''}
+                onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
+                className="w-auto"
+                aria-label="Thinking effort"
+                title="Extended-thinking budget for this issue (inherit = project/engine default)"
+              >
+                <option value="">inherit</option>
+                {THINKING_EFFORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
+              {/* SYM-67: per-issue Workflow-tool override; inherit = the project/engine default. Same
+                  !terminal gate as thinking_effort — it's only consumed by the build phases. */}
+              <Select
+                value={issue.enable_workflow_tool === null ? '' : String(issue.enable_workflow_tool)}
+                onChange={(e) =>
+                  update.mutate({ enable_workflow_tool: e.target.value === '' ? null : e.target.value === 'true' })
+                }
+                className="w-auto"
+                aria-label="Workflow tool"
+                title="Workflow tool for this issue (inherit = project/engine default; on lets the agent self-spawn background runs)"
+              >
+                <option value="">workflow: inherit</option>
+                <option value="false">workflow: off</option>
+                <option value="true">workflow: on</option>
+              </Select>
+            </>
           )}
           {issue.status === 'review' ? (
             <>
@@ -342,6 +359,7 @@ function FollowUpForm({
     mode: IssueMode;
     status: Extract<IssueStatus, 'backlog' | 'todo'>;
     thinking_effort: '' | ThinkingEffort;
+    enable_workflow_tool: '' | 'true' | 'false';
     description: string;
     acceptance_criteria: string;
     include_context: boolean;
@@ -352,6 +370,7 @@ function FollowUpForm({
     mode: 'manual',
     status: 'todo',
     thinking_effort: '', // SYM-46: '' = inherit the project/engine default
+    enable_workflow_tool: '', // SYM-67: '' = inherit, 'false' = off, 'true' = on
     description: '',
     acceptance_criteria: '',
     include_context: true,
@@ -365,6 +384,8 @@ function FollowUpForm({
         mode: form.mode as Detail['mode'],
         status: form.status as IssueStatus,
         thinking_effort: form.thinking_effort || null,
+        enable_workflow_tool:
+          form.enable_workflow_tool === '' ? null : form.enable_workflow_tool === 'true',
         description: form.description || null,
         acceptance_criteria: form.acceptance_criteria || null,
         include_context: form.include_context,
@@ -425,6 +446,14 @@ function FollowUpForm({
             {THINKING_EFFORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
+          </Select>
+        </Field>
+        {/* SYM-67: carry a per-issue Workflow-tool override onto the follow-up; inherit = default. */}
+        <Field label="Workflow tool">
+          <Select value={form.enable_workflow_tool} onChange={(e) => setForm({ ...form, enable_workflow_tool: e.target.value as '' | 'true' | 'false' })}>
+            <option value="">inherit (project default)</option>
+            <option value="false">off</option>
+            <option value="true">on (advanced)</option>
           </Select>
         </Field>
         <div className="col-span-2">

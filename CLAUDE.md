@@ -214,7 +214,12 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `config.agent` — copy each field-by-field in `projectConfig.ts#mergeAgent` or it is stripped on
   save. `thinking_effort` is ALSO per-issue overridable (SYM-46): the nullable `issues.thinking_effort`
   column (whitelist-guarded in `repo/issues.ts#mapRow`, null ⇒ inherit) is the highest-priority layer
-  in `resolveThinkingEffort` (issue ?? project ?? engine). Attachment limits live here too:
+  in `resolveThinkingEffort` (issue ?? project ?? engine). `enable_workflow_tool` is LIKEWISE per-issue
+  overridable (SYM-67): the nullable `issues.enable_workflow_tool` column (stored 0/1/NULL — node:sqlite
+  rejects boolean binds, so `repo/issues.ts#updateIssue` special-cases it OUT of the generic UPDATABLE
+  loop, like `require_review`; `mapRow` reads null ⇒ inherit) is the highest-priority term in
+  `agentInput`'s `enableWf` chain (`issue ?? project ?? engine`, then `disableWorkflows: !enableWf`).
+  Attachment limits live here too:
   `max_attachment_bytes` (default 10 MB) and
   `max_attachments_per_item` (default 10), both numeric and UI-editable via the `settings` table.
 - Privacy boundary: only framework code is tracked. Runtime/private data — `data/` (the SQLite DB +

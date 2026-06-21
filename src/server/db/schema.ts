@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS issues (
   round               INTEGER NOT NULL DEFAULT 1,  -- current revision round (1 = first build, 2+ = re-review changes)
   merge_conflict      TEXT,                        -- JSON MergeConflictInfo when a review-gate approval failed to merge/push (SYM-29)
   thinking_effort     TEXT,                        -- per-issue extended-thinking override; NULL = inherit project/engine (SYM-46)
+  enable_workflow_tool INTEGER,                     -- per-issue Workflow-tool override (0/1); NULL = inherit project/engine (SYM-67)
   created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

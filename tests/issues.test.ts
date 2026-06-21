@@ -41,3 +41,42 @@ test('mapRow coerces a garbage thinking_effort value to null (SYM-46 defensive b
   // mapRow only lets a whitelisted keyword through; anything else reads back as null (= inherit).
   assert.equal(getIssue(issue.id)!.thinking_effort, null);
 });
+
+test('issue.enable_workflow_tool round-trips through create and clears/sets via update (SYM-67)', () => {
+  const project = createProject({ name: 'Workflow', key: 'WFL' });
+
+  // Created without the field ⇒ NULL = inherit.
+  const inherit = createIssue({ project_id: project.id, title: 'inherits' });
+  assert.equal(inherit.enable_workflow_tool, null);
+
+  // Created with an explicit boolean ⇒ persisted as 0/1, read back as a boolean.
+  const on = createIssue({ project_id: project.id, title: 'opts in', enable_workflow_tool: true });
+  assert.equal(on.enable_workflow_tool, true);
+  assert.equal(getIssue(on.id)!.enable_workflow_tool, true);
+
+  const off = createIssue({ project_id: project.id, title: 'opts out', enable_workflow_tool: false });
+  assert.equal(off.enable_workflow_tool, false);
+  assert.equal(getIssue(off.id)!.enable_workflow_tool, false);
+
+  // Update flips the boolean (the dedicated branch binds 0/1, never a JS boolean — node:sqlite rejects those).
+  assert.equal(updateIssue(on.id, { enable_workflow_tool: false })!.enable_workflow_tool, false);
+
+  // Update to null clears it back to inherit (must round-trip as a real NULL, not 0).
+  assert.equal(updateIssue(on.id, { enable_workflow_tool: null })!.enable_workflow_tool, null);
+  assert.equal(getIssue(on.id)!.enable_workflow_tool, null);
+});
+
+test('mapRow maps the enable_workflow_tool 0/1/NULL column boundary (SYM-67)', () => {
+  const project = createProject({ name: 'WF Boundary', key: 'WFB' });
+  const issue = createIssue({ project_id: project.id, title: 'boundary' });
+  const db = getDb();
+
+  db.prepare(`UPDATE issues SET enable_workflow_tool = 1 WHERE id = ?`).run(issue.id);
+  assert.equal(getIssue(issue.id)!.enable_workflow_tool, true);
+
+  db.prepare(`UPDATE issues SET enable_workflow_tool = 0 WHERE id = ?`).run(issue.id);
+  assert.equal(getIssue(issue.id)!.enable_workflow_tool, false);
+
+  db.prepare(`UPDATE issues SET enable_workflow_tool = NULL WHERE id = ?`).run(issue.id);
+  assert.equal(getIssue(issue.id)!.enable_workflow_tool, null);
+});

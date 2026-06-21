@@ -76,8 +76,13 @@ export function agentInput(
   const rawAgent = ctx.workflow?.agent || ctx.project.agent || ctx.config.agent;
   const agent: AgentType = rawAgent === 'codex' ? 'codex' : 'claude';
   // SYM-41: project ?? engine (no WORKFLOW.md layer — WorkflowPolicy has no such field). Default
-  // false ⇒ disable, so a pipeline agent can't self-spawn background runs.
-  const enableWf = ctx.projectConfig.agent.enable_workflow_tool ?? ctx.config.enable_workflow_tool;
+  // false ⇒ disable, so a pipeline agent can't self-spawn background runs. SYM-67 prepends a
+  // per-issue layer (issue ?? project ?? engine), so an explicit per-issue `false` overrides a
+  // project/engine `true` and vice-versa — `??` (not `||`) keeps that two-way override honest.
+  const enableWf =
+    ctx.issue.enable_workflow_tool ??
+    ctx.projectConfig.agent.enable_workflow_tool ??
+    ctx.config.enable_workflow_tool;
   return {
     agent,
     cwd: ctx.worktreePath,
