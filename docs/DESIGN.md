@@ -176,7 +176,7 @@ primitive default (last write wins).
 | `SegmentedControl` | (SYM-68) Single-select chip group for low-cardinality enums — a tactile alternative to `Select` (all options visible, one tap). `role="group"` + per-option `aria-pressed`; accent-tinted active state (token-driven, label always shows ⇒ never color-only); `flex-wrap`s on narrow widths; `size` sm/md matches the other control heights. |
 | `Spinner` | `border-current` so it tints to its context; honours reduced-motion. |
 | `Loading` | Centered spinner + label — the standard page/section load state (replaces ad-hoc "Loading…"). |
-| `PendingIndicator` / `useElapsedSeconds` | SYM-77: inline busy state for long async waits (Ask "Thinking…", Review "Reviewing…") — spinner + label + a live elapsed counter (shown once ≥ 1s). `since` is optional (self-start on mount, or a server `created_at` so the elapsed survives remount/poll). The elapsed span is `aria-hidden` inside the `role=status` region so it never re-announces per tick (§6). |
+| `PendingIndicator` / `useElapsedSeconds` | SYM-77: inline busy state for long async waits (Ask "Thinking…", Review "Reviewing…"; SYM-81 added the approve/merge flow — `ApproveDialog`'s footer "Merging…" / batch "Approving N of M…" and the IssueDetail `ConflictBanner`'s "Resolving…") — spinner + label + a live elapsed counter (shown once ≥ 1s). `since` is optional (self-start on mount, or a server `created_at` so the elapsed survives remount/poll). The elapsed span is `aria-hidden` inside the `role=status` region so it never re-announces per tick (§6). |
 | `Skeleton` | Shimmer placeholder; `animate-pulse` + `motion-reduce:animate-none`. |
 | `ProjectChip` | The colour-keyed project badge reused in every project header. |
 | `PageHeader` | Standard header: optional back affordance + leading icon/chip, title + subtitle, badge slot, right-aligned actions. Unifies the old per-page `p-6`/`p-8` header divergence. |
@@ -298,7 +298,16 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   `<fieldset>`/`<legend>` separated by a `border-t` divider. Required inputs get `Field required` +
   the input's own `required`. `onSubmit`/⌘·Ctrl+Enter submit; the close handler no-ops while the
   mutation is in flight so a half-built form can't be lost; success/error go to a toast. The grids
-  collapse to one column on mobile (`grid-cols-1 sm:grid-cols-2|3`).
+  collapse to one column on mobile (`grid-cols-1 sm:grid-cols-2|3`). **SYM-81** made `ApproveDialog`
+  contextual + recoverable on top of this shape: a `sourceBranch`-aware merge summary
+  (`Merge <source> → <target>` for a single issue, `Merge N stories into <target>` for the Board
+  batch), a `role=alert` branch-state line under the input — `aria-describedby`-linked, danger-toned
+  when the target doesn't exist and Create-branch is off (a pre-submit echo of the server's
+  `create_branch` 409) — a muted Set-as-default helper, and an inline `role=alert`
+  `--color-danger` `error` region (`whitespace-pre-line`, so the Board's per-issue partial-failure
+  list reads in full instead of a clipped toast) that keeps the dialog open for a retry. All three
+  new props (`sourceBranch` / `pendingLabel` / `error`) are optional, so the non-dismissible-while-
+  pending invariant and the existing call-site contracts are preserved.
 - **Inline composer card** (SYM-68, Board `NewIssueForm`) — a create form that lives **in the page
   flow, not a popup** (the acceptance criteria's "no-popup mode"). To keep the resting footprint
   small (the original inline form shoved the whole board down), it uses **progressive-disclosure**:
