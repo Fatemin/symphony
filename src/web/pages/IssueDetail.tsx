@@ -8,7 +8,7 @@ import { api, streamIssue, THINKING_EFFORT_OPTIONS, type ApproveOptions, type Is
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { Markdown } from '../components/Markdown';
-import { Badge, Button, ErrorState, Field, Input, Loading, Modal, Panel, Select, Spinner, Textarea } from '../components/ui';
+import { Badge, Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Panel, Select, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 
 type LiveEvent = Event & { cursor: number };
@@ -923,7 +923,7 @@ function Activity({ issueId, initial }: { issueId: string; initial: LiveEvent[] 
     <Panel className="flex min-h-0 flex-1 flex-col p-0 max-lg:h-[420px]">
       <div className="border-b border-border px-4 py-2.5 text-xs font-medium text-muted">Activity</div>
       <div ref={scroller} className="flex-1 space-y-2 overflow-y-auto p-4">
-        {events.length === 0 && <p className="text-xs text-subtle">No activity yet.</p>}
+        {events.length === 0 && <EmptyState compact title="No activity yet." className="text-xs" />}
         {events.map((e) => (
           <div key={e.cursor} className="text-xs">
             <div className="flex items-baseline gap-2">

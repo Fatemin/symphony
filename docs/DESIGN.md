@@ -128,7 +128,7 @@ primitive default (last write wins).
 | `Skeleton` | Shimmer placeholder; `animate-pulse` + `motion-reduce:animate-none`. |
 | `ProjectChip` | The colour-keyed project badge reused in every project header. |
 | `PageHeader` | Standard header: optional back affordance + leading icon/chip, title + subtitle, badge slot, right-aligned actions. Unifies the old per-page `p-6`/`p-8` header divergence. |
-| `EmptyState` | Icon + title + description + optional action — every zero-data state. |
+| `EmptyState` | Icon + title + description + optional action — every zero-data state. `compact` variant (borderless, low-padding, AA `text-muted`) for inline placeholders that sit INSIDE an existing frame (board column / activity feed / Ops section) instead of standing alone as a panel. |
 | `ErrorState` | Danger-tinted icon + title + description + optional **Retry** (recovery path). |
 | `useModalDialog(onClose)` | Native-`<dialog>` lifecycle: `showModal()` on mount, scroll-lock, `close()` in cleanup (restores focus to the opener), Escape routed through React via `onCancel`. |
 | `Modal` | Centered dialog built on `useModalDialog`: header (icon + title + close), scrolling body, footer slot; Escape + backdrop-click + focus restore; `aria-labelledby`/`aria-label`. |
@@ -153,8 +153,11 @@ Every data-backed view renders all of these; primitives make them consistent:
   (SYM-77) so the spinner is paired with a live elapsed counter — a slow run reads as in-progress, not
   hung. Never a bare "Loading…" string.
 - **Empty** — `EmptyState` with an icon, a one-line title, a supporting sentence, and (where there's an
-  obvious next step) an action. Board columns use a lightweight dashed "No issues" placeholder so five
-  empty columns don't become five heavy panels.
+  obvious next step) an action. Inline placeholders that live inside an existing frame use the
+  `EmptyState compact` variant (borderless, low-padding, AA `text-muted`) instead of a hand-rolled
+  `<p>`: the Board column's dashed "No issues" placeholder (so five empty columns don't become five
+  heavy panels), the IssueDetail activity feed's "No activity yet." hint, and the Ops section hints all
+  share it.
 - **Error** — `ErrorState` with a recovery path (`onRetry`) for failed queries (IssueDetail, Review,
   StoryTree, Documentation).
 - **Success** — toasts via Sonner (unchanged); inline success affordances keep their semantic color.

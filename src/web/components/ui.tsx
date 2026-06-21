@@ -337,14 +337,29 @@ export function EmptyState({
   title,
   description,
   action,
+  compact = false,
   className = '',
 }: {
   icon?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  // compact = a zero-data hint that lives INSIDE an existing frame (board column / activity feed /
+  // section) rather than standing alone as a card: no Panel chrome, low padding, AA-passing
+  // text-muted (vs the text-subtle these inline placeholders used to hand-roll, which fails AA).
+  compact?: boolean;
   className?: string;
 }) {
+  if (compact) {
+    return (
+      <div className={cn('flex flex-col items-center gap-1 px-4 py-6 text-center text-sm text-muted', className)}>
+        {icon && <div className="[&_svg]:h-5 [&_svg]:w-5">{icon}</div>}
+        <p>{title}</p>
+        {description && <p className="max-w-md text-xs leading-relaxed text-muted">{description}</p>}
+        {action && <div className="mt-1">{action}</div>}
+      </div>
+    );
+  }
   return (
     <Panel className={cn('flex flex-col items-center gap-2 px-6 py-10 text-center', className)}>
       {icon && <div className="text-muted [&_svg]:h-6 [&_svg]:w-6">{icon}</div>}
