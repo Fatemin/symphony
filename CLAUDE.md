@@ -150,7 +150,14 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `REVIEW_SEVERITY_META` / scope / category / status display metadata.
   The Docs tab (`pages/Documentation.tsx`, SYM-36) is a master/detail reader over the repo's docs,
   backed by read-only `GET /api/projects/:id/docs` + `/docs/content`; the source folders live in
-  `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The sidebar
+  `config.docs.directories` (default `['docs']`) and are edited inline from the tab. The Skills tab
+  (`pages/ProjectSkills.tsx`, SYM-14; redesigned SYM-63) browses a project's skills as a dense,
+  responsive card grid (`grid-cols-1/md:2/xl:3`) with a search + source + status + sort toolbar
+  (client-side `useMemo` filter/sort, live count, distinct empty vs no-match states) so a large set
+  stays scannable; the GitHub-import / Claude-install / new-skill affordances are tucked behind one
+  collapsed "Add skills" disclosure and create/edit run in the shared `Modal`. Source badge + filter
+  share `lib/format.ts#SKILL_SOURCE_META` (mirrors `REVIEW_*_META`). Pure frontend — same
+  `GET /api/projects/:id/skills` list endpoint, no contract change. The sidebar
   footer widget (`components/SidebarUsage.tsx`, SYM-38/SYM-39/SYM-40) shows local Claude/Codex
   **remaining** quota from `GET /api/usage/local`. BOTH agents render the same `ok` shape — the lowest
   remaining window ("NN% left", threshold-colored dot, 5h/Week reset tooltip): Codex from its local logs,
