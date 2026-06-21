@@ -310,7 +310,7 @@ function ReviewBatch({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
           <span className="font-medium text-fg">{REVIEW_SCOPE_META[run.scope].label}</span>
           <span className={`inline-flex items-center gap-1.5 text-xs ${status.color}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+            <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
             {status.label}
           </span>
           {run.agent && <span className="text-xs text-muted">{run.agent}</span>}
@@ -382,6 +382,7 @@ function ReviewBatch({
                 <div key={group.severity} className="space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
                     <span
+                      aria-hidden
                       className={`h-1.5 w-1.5 rounded-full ${REVIEW_SEVERITY_META[group.severity].dot}`}
                     />
                     {REVIEW_SEVERITY_META[group.severity].label} · {group.findings.length}
@@ -470,7 +471,7 @@ function ReviewBatch({
               if (count === 0) return null;
               return (
                 <li key={severity} className="flex items-center gap-2 text-xs text-muted">
-                  <span className={`h-1.5 w-1.5 rounded-full ${REVIEW_SEVERITY_META[severity].dot}`} />
+                  <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${REVIEW_SEVERITY_META[severity].dot}`} />
                   {count} {REVIEW_SEVERITY_META[severity].label.toLowerCase()}
                 </li>
               );

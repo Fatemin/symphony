@@ -101,7 +101,7 @@ function StoryRow({ node }: { node: StoryTreeNode }) {
         <div className="flex items-center gap-2 text-xs">
           <span className="font-mono text-muted">{issue.key}</span>
           <span className={`inline-flex items-center gap-1 ${meta.color}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} /> {meta.label}
+            <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} /> {meta.label}
           </span>
           {relation && <Badge className="bg-indigo-500/10 text-indigo-300">follow-up</Badge>}
           {issue.priority > 0 && (

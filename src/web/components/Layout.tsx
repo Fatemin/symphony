@@ -187,13 +187,13 @@ export function Layout() {
                         >
                           {count.in_progress > 0 && (
                             <span className="flex items-center gap-1">
-                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META.in_progress.dot}`} />
+                              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${STATUS_META.in_progress.dot}`} />
                               {count.in_progress}
                             </span>
                           )}
                           {count.review > 0 && (
                             <span className="flex items-center gap-1">
-                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META.review.dot}`} />
+                              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${STATUS_META.review.dot}`} />
                               {count.review}
                             </span>
                           )}

@@ -165,10 +165,14 @@ Every data-backed view renders all of these; primitives make them consistent:
   (native `<dialog>`), close on Escape, and restore focus to the trigger on close.
 - **Landmarks:** the shell has a "Skip to content" link, an `aria-label`'d primary `<aside>`/`<nav>`,
   and a single `<main id="main-content">`.
-- **Color is never the only signal:** status/severity always pair a dot/icon with a label.
+- **Color is never the only signal:** status/severity always pair a dot/icon with a label. The
+  decorative dot itself is `aria-hidden` (e.g. `<span aria-hidden …>`) so the paired text label isn't
+  announced redundantly.
 - **Motion:** all keyframes + transitions are disabled under `prefers-reduced-motion` (the
   `globals.css` guard now also covers `anim-modal-in` / `anim-drawer-in`).
-- **Icon-only buttons** carry an `aria-label`.
+- **Icon-only controls** carry an `aria-label` reflecting intent; a stateful toggle also exposes its
+  state (`aria-pressed`, or `role=checkbox` + `aria-checked`), and a slider-like handle (the Ask
+  resizer) exposes all of `aria-valuemin` / `aria-valuenow` / `aria-valuemax`.
 
 ---
 
