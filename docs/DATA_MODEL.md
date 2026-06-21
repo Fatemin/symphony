@@ -244,6 +244,11 @@ issue worktree's `.claude/skills/<slug>/SKILL.md` before the pipeline runs.
 
 Mapped to `ProjectSkill` / `ProjectSkillFile`. Repo: `repo/projectSkills.ts`.
 
+Skills can be **copied across projects** (SYM-64, `POST /api/projects/:id/skills/copy`): each copy is a
+new row in the target preserving `source` / `source_url` / `enabled` — never a move, so the source rows
+are untouched. A target that already has a skill of that name keeps its existing row (the copy is
+skipped on the `(project_id, name)` unique index).
+
 ### 11. `settings`
 
 Global engine configuration as key/value. Seeded from `DEFAULT_SETTINGS` (`core/config.ts`); edited on

@@ -264,6 +264,27 @@ export interface MarketplaceInstallResult {
   skipped: { name: string; reason: string }[];
 }
 
+/**
+ * Per-target outcome of copying a project's skills into another project (SYM-64). One entry is
+ * returned for every target that was attempted (the source id is silently dropped beforehand —
+ * no self-copy). `imported` holds the fresh rows created in that target; `skipped` collects per-skill
+ * name collisions (the target already has a skill with that name). `error` is set only when the target
+ * project itself could not be loaded, so a stale id in the list degrades to a noted skip instead of
+ * failing the whole request.
+ */
+export interface SkillCopyTargetResult {
+  project_id: string;
+  project_name: string;
+  imported: ProjectSkill[];
+  skipped: { name: string; reason: string }[];
+  error?: string;
+}
+
+/** Aggregate result of copying skills from one source project into one or more targets (SYM-64). */
+export interface SkillCopyResult {
+  results: SkillCopyTargetResult[];
+}
+
 // ── Documentation tab (SYM-36) ────────────────────────────────────────────
 
 /** One documentation file discovered under a project's configured doc directories. */

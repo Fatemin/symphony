@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { SkillCopyResult } from '../src/shared/types';
 import { setupEnv } from './helpers/env';
 
 // Env must be set before importing any server module (they read paths from env at import).
@@ -658,6 +659,85 @@ test('skills CRUD round-trips through the project routes without any network', a
   res = await projectRoutes.request(`/${project.id}/skills/${created.id}`, { method: 'DELETE' });
   assert.equal(res.status, 204);
   assert.equal(listProjectSkills(project.id).length, 0);
+});
+
+// ── cross-project skill copy (SYM-64) ────────────────────────────────────────
+
+test('copying skills to other projects pushes new rows, skips duplicates, and guards inputs', async () => {
+  const source = createProject({ name: 'Copy Source', key: 'CS', repo_path: env.repoPath });
+  const target = createProject({ name: 'Copy Target', key: 'CT', repo_path: env.repoPath });
+  const other = createProject({ name: 'Copy Other', key: 'CO', repo_path: env.repoPath });
+
+  const manual = createProjectSkill({ project_id: source.id, name: 'house-style', description: 'how we write', content: 'Be terse.' });
+  const fromGithub = createProjectSkill({
+    project_id: source.id,
+    name: 'lint-rules',
+    content: 'Run lint.',
+    source: 'github',
+    source_url: 'https://github.com/o/r/blob/main/skills/lint/SKILL.md',
+    enabled: false,
+  });
+
+  // (a) copy ALL skills (no skill_ids) into one target → both land, provenance preserved, 201.
+  let res = await projectRoutes.request(`/${source.id}/skills/copy`, json({ target_project_ids: [target.id] }));
+  assert.equal(res.status, 201);
+  let result = (await res.json()) as SkillCopyResult;
+  assert.equal(result.results.length, 1);
+  assert.equal(result.results[0]!.project_id, target.id);
+  assert.equal(result.results[0]!.imported.length, 2);
+  assert.equal(result.results[0]!.skipped.length, 0);
+  const copied = listProjectSkills(target.id);
+  assert.equal(copied.length, 2);
+  const copiedGithub = copied.find((s) => s.name === 'lint-rules')!;
+  assert.equal(copiedGithub.source, 'github'); // provenance preserved
+  assert.equal(copiedGithub.source_url, fromGithub.source_url);
+  assert.equal(copiedGithub.enabled, false); // disabled state preserved
+  // It's a fresh row in the target, not a move — the source still has both skills.
+  assert.equal(listProjectSkills(source.id).length, 2);
+
+  // (b) re-copy to [target, other]: target already has both → both skipped; other receives both → 201.
+  res = await projectRoutes.request(`/${source.id}/skills/copy`, json({ target_project_ids: [target.id, other.id] }));
+  assert.equal(res.status, 201);
+  result = (await res.json()) as SkillCopyResult;
+  const targetRes = result.results.find((r) => r.project_id === target.id)!;
+  assert.equal(targetRes.imported.length, 0);
+  assert.equal(targetRes.skipped.length, 2);
+  const otherRes = result.results.find((r) => r.project_id === other.id)!;
+  assert.equal(otherRes.imported.length, 2);
+
+  // (c) skill_ids filter copies only the selected subset.
+  const subset = createProject({ name: 'Subset', key: 'SUB', repo_path: env.repoPath });
+  res = await projectRoutes.request(
+    `/${source.id}/skills/copy`,
+    json({ target_project_ids: [subset.id], skill_ids: [manual.id] }),
+  );
+  assert.equal(res.status, 201);
+  const subsetSkills = listProjectSkills(subset.id);
+  assert.equal(subsetSkills.length, 1);
+  assert.equal(subsetSkills[0]!.name, 'house-style');
+
+  // (d) a list that includes the source id drops the self-target (no self-copy).
+  const dropSelf = createProject({ name: 'Drop Self', key: 'DS', repo_path: env.repoPath });
+  res = await projectRoutes.request(
+    `/${source.id}/skills/copy`,
+    json({ target_project_ids: [source.id, dropSelf.id] }),
+  );
+  assert.equal(res.status, 201);
+  result = (await res.json()) as SkillCopyResult;
+  assert.equal(result.results.length, 1); // only dropSelf — the source entry was dropped
+  assert.equal(result.results[0]!.project_id, dropSelf.id);
+  assert.equal(listProjectSkills(source.id).length, 2); // source still unchanged
+
+  // (e) guards: empty/missing target_project_ids → 400; unknown source → 404; all-duplicate → 422.
+  res = await projectRoutes.request(`/${source.id}/skills/copy`, json({ target_project_ids: [] }));
+  assert.equal(res.status, 400);
+  res = await projectRoutes.request(`/${source.id}/skills/copy`, json({}));
+  assert.equal(res.status, 400);
+  res = await projectRoutes.request(`/does-not-exist/skills/copy`, json({ target_project_ids: [target.id] }));
+  assert.equal(res.status, 404);
+  // target already holds every source skill → nothing imported → 422.
+  res = await projectRoutes.request(`/${source.id}/skills/copy`, json({ target_project_ids: [target.id] }));
+  assert.equal(res.status, 422);
 });
 
 interface SkillSeed {
