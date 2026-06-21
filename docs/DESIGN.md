@@ -124,6 +124,7 @@ primitive default (last write wins).
 | `Input` / `Textarea` / `Select` | Token focus ring, `aria-[invalid=true]` danger styling, disabled state. |
 | `Spinner` | `border-current` so it tints to its context; honours reduced-motion. |
 | `Loading` | Centered spinner + label — the standard page/section load state (replaces ad-hoc "Loading…"). |
+| `PendingIndicator` / `useElapsedSeconds` | SYM-77: inline busy state for long async waits (Ask "Thinking…", Review "Reviewing…") — spinner + label + a live elapsed counter (shown once ≥ 1s). `since` is optional (self-start on mount, or a server `created_at` so the elapsed survives remount/poll). The elapsed span is `aria-hidden` inside the `role=status` region so it never re-announces per tick (§6). |
 | `Skeleton` | Shimmer placeholder; `animate-pulse` + `motion-reduce:animate-none`. |
 | `ProjectChip` | The colour-keyed project badge reused in every project header. |
 | `PageHeader` | Standard header: optional back affordance + leading icon/chip, title + subtitle, badge slot, right-aligned actions. Unifies the old per-page `p-6`/`p-8` header divergence. |
@@ -144,7 +145,9 @@ drag-to-resize + persisted width while gaining focus-trap, Escape, and focus res
 Every data-backed view renders all of these; primitives make them consistent:
 
 - **Loading** — `Loading` for a whole page/section; `Skeleton` for content-shaped placeholders (e.g.
-  the Projects grid). Never a bare "Loading…" string.
+  the Projects grid). For a long, open-ended async wait (an opaque agent call) use `PendingIndicator`
+  (SYM-77) so the spinner is paired with a live elapsed counter — a slow run reads as in-progress, not
+  hung. Never a bare "Loading…" string.
 - **Empty** — `EmptyState` with an icon, a one-line title, a supporting sentence, and (where there's an
   obvious next step) an action. Board columns use a lightweight dashed "No issues" placeholder so five
   empty columns don't become five heavy panels.
@@ -167,7 +170,14 @@ Every data-backed view renders all of these; primitives make them consistent:
   and a single `<main id="main-content">`.
 - **Color is never the only signal:** status/severity always pair a dot/icon with a label.
 - **Motion:** all keyframes + transitions are disabled under `prefers-reduced-motion` (the
-  `globals.css` guard now also covers `anim-modal-in` / `anim-drawer-in`).
+  `globals.css` guard now also covers `anim-modal-in` / `anim-drawer-in`). A reduced-motion user still
+  gets a non-animated activity signal where one matters — `PendingIndicator`'s elapsed counter keeps
+  ticking even though the spinner ring is frozen (SYM-77), so the timer is never gated on the
+  preference.
+- **Live regions:** a `role=status` / `aria-live=polite` region is implicitly `aria-atomic`, so any
+  value that changes inside it re-announces the *whole* region. `PendingIndicator` (SYM-77) marks its
+  per-second elapsed span `aria-hidden` for exactly this reason — only the static label is announced,
+  once on appearance, instead of a per-tick number read aloud every second.
 - **Icon-only buttons** carry an `aria-label`.
 
 ---

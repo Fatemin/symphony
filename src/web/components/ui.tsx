@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, RotateCcw, X } from 'lucide-react';
 import clsx, { type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { fmtDuration } from '../lib/format';
 
 /**
  * SYM-59: the single class-composition helper. clsx resolves conditionals; tailwind-merge then
@@ -189,6 +190,71 @@ export function Loading({ label = 'Loading…', className = '' }: { label?: stri
       className={cn('flex items-center justify-center gap-2 p-8 text-sm text-muted', className)}
     >
       <Spinner /> {label}
+    </div>
+  );
+}
+
+/**
+ * SYM-77: live-ticking elapsed-seconds counter for long async waits. `since` is the start instant —
+ * a number (epoch ms) or an ISO string (e.g. a server `created_at`), normalized the same way as
+ * format.ts. A 1s interval re-reads the clock and self-cleans on unmount, so the timer only runs while
+ * the indicator is mounted (i.e. while the request is pending) — no leak. Negatives are clamped to 0
+ * so client/server clock skew (a `since` slightly in the future) never shows a negative elapsed.
+ */
+export function useElapsedSeconds(since: number | string): number {
+  const start = typeof since === 'number' ? since : new Date(since).getTime();
+  const [seconds, setSeconds] = useState(() => Math.max(0, Math.floor((Date.now() - start) / 1000)));
+  useEffect(() => {
+    const tick = () => setSeconds(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    tick(); // run once synchronously so a past server `since` shows its true elapsed immediately, not 0
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [start]);
+  return seconds;
+}
+
+/**
+ * SYM-77: inline "still working" indicator for long async waits (Ask "Thinking…", Review
+ * "Reviewing…"). Renders a spinner, a label, and — once at least a second has elapsed — a live
+ * counter, so a slow opaque agent call reads as in-progress rather than hung.
+ *
+ * `since` is the start instant: omit it to self-start on mount (counts from 0s), or pass a server
+ * timestamp (epoch ms / ISO `created_at`) so the elapsed reflects when the work actually began and
+ * survives a component remount or poll re-render.
+ *
+ * a11y (load-bearing): the region is role=status / aria-live=polite, so it announces ONCE on
+ * appearance. The elapsed span is `aria-hidden` BECAUSE role=status is implicitly aria-atomic — an
+ * un-hidden ticking number would re-announce the whole region every second (per-tick reader spam); so
+ * only `label` reaches assistive tech. `tabular-nums` keeps the width steady as digits change. Under
+ * prefers-reduced-motion the Spinner ring is already static (motion-reduce:animate-none) and the
+ * incrementing text is the required non-animated activity signal — so the timer is never gated on
+ * motion preference.
+ */
+export function PendingIndicator({
+  label,
+  since,
+  className = '',
+}: {
+  label: string;
+  since?: number | string;
+  className?: string;
+}) {
+  // Self-start: capture a single mount instant so the counter is stable across re-renders.
+  const [selfStart] = useState(() => Date.now());
+  const seconds = useElapsedSeconds(since ?? selfStart);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn('flex items-center gap-2 text-sm text-muted', className)}
+    >
+      <Spinner />
+      <span>{label}</span>
+      {seconds >= 1 && (
+        <span aria-hidden className="tabular-nums text-subtle">
+          {fmtDuration(seconds)}
+        </span>
+      )}
     </div>
   );
 }

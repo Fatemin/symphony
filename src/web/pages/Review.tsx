@@ -24,7 +24,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Markdown } from '../components/Markdown';
-import { Button, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Spinner } from '../components/ui';
+import { Button, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, PendingIndicator, ProjectChip, Select, Spinner } from '../components/ui';
 import {
   REVIEW_CATEGORY_META,
   REVIEW_SCOPE_META,
@@ -335,8 +335,12 @@ function ReviewBatch({
 
       <div className="p-4">
         {run.status === 'running' ? (
-          <div className="flex items-center gap-2 text-sm text-muted">
-            <Spinner /> Reviewing… this runs in the background, so you can leave this page.
+          // SYM-77: elapsed since the server started the run (created_at), so it survives a page
+          // reload/poll. Reassurance copy is a separate sub-line so the live region announces only
+          // "Reviewing…" once, not the whole sentence.
+          <div className="space-y-1">
+            <PendingIndicator label="Reviewing…" since={run.created_at} />
+            <p className="text-xs text-muted">this runs in the background, so you can leave this page.</p>
           </div>
         ) : run.status === 'failed' ? (
           <div className="flex items-start gap-2 text-sm text-red-400">

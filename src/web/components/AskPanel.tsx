@@ -7,7 +7,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api, attachmentUrl } from '../api';
 import { AttachmentInput } from './AttachmentInput';
 import { Markdown } from './Markdown';
-import { Button, Select, Spinner, Textarea, useModalDialog } from './ui';
+import { Button, PendingIndicator, Select, Textarea, useModalDialog } from './ui';
 
 type Turn = AskMessage & { suggestion?: AskSuggestion | null; converted?: boolean };
 
@@ -332,11 +332,8 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
               }
             />
           ))}
-          {ask.isPending && (
-            <div className="flex items-center gap-2 text-sm text-muted">
-              <Spinner /> Thinking…
-            </div>
-          )}
+          {/* SYM-77: self-starting elapsed counter so a slow Ask reads as in-progress, not hung. */}
+          {ask.isPending && <PendingIndicator label="Thinking…" />}
         </div>
 
         <div className="space-y-2 border-t border-border p-3">
