@@ -1,6 +1,7 @@
 import type {
   IssueStatus,
   Priority,
+  ProjectSkillSource,
   ReviewCategory,
   ReviewScope,
   ReviewSeverity,
@@ -133,3 +134,18 @@ export const REVIEW_STATUS_META: Record<ReviewStatus, { label: string; color: st
     completed: { label: 'Completed', color: 'text-emerald-400', dot: 'bg-emerald-500' },
     failed: { label: 'Failed', color: 'text-red-400', dot: 'bg-red-500' },
   };
+
+// ── Project skills (SYM-63) ────────────────────────────────────────────────
+
+/**
+ * Source styling for a skill card's origin badge AND the source-filter option list (SYM-63). Mirrors
+ * the REVIEW_*_META shape so the badge and the filter dropdown share one source of truth instead of
+ * the old inline `sourceBadgeClass`. `badge` keeps the pre-existing indigo / emerald / neutral chip
+ * classes (consistent with REVIEW_*_META, which likewise carries raw color classes) so the redesign is
+ * purely structural — no visual regression on existing cards.
+ */
+export const SKILL_SOURCE_META: Record<ProjectSkillSource, { label: string; badge: string }> = {
+  manual: { label: 'Manual', badge: 'bg-panel-2 text-muted' },
+  github: { label: 'GitHub', badge: 'bg-indigo-500/15 text-indigo-300' },
+  marketplace: { label: 'Marketplace', badge: 'bg-emerald-500/15 text-emerald-300' },
+};

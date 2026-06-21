@@ -1,12 +1,46 @@
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, Github, Package, Pencil, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
-import type { ProjectSkill } from '../../shared/types';
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Github,
+  Package,
+  Pencil,
+  Plus,
+  Save,
+  Search,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import type { ProjectSkill, ProjectSkillSource } from '../../shared/types';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
-import { Badge, Button, EmptyState, Field, Input, Loading, PageHeader, Panel, ProjectChip, Textarea } from '../components/ui';
+import {
+  Badge,
+  Button,
+  cn,
+  EmptyState,
+  Field,
+  Input,
+  Loading,
+  Modal,
+  PageHeader,
+  Panel,
+  ProjectChip,
+  Select,
+  Skeleton,
+  Textarea,
+} from '../components/ui';
+import { SKILL_SOURCE_META } from '../lib/format';
+
+// SYM-63: the Skills tab is redesigned around scanning a *large* set. The list became a dense,
+// responsive card grid with a search / source / status / sort toolbar (mirrors Ops' HistoryPanel), the
+// add-source panels are tucked behind one collapsed "Add skills" disclosure so the grid is the primary
+// content, and create/edit both live in a focus-trapping Modal. No server, schema, or API change —
+// the same GET /api/projects/:id/skills feeds an in-memory useMemo filter/sort.
 
 interface SkillForm {
   name: string;
@@ -16,12 +50,8 @@ interface SkillForm {
 
 const EMPTY_FORM: SkillForm = { name: '', description: '', content: '' };
 
-const sourceBadgeClass = (source: ProjectSkill['source']) =>
-  source === 'github'
-    ? 'bg-indigo-500/15 text-indigo-300'
-    : source === 'marketplace'
-      ? 'bg-emerald-500/15 text-emerald-300'
-      : 'bg-panel-2 text-muted';
+type StatusFilter = 'all' | 'enabled' | 'disabled';
+type SortKey = 'recent' | 'name';
 
 export function ProjectSkills() {
   const { id } = useParams<{ id: string }>();
@@ -34,11 +64,47 @@ export function ProjectSkills() {
     queryFn: () => api.projects.skills.list(projectId),
   });
 
+  // Add-source affordances (collapsed by default so the list leads).
+  const [showAdd, setShowAdd] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [installCommand, setInstallCommand] = useState('');
+
+  // Modals: create a new skill, or edit an existing one (by id).
   const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState<SkillForm>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editingSkill = skills?.find((s) => s.id === editingId) ?? null;
+
+  // Toolbar: search + source + status filters, sort key + direction. Default order matches the
+  // server's created_at DESC so the redesign preserves the prior list ordering until the user re-sorts.
+  const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | ProjectSkillSource>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sort, setSort] = useState<SortKey>('recent');
+  const [desc, setDesc] = useState(true);
+
+  const filtersActive = search.trim() !== '' || sourceFilter !== 'all' || statusFilter !== 'all';
+  const clearFilters = () => {
+    setSearch('');
+    setSourceFilter('all');
+    setStatusFilter('all');
+  };
+
+  const filtered = useMemo(() => {
+    const list = skills ?? [];
+    const q = search.trim().toLowerCase();
+    const out = list.filter((s) => {
+      if (sourceFilter !== 'all' && s.source !== sourceFilter) return false;
+      if (statusFilter === 'enabled' && !s.enabled) return false;
+      if (statusFilter === 'disabled' && s.enabled) return false;
+      if (q && !s.name.toLowerCase().includes(q) && !(s.description ?? '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+    const cmp = (a: ProjectSkill, b: ProjectSkill): number =>
+      sort === 'name'
+        ? a.name.localeCompare(b.name)
+        : new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    return [...out].sort((a, b) => (desc ? -1 : 1) * cmp(a, b));
+  }, [skills, search, sourceFilter, statusFilter, sort, desc]);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['project-skills', projectId] });
 
@@ -76,17 +142,31 @@ export function ProjectSkills() {
   });
 
   const createSkill = useMutation({
-    mutationFn: () =>
+    mutationFn: (form: SkillForm) =>
       api.projects.skills.create(projectId, {
-        name: createForm.name.trim(),
-        description: createForm.description.trim() || null,
-        content: createForm.content,
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        content: form.content,
       }),
     onSuccess: () => {
       invalidate();
       setCreating(false);
-      setCreateForm(EMPTY_FORM);
       toast.success('Skill created');
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const updateSkill = useMutation({
+    mutationFn: (vars: { id: string; form: SkillForm }) =>
+      api.projects.skills.update(projectId, vars.id, {
+        name: vars.form.name.trim(),
+        description: vars.form.description.trim() || null,
+        content: vars.form.content,
+      }),
+    onSuccess: () => {
+      invalidate();
+      setEditingId(null);
+      toast.success('Skill saved');
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -108,6 +188,8 @@ export function ProjectSkills() {
 
   if (!project) return <Loading />;
 
+  const count = skills?.length ?? 0;
+
   return (
     <div className="flex h-full flex-col p-6">
       <PageHeader
@@ -115,221 +197,413 @@ export function ProjectSkills() {
         icon={<ProjectChip color={project.color}>{project.key}</ProjectChip>}
         title={project.name}
         actions={
-          <Button variant="primary" onClick={() => setCreating((v) => !v)}>
-            <Plus className="h-4 w-4" /> New skill
+          <Button
+            variant="primary"
+            onClick={() => setShowAdd((v) => !v)}
+            aria-expanded={showAdd}
+            aria-controls="add-skills-region"
+          >
+            <Plus className="h-4 w-4" /> Add skills
+            {showAdd ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
         }
       />
 
       <ProjectTabs projectId={project.id} />
 
-      <div className="mx-auto w-full max-w-3xl space-y-4 pb-8">
-        <Panel className="p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-fg">
-            <Github className="h-4 w-4 text-indigo-300" /> Import from GitHub
-          </div>
-          <p className="mb-3 text-xs text-muted">
-            Paste a link to a skill's <code>SKILL.md</code> (or its folder) on GitHub — a <code>blob</code>,{' '}
-            <code>tree</code>, or <code>raw</code> URL. A bare repo URL like{' '}
-            <code>github.com/owner/repo</code> works too: its default branch is resolved and every{' '}
-            <code>SKILL.md</code> at the repo root, directly under <code>skills/</code>, or in{' '}
-            <code>skills/&lt;name&gt;/</code> subfolders is imported.
-          </p>
-          <div className="flex items-start gap-2">
-            <div className="flex-1">
-              <Input
-                value={importUrl}
-                onChange={(e) => setImportUrl(e.target.value)}
-                placeholder="https://github.com/owner/repo/blob/main/skills/my-skill/SKILL.md"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && importUrl.trim() && !importSkill.isPending) importSkill.mutate();
-                }}
-              />
-            </div>
-            <Button variant="primary" disabled={!importUrl.trim() || importSkill.isPending} onClick={() => importSkill.mutate()}>
-              <Download className="h-4 w-4" /> Import
-            </Button>
-          </div>
-        </Panel>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="space-y-5 pb-10">
+          {showAdd && (
+            <div id="add-skills-region" className="mx-auto w-full max-w-3xl space-y-4">
+              <Panel className="p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-fg">
+                  <Github className="h-4 w-4 text-indigo-300" /> Import from GitHub
+                </div>
+                <p className="mb-3 text-xs text-muted">
+                  Paste a link to a skill's <code>SKILL.md</code> (or its folder) on GitHub — a <code>blob</code>,{' '}
+                  <code>tree</code>, or <code>raw</code> URL. A bare repo URL like{' '}
+                  <code>github.com/owner/repo</code> works too: its default branch is resolved and every{' '}
+                  <code>SKILL.md</code> at the repo root, directly under <code>skills/</code>, or in{' '}
+                  <code>skills/&lt;name&gt;/</code> subfolders is imported.
+                </p>
+                <div className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <Input
+                      value={importUrl}
+                      onChange={(e) => setImportUrl(e.target.value)}
+                      placeholder="https://github.com/owner/repo/blob/main/skills/my-skill/SKILL.md"
+                      aria-label="GitHub skill URL"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && importUrl.trim() && !importSkill.isPending) importSkill.mutate();
+                      }}
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    disabled={!importUrl.trim() || importSkill.isPending}
+                    onClick={() => importSkill.mutate()}
+                  >
+                    <Download className="h-4 w-4" /> Import
+                  </Button>
+                </div>
+              </Panel>
 
-        <Panel className="p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-fg">
-            <Package className="h-4 w-4 text-emerald-300" /> Install from Claude Code
-          </div>
-          <p className="mb-3 text-xs text-muted">
-            Paste the <code>/plugin</code> commands a marketplace prints (the <code>marketplace add</code> and{' '}
-            <code>install</code> lines) — every skill the plugin ships is imported. An <code>owner/repo</code> or
-            GitHub repo URL works too.
-          </p>
-          <Textarea
-            rows={3}
-            className="font-mono text-xs"
-            value={installCommand}
-            onChange={(e) => setInstallCommand(e.target.value)}
-            placeholder={'/plugin marketplace add owner/repo\n/plugin install my-plugin@my-marketplace'}
-          />
-          <div className="mt-3 flex justify-end">
-            <Button
-              variant="primary"
-              disabled={!installCommand.trim() || installSkills.isPending}
-              onClick={() => installSkills.mutate()}
-            >
-              <Package className="h-4 w-4" /> {installSkills.isPending ? 'Installing…' : 'Install'}
-            </Button>
-          </div>
-        </Panel>
-
-        {creating && (
-          <Panel className="p-4">
-            <div className="mb-3 text-sm font-medium text-fg">New skill</div>
-            <div className="space-y-3">
-              <Field label="Name">
-                <Input value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} placeholder="commit-message-style" />
-              </Field>
-              <Field label="Description">
-                <Input
-                  value={createForm.description}
-                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-                  placeholder="When and how to use this skill (shown to the agent)"
-                />
-              </Field>
-              <Field label="SKILL.md content">
+              <Panel className="p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-fg">
+                  <Package className="h-4 w-4 text-emerald-300" /> Install from Claude Code
+                </div>
+                <p className="mb-3 text-xs text-muted">
+                  Paste the <code>/plugin</code> commands a marketplace prints (the <code>marketplace add</code> and{' '}
+                  <code>install</code> lines) — every skill the plugin ships is imported. An <code>owner/repo</code> or
+                  GitHub repo URL works too.
+                </p>
                 <Textarea
-                  rows={10}
-                  value={createForm.content}
-                  onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })}
-                  placeholder={'Instructions the agent should follow…\n\n(YAML front matter is added automatically.)'}
+                  rows={3}
+                  className="font-mono text-xs"
+                  value={installCommand}
+                  onChange={(e) => setInstallCommand(e.target.value)}
+                  aria-label="Claude Code install commands"
+                  placeholder={'/plugin marketplace add owner/repo\n/plugin install my-plugin@my-marketplace'}
                 />
-              </Field>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button onClick={() => { setCreating(false); setCreateForm(EMPTY_FORM); }}>Cancel</Button>
-              <Button variant="primary" disabled={!createForm.name.trim() || createSkill.isPending} onClick={() => createSkill.mutate()}>
-                <Plus className="h-4 w-4" /> Create
-              </Button>
-            </div>
-          </Panel>
-        )}
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="primary"
+                    disabled={!installCommand.trim() || installSkills.isPending}
+                    onClick={() => installSkills.mutate()}
+                  >
+                    <Package className="h-4 w-4" /> {installSkills.isPending ? 'Installing…' : 'Install'}
+                  </Button>
+                </div>
+              </Panel>
 
-        {isLoading ? (
-          <Loading />
-        ) : skills && skills.length > 0 ? (
-          <div className="space-y-3">
-            {skills.map((skill) =>
-              editingId === skill.id ? (
-                <SkillEditor
-                  key={skill.id}
-                  projectId={projectId}
-                  skill={skill}
-                  onClose={() => setEditingId(null)}
-                  onSaved={() => { invalidate(); setEditingId(null); }}
+              <Panel className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-fg">
+                  <Sparkles className="h-4 w-4 text-amber-300" /> Create manually
+                  <span className="text-xs font-normal text-muted">Write a SKILL.md by hand.</span>
+                </div>
+                <Button variant="primary" onClick={() => setCreating(true)}>
+                  <Plus className="h-4 w-4" /> New skill
+                </Button>
+              </Panel>
+            </div>
+          )}
+
+          <div className="mx-auto w-full max-w-6xl space-y-4">
+            {isLoading ? (
+              <SkeletonGrid />
+            ) : count === 0 ? (
+              <EmptyState
+                icon={<Sparkles />}
+                title="No skills yet"
+                description="Import one from GitHub or create your own — enabled skills are loaded into every agent run."
+                action={
+                  <Button variant="primary" onClick={() => setShowAdd(true)}>
+                    <Plus className="h-4 w-4" /> Add skills
+                  </Button>
+                }
+              />
+            ) : (
+              <>
+                <Toolbar
+                  search={search}
+                  onSearch={setSearch}
+                  sourceFilter={sourceFilter}
+                  onSource={setSourceFilter}
+                  statusFilter={statusFilter}
+                  onStatus={setStatusFilter}
+                  sort={sort}
+                  onSort={setSort}
+                  desc={desc}
+                  onToggleDesc={() => setDesc((d) => !d)}
+                  shown={filtered.length}
+                  total={count}
+                  filtersActive={filtersActive}
+                  onClear={clearFilters}
                 />
-              ) : (
-                <Panel key={skill.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">{skill.name}</span>
-                        <Badge className={sourceBadgeClass(skill.source)}>{skill.source}</Badge>
-                        {!skill.enabled && <Badge className="bg-amber-500/15 text-amber-400">disabled</Badge>}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-muted">{skill.description || 'No description'}</p>
-                      {skill.source_url && (
-                        <a href={skill.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-block truncate text-[11px] text-indigo-400 hover:underline">
-                          {skill.source_url}
-                        </a>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Button onClick={() => toggleSkill.mutate(skill)} disabled={toggleSkill.isPending}>
-                        {skill.enabled ? 'Disable' : 'Enable'}
-                      </Button>
-                      <Button aria-label="Edit skill" className="justify-center px-2" onClick={() => setEditingId(skill.id)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="danger"
-                        aria-label="Delete skill"
-                        className="justify-center px-2"
-                        onClick={() => {
+
+                {filtered.length === 0 ? (
+                  <EmptyState
+                    icon={<Search />}
+                    title="No skills match these filters"
+                    description="Try a different search term, or clear the filters to see everything."
+                    action={<Button onClick={clearFilters}>Clear filters</Button>}
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {filtered.map((skill) => (
+                      <SkillCard
+                        key={skill.id}
+                        skill={skill}
+                        onEdit={() => setEditingId(skill.id)}
+                        onToggle={() => toggleSkill.mutate(skill)}
+                        toggling={toggleSkill.isPending && toggleSkill.variables?.id === skill.id}
+                        onDelete={() => {
                           if (confirm(`Delete skill “${skill.name}”?`)) removeSkill.mutate(skill.id);
                         }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                      />
+                    ))}
                   </div>
-                </Panel>
-              ),
+                )}
+              </>
             )}
           </div>
-        ) : (
-          <EmptyState
-            icon={<Sparkles />}
-            title="No skills yet"
-            description="Import one from GitHub or create your own — enabled skills are loaded into every agent run."
-          />
+        </div>
+      </div>
+
+      {creating && (
+        <SkillFormModal
+          key="create"
+          title="New skill"
+          icon={<Sparkles className="h-4 w-4 text-amber-300" />}
+          initial={EMPTY_FORM}
+          submitLabel="Create"
+          submitIcon={<Plus className="h-4 w-4" />}
+          pending={createSkill.isPending}
+          onSubmit={(form) => createSkill.mutate(form)}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
+      {editingSkill && (
+        <SkillFormModal
+          key={editingSkill.id}
+          title="Edit skill"
+          icon={<Pencil className="h-4 w-4 text-indigo-300" />}
+          initial={{
+            name: editingSkill.name,
+            description: editingSkill.description ?? '',
+            content: editingSkill.content,
+          }}
+          submitLabel="Save"
+          submitIcon={<Save className="h-4 w-4" />}
+          pending={updateSkill.isPending}
+          onSubmit={(form) => updateSkill.mutate({ id: editingSkill.id, form })}
+          onClose={() => setEditingId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Toolbar({
+  search,
+  onSearch,
+  sourceFilter,
+  onSource,
+  statusFilter,
+  onStatus,
+  sort,
+  onSort,
+  desc,
+  onToggleDesc,
+  shown,
+  total,
+  filtersActive,
+  onClear,
+}: {
+  search: string;
+  onSearch: (v: string) => void;
+  sourceFilter: 'all' | ProjectSkillSource;
+  onSource: (v: 'all' | ProjectSkillSource) => void;
+  statusFilter: StatusFilter;
+  onStatus: (v: StatusFilter) => void;
+  sort: SortKey;
+  onSort: (v: SortKey) => void;
+  desc: boolean;
+  onToggleDesc: () => void;
+  shown: number;
+  total: number;
+  filtersActive: boolean;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle" />
+        <Input
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search skills…"
+          aria-label="Search skills by name or description"
+          className="w-48 pl-8"
+        />
+      </div>
+      <Select
+        value={sourceFilter}
+        onChange={(e) => onSource(e.target.value as 'all' | ProjectSkillSource)}
+        aria-label="Filter by source"
+        className="w-auto"
+      >
+        <option value="all">All sources</option>
+        {(Object.keys(SKILL_SOURCE_META) as ProjectSkillSource[]).map((s) => (
+          <option key={s} value={s}>
+            {SKILL_SOURCE_META[s].label}
+          </option>
+        ))}
+      </Select>
+      <Select
+        value={statusFilter}
+        onChange={(e) => onStatus(e.target.value as StatusFilter)}
+        aria-label="Filter by status"
+        className="w-auto"
+      >
+        <option value="all">All statuses</option>
+        <option value="enabled">Enabled</option>
+        <option value="disabled">Disabled</option>
+      </Select>
+
+      <div className="ml-auto flex items-center gap-2">
+        <span className="text-xs text-muted" aria-live="polite">
+          {shown === total ? `${total} skill${total === 1 ? '' : 's'}` : `${shown} of ${total}`}
+        </span>
+        {filtersActive && (
+          <Button size="sm" onClick={onClear}>
+            Clear
+          </Button>
         )}
+        <Select value={sort} onChange={(e) => onSort(e.target.value as SortKey)} aria-label="Sort by" className="w-auto">
+          <option value="recent">Recent</option>
+          <option value="name">Name</option>
+        </Select>
+        <Button onClick={onToggleDesc} title="Toggle sort direction" aria-label="Toggle sort direction">
+          {desc ? '↓ Desc' : '↑ Asc'}
+        </Button>
       </div>
     </div>
   );
 }
 
-function SkillEditor({
-  projectId,
+function SkillCard({
   skill,
-  onClose,
-  onSaved,
+  onEdit,
+  onToggle,
+  toggling,
+  onDelete,
 }: {
-  projectId: string;
   skill: ProjectSkill;
-  onClose: () => void;
-  onSaved: () => void;
+  onEdit: () => void;
+  onToggle: () => void;
+  toggling: boolean;
+  onDelete: () => void;
 }) {
-  const [form, setForm] = useState<SkillForm>({
-    name: skill.name,
-    description: skill.description ?? '',
-    content: skill.content,
-  });
-  const save = useMutation({
-    mutationFn: () =>
-      api.projects.skills.update(projectId, skill.id, {
-        name: form.name.trim(),
-        description: form.description.trim() || null,
-        content: form.content,
-      }),
-    onSuccess: () => {
-      onSaved();
-      toast.success('Skill saved');
-    },
-    onError: (e) => toast.error(String(e)),
-  });
-
+  const source = SKILL_SOURCE_META[skill.source];
   return (
-    <Panel className="p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm font-medium text-fg">Edit skill</div>
-        <Button aria-label="Cancel edit" className="justify-center px-2" onClick={onClose}>
-          <X className="h-4 w-4" />
+    <Panel interactive className={cn('flex h-full flex-col gap-2 p-3', !skill.enabled && 'opacity-70')}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="min-w-0 truncate text-sm font-medium text-fg" title={skill.name}>
+          {skill.name}
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <Badge className={source.badge}>{source.label}</Badge>
+          {!skill.enabled && <Badge className="bg-amber-500/15 text-amber-400">disabled</Badge>}
+        </div>
+      </div>
+
+      <p className="line-clamp-2 text-xs text-muted">{skill.description || 'No description'}</p>
+
+      {skill.source_url && (
+        <a
+          href={skill.source_url}
+          target="_blank"
+          rel="noreferrer"
+          className="block truncate text-[11px] text-indigo-400 hover:underline"
+          title={skill.source_url}
+        >
+          {skill.source_url}
+        </a>
+      )}
+
+      <div className="mt-auto flex items-center gap-1 pt-1">
+        <Button size="sm" onClick={onToggle} disabled={toggling}>
+          {skill.enabled ? 'Disable' : 'Enable'}
         </Button>
-      </div>
-      <div className="space-y-3">
-        <Field label="Name">
-          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        </Field>
-        <Field label="Description">
-          <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        </Field>
-        <Field label="SKILL.md content">
-          <Textarea rows={10} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
-        </Field>
-      </div>
-      <div className="mt-4 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
-          <Save className="h-4 w-4" /> Save
+        <Button size="sm" aria-label={`Edit ${skill.name}`} className="justify-center px-2" onClick={onEdit}>
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="danger"
+          aria-label={`Delete ${skill.name}`}
+          className="ml-auto justify-center px-2"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
     </Panel>
+  );
+}
+
+function SkillFormModal({
+  title,
+  icon,
+  initial,
+  submitLabel,
+  submitIcon,
+  pending,
+  onSubmit,
+  onClose,
+}: {
+  title: string;
+  icon: ReactNode;
+  initial: SkillForm;
+  submitLabel: string;
+  submitIcon: ReactNode;
+  pending: boolean;
+  onSubmit: (form: SkillForm) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<SkillForm>(initial);
+  const valid = form.name.trim().length > 0;
+  return (
+    <Modal
+      onClose={onClose}
+      title={title}
+      icon={icon}
+      size="lg"
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!valid || pending} onClick={() => onSubmit(form)}>
+            {submitIcon} {submitLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Field label="Name">
+          <Input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="commit-message-style"
+          />
+        </Field>
+        <Field label="Description">
+          <Input
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder="When and how to use this skill (shown to the agent)"
+          />
+        </Field>
+        <Field label="SKILL.md content">
+          <Textarea
+            rows={12}
+            value={form.content}
+            onChange={(e) => setForm({ ...form, content: e.target.value })}
+            placeholder={'Instructions the agent should follow…\n\n(YAML front matter is added automatically.)'}
+          />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" aria-hidden>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Skeleton key={i} className="h-32" />
+      ))}
+    </div>
   );
 }

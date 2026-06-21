@@ -263,7 +263,12 @@ the built-in professional-team prompt, never replacing it. Default values are ta
   actions (approve / request changes / resolve conflict), and the delivery summary.
 - **Ops.tsx** — orchestrator snapshot, token totals, and run history.
 - **Settings.tsx** — the engine `settings` table editor.
-- **ProjectAgent.tsx / ProjectSkills.tsx** — per-project policy (`config` JSON) and project skills.
+- **ProjectAgent.tsx / ProjectSkills.tsx** — per-project policy (`config` JSON) and project skills. The
+  Skills tab (SYM-14; redesigned SYM-63) renders the skills as a dense responsive card grid with a
+  search / source / status / sort toolbar (client-side `useMemo` filter+sort, live count, distinct
+  empty vs no-match states); the import / install / create affordances collapse behind one "Add skills"
+  disclosure and create/edit use the shared `Modal`. Source styling + the filter list share
+  `web/lib/format.ts#SKILL_SOURCE_META`. Backed by the same `GET /:id/skills` list — no contract change.
 - **StoryTree.tsx** — the per-project story forest folded from `issue_relations` (SYM-30).
 - **Review.tsx** — the Review tab (SYM-51): runs a standalone, read-only agent **audit** of a chosen
   scope (`docs` / `code` / `ui_ux` / `all`) and lists each completed batch with its graded findings as
