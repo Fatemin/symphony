@@ -24,6 +24,7 @@ import {
   Badge,
   Button,
   cn,
+  ConfirmDialog,
   EmptyState,
   Field,
   Input,
@@ -79,6 +80,9 @@ export function ProjectSkills() {
   const editingSkill = skills?.find((s) => s.id === editingId) ?? null;
   // SYM-64: the "Sync to projects" modal (copy skills into other projects).
   const [syncing, setSyncing] = useState(false);
+  // SYM-72: the skill pending a delete confirm (drives the shared destructive ConfirmDialog). Held at
+  // page level (not list-derived) so the dialog survives the list refetch the delete triggers.
+  const [skillToDelete, setSkillToDelete] = useState<ProjectSkill | null>(null);
 
   // Toolbar: search + source + status filters, sort key + direction. Default order matches the
   // server's created_at DESC so the redesign preserves the prior list ordering until the user re-sorts.
@@ -352,9 +356,7 @@ export function ProjectSkills() {
                         onEdit={() => setEditingId(skill.id)}
                         onToggle={() => toggleSkill.mutate(skill)}
                         toggling={toggleSkill.isPending && toggleSkill.variables?.id === skill.id}
-                        onDelete={() => {
-                          if (confirm(`Delete skill “${skill.name}”?`)) removeSkill.mutate(skill.id);
-                        }}
+                        onDelete={() => setSkillToDelete(skill)}
                       />
                     ))}
                   </div>
@@ -399,6 +401,17 @@ export function ProjectSkills() {
 
       {syncing && skills && skills.length > 0 && (
         <SyncSkillsModal projectId={projectId} skills={skills} onClose={() => setSyncing(false)} />
+      )}
+
+      {skillToDelete && (
+        <ConfirmDialog
+          title={`Delete skill “${skillToDelete.name}”?`}
+          description="This removes the skill from this project. This can't be undone."
+          confirmLabel="Delete skill"
+          pending={removeSkill.isPending}
+          onConfirm={() => removeSkill.mutate(skillToDelete.id)}
+          onClose={() => setSkillToDelete(null)}
+        />
       )}
     </div>
   );

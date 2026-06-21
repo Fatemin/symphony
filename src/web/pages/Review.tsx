@@ -24,7 +24,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Markdown } from '../components/Markdown';
-import { Button, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Spinner } from '../components/ui';
+import { Button, ConfirmDialog, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Spinner } from '../components/ui';
 import {
   REVIEW_CATEGORY_META,
   REVIEW_SCOPE_META,
@@ -289,6 +289,8 @@ function ReviewBatch({
 }) {
   const [showDismissed, setShowDismissed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // SYM-72: guard the previously-unguarded batch delete with the shared destructive ConfirmDialog.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const status = REVIEW_STATUS_META[run.status];
   const active = run.findings.filter((f) => f.status !== 'dismissed');
   const dismissed = run.findings.filter((f) => f.status === 'dismissed');
@@ -325,7 +327,7 @@ function ReviewBatch({
           type="button"
           aria-label="Delete this review"
           title="Delete this review"
-          onClick={onDelete}
+          onClick={() => setConfirmDeleteOpen(true)}
           disabled={deleting}
           className="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-hover hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
         >
@@ -477,6 +479,17 @@ function ReviewBatch({
             })}
           </ul>
         </Modal>
+      )}
+
+      {confirmDeleteOpen && (
+        <ConfirmDialog
+          title="Delete this review?"
+          description="The whole review batch and its findings are removed. Converted issues already on the board stay."
+          confirmLabel="Delete review"
+          pending={deleting}
+          onConfirm={onDelete}
+          onClose={() => setConfirmDeleteOpen(false)}
+        />
       )}
     </Panel>
   );
