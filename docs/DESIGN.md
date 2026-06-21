@@ -205,3 +205,24 @@ Every data-backed view renders all of these; primitives make them consistent:
    `localStorage` keys (`symphony.sidebar.expandedProjects`, `symphony.board.collapsedColumns`,
    `ask-panel-width`).
 6. **Preserve copy/i18n** — `SidebarUsage` has intentional Chinese strings; leave them.
+
+---
+
+## 9. Composition patterns
+
+Reusable layouts that compose the primitives above; reach for one before inventing a new shape.
+
+- **Graded item card** (SYM-61, Review tab `FindingCard`) — for a list of graded, actionable items
+  the user triages. The grade is *labeled* by the section/group header it sits under (dot + label +
+  count); the card reinforces it with a quiet **left grade-rail** (`border-l-2` + a per-grade
+  `border-l-<color>/NN`, mirroring the header dot's color family) so severity is never carried by
+  color alone. Inside: a single header line (type icon with an `aria-label` + title + an optional
+  right-aligned area chip), the body as themed `<Markdown>`, and any long secondary block (acceptance
+  criteria, logs) tucked behind a **progressive-disclosure** toggle — a `<button aria-expanded>` with
+  a chevron that rotates via `transition-transform motion-reduce:transition-none`. The footer keeps
+  **one primary CTA**; secondary actions are subordinate (`variant="ghost"`) and any quiet/reversible
+  action (dismiss) is an icon-only `aria-label`'d button pushed to `ml-auto`, all on a `flex-wrap`
+  row so they reflow on narrow widths. A resolved item (converted) de-emphasizes (`opacity-90`),
+  swaps its rail for a success tint, and replaces the footer with a success affordance — the resting
+  rail color is the only per-grade value that ever changes, so the pattern stays data-driven from one
+  metadata field.

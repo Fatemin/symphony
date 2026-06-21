@@ -7,6 +7,7 @@ import {
   Bug,
   CheckCircle2,
   ChevronDown,
+  EyeOff,
   RotateCcw,
   ScanSearch,
   Sparkles,
@@ -342,11 +343,12 @@ function ReviewBatch({
               <div>
                 <button
                   type="button"
+                  aria-expanded={showDismissed}
                   onClick={() => setShowDismissed((v) => !v)}
-                  className="inline-flex items-center gap-1 text-xs text-muted transition hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  className="inline-flex items-center gap-1 text-xs text-muted transition hover:text-fg"
                 >
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform ${showDismissed ? '' : '-rotate-90'}`}
+                    className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${showDismissed ? '' : '-rotate-90'}`}
                   />
                   Dismissed ({dismissed.length})
                 </button>
@@ -355,7 +357,7 @@ function ReviewBatch({
                     {dismissed.map((f) => (
                       <div
                         key={f.id}
-                        className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-1.5 text-sm"
+                        className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-2 px-3 py-1.5 text-sm"
                       >
                         <span className="truncate text-muted line-through">{f.title}</span>
                         <button
@@ -379,6 +381,11 @@ function ReviewBatch({
   );
 }
 
+// SYM-61: the finding renders as a scannable "issue card". Severity is owned by the labeled group
+// header above; the card reinforces it with a quiet left grade-rail (never color-alone) and otherwise
+// optimises for a fast read: one header line (type icon + title + optional area chip), the description
+// as themed Markdown, the long acceptance-criteria checklist behind a progressive-disclosure toggle,
+// and a single primary CTA in a flex-wrapping footer (secondary + dismiss subordinate).
 function FindingCard({
   finding,
   showCategory,
@@ -392,63 +399,84 @@ function FindingCard({
   onConvert: (status: 'todo' | 'backlog') => void;
   onDismiss: () => void;
 }) {
+  const [showCriteria, setShowCriteria] = useState(false);
   const severity = REVIEW_SEVERITY_META[finding.severity];
   const Icon = finding.type === 'bug' ? Bug : Sparkles;
   const converted = finding.status === 'converted';
+  // Converted cards de-emphasise (a decision was made) and swap the grade rail for a success tint so
+  // the eye lands on findings still awaiting a call.
+  const rail = converted ? 'border-l-emerald-500/60' : severity.rail;
+
   return (
-    <div className="rounded-lg border border-border bg-bg-2 p-3">
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-        <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${severity.badge}`}>
-          {severity.label}
+    <div
+      className={`rounded-lg border border-l-2 border-border bg-bg-2 p-3 transition-colors hover:border-[var(--color-accent)]/60 ${rail} ${converted ? 'opacity-90' : ''}`}
+    >
+      <div className="flex items-start gap-2">
+        <span role="img" aria-label={finding.type} title={finding.type} className="mt-0.5 shrink-0">
+          <Icon className="h-4 w-4 text-muted" />
         </span>
+        <div className="min-w-0 flex-1 text-sm font-medium text-fg">{finding.title}</div>
         {showCategory && (
           <span
-            className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${REVIEW_CATEGORY_META[finding.category].badge}`}
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${REVIEW_CATEGORY_META[finding.category].badge}`}
           >
             {REVIEW_CATEGORY_META[finding.category].label}
           </span>
         )}
-        <span className="inline-flex items-center gap-1 text-[11px] text-muted">
-          <Icon className="h-3 w-3" />
-          {finding.type}
-        </span>
       </div>
 
-      <div className="text-sm font-medium text-fg">{finding.title}</div>
       {finding.description && (
-        <div className="mt-1 text-xs text-muted">
+        <div className="mt-1.5 text-xs text-muted">
           <Markdown source={finding.description} />
         </div>
       )}
+
       {finding.acceptance_criteria && (
-        <pre className="mt-2 whitespace-pre-wrap rounded bg-panel px-2 py-1.5 text-[11px] text-muted">
-          {finding.acceptance_criteria}
-        </pre>
+        <div className="mt-2">
+          <button
+            type="button"
+            aria-expanded={showCriteria}
+            onClick={() => setShowCriteria((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs text-muted transition hover:text-fg"
+          >
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${showCriteria ? '' : '-rotate-90'}`}
+            />
+            Acceptance criteria
+          </button>
+          {showCriteria && (
+            <div className="mt-2 rounded-md border border-border bg-bg-2 px-3 py-2 text-xs">
+              <Markdown source={finding.acceptance_criteria} />
+            </div>
+          )}
+        </div>
       )}
 
-      <div className="mt-2.5 flex items-center gap-2">
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {converted ? (
           <Link
             to={`/issues/${finding.issue_id}`}
-            className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:underline"
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Created {finding.issue_key ?? 'issue'}
           </Link>
         ) : (
           <>
-            <Button variant="primary" disabled={busy} onClick={() => onConvert('todo')}>
-              Create {finding.type} (Todo)
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => onConvert('todo')}>
+              Create issue
             </Button>
-            <Button disabled={busy} onClick={() => onConvert('backlog')}>
-              Add to Backlog
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onConvert('backlog')}>
+              Backlog
             </Button>
             <button
               type="button"
+              aria-label="Dismiss finding"
+              title="Dismiss"
               onClick={onDismiss}
               disabled={busy}
-              className="ml-auto text-xs text-muted transition hover:text-fg disabled:opacity-50"
+              className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Dismiss
+              <EyeOff className="h-3.5 w-3.5" />
             </button>
           </>
         )}

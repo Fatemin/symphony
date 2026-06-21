@@ -99,17 +99,20 @@ export function formatPercent(n: number): string {
 export const REVIEW_SEVERITY_ORDER: ReviewSeverity[] = ['critical', 'high', 'medium', 'low'];
 
 /**
- * Severity styling for a finding card: a label, a chip class (matches PHASE_META's chip shape), and a
- * dot color. `rank` drives the within-batch ordering so the most urgent findings surface first.
+ * Severity styling for a finding card: a label, a chip class (matches PHASE_META's chip shape), a dot
+ * color, and a `rail` left-border accent. `rank` drives the within-batch ordering so the most urgent
+ * findings surface first. SYM-61: `rail` is the card's data-driven grade rail — it mirrors the dot's
+ * color family so the rail reads as quiet reinforcement of the labeled group header (color is never
+ * the only severity signal).
  */
 export const REVIEW_SEVERITY_META: Record<
   ReviewSeverity,
-  { label: string; badge: string; dot: string; rank: number }
+  { label: string; badge: string; dot: string; rail: string; rank: number }
 > = {
-  critical: { label: 'Critical', badge: 'bg-red-500/15 text-red-300', dot: 'bg-red-500', rank: 0 },
-  high: { label: 'High', badge: 'bg-orange-500/15 text-orange-300', dot: 'bg-orange-400', rank: 1 },
-  medium: { label: 'Medium', badge: 'bg-amber-400/15 text-amber-300', dot: 'bg-amber-400', rank: 2 },
-  low: { label: 'Low', badge: 'bg-slate-500/20 text-slate-300', dot: 'bg-slate-500', rank: 3 },
+  critical: { label: 'Critical', badge: 'bg-red-500/15 text-red-300', dot: 'bg-red-500', rail: 'border-l-red-500/70', rank: 0 },
+  high: { label: 'High', badge: 'bg-orange-500/15 text-orange-300', dot: 'bg-orange-400', rail: 'border-l-orange-400/70', rank: 1 },
+  medium: { label: 'Medium', badge: 'bg-amber-400/15 text-amber-300', dot: 'bg-amber-400', rail: 'border-l-amber-400/70', rank: 2 },
+  low: { label: 'Low', badge: 'bg-slate-500/20 text-slate-300', dot: 'bg-slate-500', rail: 'border-l-slate-500/60', rank: 3 },
 };
 
 /** Scope picker + batch-header labels. `all` runs all three areas and tags each finding. */
