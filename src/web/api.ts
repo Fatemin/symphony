@@ -237,6 +237,18 @@ export const api = {
         `/api/projects/${id}/reviews/findings/${findingId}/convert`,
         { method: 'POST', ...body(data) },
       ),
+    // SYM-66: one-click batch convert — turn every still-draft finding of a run into issues. Defaults
+    // to mode='auto' (orchestrator-eligible) + status='todo'; finding_ids narrows the set. Idempotent —
+    // converted/dismissed findings are skipped, so re-clicking only mops up the remaining drafts.
+    convertAllFindings: (
+      id: string,
+      runId: string,
+      data: { mode?: 'auto' | 'manual'; status?: 'todo' | 'backlog'; finding_ids?: string[] },
+    ) =>
+      req<{ issues: Issue[]; converted: number }>(`/api/projects/${id}/reviews/${runId}/convert`, {
+        method: 'POST',
+        ...body(data),
+      }),
     dismissFinding: (id: string, findingId: string) =>
       req<ReviewFinding>(`/api/projects/${id}/reviews/findings/${findingId}`, {
         method: 'PATCH',

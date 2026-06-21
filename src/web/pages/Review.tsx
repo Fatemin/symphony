@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -24,7 +24,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Markdown } from '../components/Markdown';
-import { Button, EmptyState, ErrorState, Loading, PageHeader, Panel, ProjectChip, Select, Spinner } from '../components/ui';
+import { Button, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, ProjectChip, Select, Spinner } from '../components/ui';
 import {
   REVIEW_CATEGORY_META,
   REVIEW_SCOPE_META,
@@ -102,7 +102,25 @@ export function Review() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const busy = convert.isPending || setStatus.isPending;
+  // SYM-66: one-click batch convert — every still-draft finding of a run becomes an `auto` issue the
+  // orchestrator starts working through (most critical first). Idempotent server-side, so re-clicking
+  // is safe. Refresh both the reviews list (cards flip to "Created KEY") and the board (new issues).
+  const batchConvert = useMutation({
+    mutationFn: (runId: string) =>
+      api.projects.convertAllFindings(projectId, runId, { mode: 'auto', status: 'todo' }),
+    onSuccess: ({ converted }) => {
+      toast.success(
+        converted === 0
+          ? 'Nothing left to convert — every finding was already handled.'
+          : `Created ${converted} auto ${converted === 1 ? 'issue' : 'issues'} — the orchestrator is on it.`,
+      );
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['project', projectId] }); // the new issues show on the Board
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const busy = convert.isPending || setStatus.isPending || batchConvert.isPending;
 
   if (!project) return <Loading />;
 
@@ -153,6 +171,11 @@ export function Review() {
                     onRestore={(findingId) => setStatus.mutate({ findingId, dismissed: false })}
                     onDelete={() => removeRun.mutate(run.id)}
                     deleting={removeRun.isPending && removeRun.variables === run.id}
+                    onBatchConvert={() => batchConvert.mutate(run.id)}
+                    batchConverting={batchConvert.isPending && batchConvert.variables === run.id}
+                    // Block the mass action while any conversion is in flight or a review is still
+                    // running — keeps the board state settled before a one-click auto dispatch.
+                    batchDisabled={busy || !!runningRun}
                   />
                 ))}
               </div>
@@ -249,6 +272,9 @@ function ReviewBatch({
   onRestore,
   onDelete,
   deleting,
+  onBatchConvert,
+  batchConverting,
+  batchDisabled,
 }: {
   run: ReviewRunWithFindings;
   busy: boolean;
@@ -257,12 +283,26 @@ function ReviewBatch({
   onRestore: (findingId: string) => void;
   onDelete: () => void;
   deleting: boolean;
+  onBatchConvert: () => void;
+  batchConverting: boolean;
+  batchDisabled: boolean;
 }) {
   const [showDismissed, setShowDismissed] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const status = REVIEW_STATUS_META[run.status];
   const active = run.findings.filter((f) => f.status !== 'dismissed');
   const dismissed = run.findings.filter((f) => f.status === 'dismissed');
+  const drafts = active.filter((f) => f.status === 'draft');
   const groups = groupBySeverity(active);
+
+  // Auto-close the confirm dialog once the mutation settles (success or error) — the toast carries the
+  // outcome, so the modal need not linger. Tracks the pending edge instead of closing on click so the
+  // confirm button's spinner stays visible during the request.
+  const wasConverting = useRef(false);
+  useEffect(() => {
+    if (wasConverting.current && !batchConverting) setConfirmOpen(false);
+    wasConverting.current = batchConverting;
+  }, [batchConverting]);
 
   return (
     <Panel className="overflow-hidden">
@@ -308,6 +348,27 @@ function ReviewBatch({
             {run.summary && (
               <div className="rounded-md border border-border bg-bg-2 px-3 py-2 text-sm leading-relaxed text-muted">
                 <Markdown source={run.summary} />
+              </div>
+            )}
+
+            {drafts.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-accent)]/30 bg-indigo-500/5 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-300" />
+                  <span>
+                    {drafts.length} {drafts.length === 1 ? 'draft is' : 'drafts are'} ready — hand the
+                    whole batch to the orchestrator in one click.
+                  </span>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={batchDisabled}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {batchConverting ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+                  Create all as auto {drafts.length === 1 ? 'issue' : 'issues'} ({drafts.length})
+                </Button>
               </div>
             )}
 
@@ -377,6 +438,46 @@ function ReviewBatch({
           </div>
         )}
       </div>
+
+      {confirmOpen && (
+        <Modal
+          size="sm"
+          onClose={() => {
+            if (!batchConverting) setConfirmOpen(false);
+          }}
+          icon={<Sparkles className="h-4 w-4 text-indigo-300" />}
+          title={`Create ${drafts.length} auto ${drafts.length === 1 ? 'issue' : 'issues'}?`}
+          footer={
+            <>
+              <Button onClick={() => setConfirmOpen(false)} disabled={batchConverting}>
+                Cancel
+              </Button>
+              <Button variant="primary" disabled={batchConverting} onClick={onBatchConvert}>
+                {batchConverting ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+                Create {drafts.length} {drafts.length === 1 ? 'issue' : 'issues'}
+              </Button>
+            </>
+          }
+        >
+          <p className="mb-3 text-xs leading-relaxed text-muted">
+            Each remaining draft becomes an <span className="font-medium text-fg">auto issue</span> the
+            orchestrator starts working through automatically — most critical first. Already-converted
+            or dismissed findings are left untouched.
+          </p>
+          <ul className="space-y-1">
+            {REVIEW_SEVERITY_ORDER.map((severity) => {
+              const count = drafts.filter((f) => f.severity === severity).length;
+              if (count === 0) return null;
+              return (
+                <li key={severity} className="flex items-center gap-2 text-xs text-muted">
+                  <span className={`h-1.5 w-1.5 rounded-full ${REVIEW_SEVERITY_META[severity].dot}`} />
+                  {count} {REVIEW_SEVERITY_META[severity].label.toLowerCase()}
+                </li>
+              );
+            })}
+          </ul>
+        </Modal>
+      )}
     </Panel>
   );
 }

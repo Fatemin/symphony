@@ -134,7 +134,8 @@ agent operations (`http/routes/ask.ts`, `http/routes/reviews.ts`) that run again
 scope-aware (`docs` / `code` / `ui_ux` / `all`); `parseReview` whitelists every enum, drops a finding
 with no title, bounds string lengths, and caps the list (`MAX_REVIEW_FINDINGS`). A missing/malformed
 fence is non-fatal — the run still completes with `findings: []`. Each finding is surfaced as a draft
-issue card the user converts (severity→priority) or dismisses.
+issue card the user converts (severity→priority) or dismisses — one at a time, or a whole run's drafts
+at once as `auto` issues the orchestrator picks up (SYM-66 batch convert).
 
 ## 4. Task roles
 

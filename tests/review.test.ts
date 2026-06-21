@@ -7,8 +7,9 @@ import type { AgentResult, AgentRunInput, AgentRunner } from '../src/server/agen
 const env = setupEnv();
 
 const { createProject } = await import('../src/server/repo/projects');
-const { listIssues } = await import('../src/server/repo/issues');
+const { listIssues, listAutoCandidates } = await import('../src/server/repo/issues');
 const { getConfig } = await import('../src/server/repo/settings');
+const { getOrchestrator } = await import('../src/server/orchestrator/orchestrator');
 const { buildReviewPrompt } = await import('../src/server/core/prompt');
 const { executeReviewRun, reviewRoutes, __setReviewBackgroundRunner } = await import(
   '../src/server/http/routes/reviews'
@@ -22,8 +23,6 @@ const {
   countRunningReviews,
   failInterruptedReviewRuns,
 } = await import('../src/server/repo/reviews');
-
-test.after(() => env.cleanup());
 
 const usage = { input_tokens: 1, output_tokens: 1, total_tokens: 2, num_turns: 1 };
 
@@ -65,6 +64,30 @@ async function settle(cond: () => boolean, tries = 100): Promise<void> {
     await new Promise((r) => setTimeout(r, 5));
   }
 }
+
+/** Create a draft finding on a run with sensible defaults — trims the boilerplate in the batch tests. */
+function addFinding(
+  runId: string,
+  projectId: string,
+  severity: ReviewFinding['severity'],
+  title: string,
+  type: 'feature' | 'bug' = 'feature',
+): ReviewFinding {
+  return createReviewFinding({ review_run_id: runId, project_id: projectId, category: 'code', type, title, severity });
+}
+
+// SYM-66: the batch-convert route kicks the orchestrator SINGLETON so newly-created auto issues
+// dispatch promptly. Seed it DISABLED here so that kick is a safe no-op (tick reconciles then early
+// returns — no candidate fetch, no worktree, no real CLI). This suite tests conversion, not scheduling.
+const orch = getOrchestrator({
+  runner: fakeRunner('orchestrator stays idle in this suite'),
+  getConfig: () => ({ ...getConfig(), enabled: false }),
+});
+
+test.after(() => {
+  orch.stop();
+  env.cleanup();
+});
 
 test('executeReviewRun runs read-only, parses + persists graded findings, and completes', async () => {
   const project = createProject({ name: 'Review Demo', key: 'REV', repo_path: env.repoPath });
@@ -171,6 +194,132 @@ test('POST convert creates a severity-mapped issue and is idempotent', async () 
   });
   assert.equal(dup.status, 409);
   assert.equal(listIssues(project.id).length, 1);
+});
+
+test('POST batch convert turns all drafts into auto issues, skips converted/dismissed, and is idempotent', async () => {
+  const project = createProject({ name: 'Review Batch', key: 'RVB', repo_path: env.repoPath });
+  const run = createReviewRun({ project_id: project.id, scope: 'all', agent: 'claude' });
+  const crit = addFinding(run.id, project.id, 'critical', 'Critical bug', 'bug');
+  addFinding(run.id, project.id, 'high', 'High feature');
+  addFinding(run.id, project.id, 'low', 'Low nit');
+  const dismissed = addFinding(run.id, project.id, 'medium', 'To dismiss');
+  const preConv = addFinding(run.id, project.id, 'high', 'Already converted', 'bug');
+
+  // Pre-dismiss one finding and pre-convert another (the single-convert flow) — both must be skipped.
+  await reviewRoutes.request(`/${project.id}/reviews/findings/${dismissed.id}`, {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ status: 'dismissed' }),
+  });
+  await reviewRoutes.request(`/${project.id}/reviews/findings/${preConv.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ status: 'todo' }),
+  });
+
+  // Batch convert with no body → defaults to mode='auto', status='todo'.
+  const res = await reviewRoutes.request(`/${project.id}/reviews/${run.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 201);
+  const { issues, converted } = (await res.json()) as { issues: Issue[]; converted: number };
+  // Only the three still-draft findings convert — the dismissed + already-converted ones are skipped.
+  assert.equal(converted, 3);
+  assert.equal(issues.length, 3);
+  for (const issue of issues) {
+    assert.equal(issue.mode, 'auto'); // the feature: orchestrator-eligible by default
+    assert.equal(issue.status, 'todo');
+  }
+  // Severity → priority + type carried through from each finding.
+  const byTitle = new Map(issues.map((i) => [i.title, i]));
+  assert.equal(byTitle.get('Critical bug')!.priority, 1);
+  assert.equal(byTitle.get('Critical bug')!.type, 'bug');
+  assert.equal(byTitle.get('High feature')!.priority, 2);
+  assert.equal(byTitle.get('Low nit')!.priority, 4);
+
+  // The converted findings flip to 'converted' with their issue linked; dismissed stays dismissed.
+  const after = listFindingsByRun(run.id);
+  assert.equal(after.filter((f) => f.status === 'converted').length, 4); // 3 batch + 1 pre-converted
+  assert.equal(after.find((f) => f.id === crit.id)!.issue_id, byTitle.get('Critical bug')!.id);
+  assert.equal(after.find((f) => f.id === dismissed.id)!.status, 'dismissed');
+
+  // The created auto issues are orchestrator-eligible (mode='auto' AND status in todo/in_progress).
+  const candidateTitles = listAutoCandidates().map((i) => i.title);
+  assert.ok(candidateTitles.includes('Critical bug'));
+  assert.ok(candidateTitles.includes('High feature'));
+  assert.ok(candidateTitles.includes('Low nit'));
+
+  // Idempotent: a re-click finds no remaining drafts → converted 0, and creates no duplicate issues.
+  const before = listIssues(project.id).length;
+  const again = await reviewRoutes.request(`/${project.id}/reviews/${run.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  assert.equal(again.status, 201);
+  assert.equal(((await again.json()) as { converted: number }).converted, 0);
+  assert.equal(listIssues(project.id).length, before);
+});
+
+test('POST batch convert honors the finding_ids filter and mode/status overrides', async () => {
+  const project = createProject({ name: 'Review Batch Opts', key: 'RVBO', repo_path: env.repoPath });
+  const run = createReviewRun({ project_id: project.id, scope: 'code', agent: 'claude' });
+  const a = addFinding(run.id, project.id, 'critical', 'Convert me A', 'bug');
+  const b = addFinding(run.id, project.id, 'high', 'Leave me B');
+  const c = addFinding(run.id, project.id, 'medium', 'Convert me C');
+
+  // Filter to [a, c] and override to manual triage parked in the backlog.
+  const res = await reviewRoutes.request(`/${project.id}/reviews/${run.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ finding_ids: [a.id, c.id], mode: 'manual', status: 'backlog' }),
+  });
+  assert.equal(res.status, 201);
+  const { issues, converted } = (await res.json()) as { issues: Issue[]; converted: number };
+  assert.equal(converted, 2);
+  for (const issue of issues) {
+    assert.equal(issue.mode, 'manual'); // override honored
+    assert.equal(issue.status, 'backlog');
+  }
+  // b was not in the filter, so it remains an unconverted draft (and not auto-dispatched).
+  const after = listFindingsByRun(run.id);
+  assert.equal(after.find((f) => f.id === b.id)!.status, 'draft');
+  assert.equal(after.find((f) => f.id === a.id)!.status, 'converted');
+  assert.ok(!listAutoCandidates().some((i) => i.title === 'Convert me A')); // manual ⇒ not a candidate
+});
+
+test('POST batch convert 404s an unknown/foreign run and returns 0 for a run with no drafts', async () => {
+  const project = createProject({ name: 'Review Batch Edge', key: 'RVBE', repo_path: env.repoPath });
+
+  // Unknown run id → 404.
+  const missing = await reviewRoutes.request(`/${project.id}/reviews/nope/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  assert.equal(missing.status, 404);
+
+  // A run that belongs to another project → 404 (no cross-project conversion).
+  const other = createProject({ name: 'Review Batch Other', key: 'RVBX', repo_path: env.repoPath });
+  const otherRun = createReviewRun({ project_id: other.id, scope: 'all', agent: 'claude' });
+  const foreign = await reviewRoutes.request(`/${project.id}/reviews/${otherRun.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  assert.equal(foreign.status, 404);
+
+  // A run with no draft findings → 201 with converted: 0 (the button is a no-op, not an error).
+  const emptyRun = createReviewRun({ project_id: project.id, scope: 'all', agent: 'claude' });
+  const empty = await reviewRoutes.request(`/${project.id}/reviews/${emptyRun.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  assert.equal(empty.status, 201);
+  assert.equal(((await empty.json()) as { converted: number }).converted, 0);
 });
 
 test('PATCH dismisses a draft, restores it, and refuses to mutate a converted finding', async () => {
