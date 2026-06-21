@@ -173,7 +173,7 @@ primitive default (last write wins).
 | `Panel` | `interactive` (hover border + transition for clickable cards) · `elevated` (`--elev-2` shadow). |
 | `Field` | Label + optional hint (and a `required` danger-tinted asterisk) wrapping a control. |
 | `Input` / `Textarea` / `Select` | Token focus ring, `aria-[invalid=true]` danger styling, disabled state. |
-| `SegmentedControl` | (SYM-68) Single-select chip group for low-cardinality enums — a tactile alternative to `Select` (all options visible, one tap). `role="group"` + per-option `aria-pressed`; accent-tinted active state (token-driven, label always shows ⇒ never color-only); `flex-wrap`s on narrow widths; `size` sm/md matches the other control heights. |
+| `SegmentedControl` | (SYM-68) Single-select chip group for low-cardinality enums — a tactile alternative to `Select` (all options visible, one tap). `role="group"` + per-option `aria-pressed`; accent-tinted active state (token-driven, label always shows ⇒ never color-only); each option's optional `hint` is its `title` tooltip; `flex-wrap`s on narrow widths; `size` sm/md matches the other control heights. SYM-82 finished the rollout: the **Review scope** picker and IssueDetail's per-issue **thinking-effort + Workflow-tool** overrides are now chip groups too (the last `<Select>`s for such enums are gone). |
 | `Spinner` | `border-current` so it tints to its context; honours reduced-motion. |
 | `Loading` | Centered spinner + label — the standard page/section load state (replaces ad-hoc "Loading…"). |
 | `PendingIndicator` / `useElapsedSeconds` | SYM-77: inline busy state for long async waits (Ask "Thinking…", Review "Reviewing…"; SYM-81 added the approve/merge flow — `ApproveDialog`'s footer "Merging…" / batch "Approving N of M…" and the IssueDetail `ConflictBanner`'s "Resolving…") — spinner + label + a live elapsed counter (shown once ≥ 1s). `since` is optional (self-start on mount, or a server `created_at` so the elapsed survives remount/poll). The elapsed span is `aria-hidden` inside the `role=status` region so it never re-announces per tick (§6). |
@@ -192,8 +192,10 @@ the `PathField` directory picker, and the **Review tab**'s two per-batch confirm
 directly (a right-anchored `<dialog>`) so it keeps its drag-to-resize + persisted width while gaining
 focus-trap, Escape, and focus restoration. (The Board's **New-issue form** briefly used `Modal` in
 SYM-65 but SYM-68 moved it back to an inline composer — see the "Inline composer card" pattern in §9.)
-**All destructive confirms route through `ConfirmDialog`** (SYM-72) — skill delete and review-batch
-delete; the native `confirm()` is gone from the client.
+**All destructive confirms route through `ConfirmDialog`** (SYM-72) — skill delete, review-batch
+delete, and (SYM-82) IssueDetail's **Cancel issue** (`cancelLabel="Keep issue"` because "Cancel" is
+overloaded) and AskPanel's **reset conversation** (it opens as a second top-layer `<dialog>` stacked
+above the drawer); the native `confirm()` is gone from the client.
 
 ---
 
@@ -371,6 +373,13 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   the request; the dialog auto-closes on settle, the toast reports the result); the confirm button
   stays `danger`, Cancel keeps `autoFocus`. The state lives where it survives the list refetch the
   action triggers — at the page for a list-row delete, on the row component for a self-contained one.
+  **SYM-82** extended this beyond deletes to two other irreversible steps: IssueDetail's **Cancel
+  issue** (the `update.mutate({ status: 'cancelled' })` that was a bare click) — note `confirmLabel`/
+  `cancelLabel` become "Cancel issue"/"Keep issue" because the verb "Cancel" is overloaded against the
+  dialog's own dismiss — and AskPanel's **reset conversation**, which mounts the `ConfirmDialog` *inside*
+  the open drawer `<dialog>`; native modal dialogs stack in the top layer, so the confirm renders above
+  the drawer and returns focus to it on close. Reach for this pattern for ANY single-click irreversible
+  action, not only row deletes.
 - **Command palette / global overlay** (SYM-82, `CommandPalette` + `KeyboardShortcutsHelp`) — a
   keyboard-first launcher mounted ONCE in the always-on shell (`Layout.tsx`) so `⌘K`/`?` reach it from
   every route (see the §6 keyboard contract). Build on `useModalDialog` directly — a **top-anchored**

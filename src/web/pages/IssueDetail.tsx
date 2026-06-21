@@ -4,11 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronRight, CircleSlash, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, MessageSquarePlus, MonitorPlay, Play, Plus, RotateCcw, Sparkles, Square, X, XCircle } from 'lucide-react';
 import type { Attachment, Event, IssueMode, IssueRelation, IssueStatus, IssueType, Priority } from '../../shared/types';
-import { api, streamIssue, THINKING_EFFORT_OPTIONS, type ApproveOptions, type IssueDetail as Detail, type ThinkingEffort } from '../api';
+import { api, streamIssue, THINKING_EFFORT_OPTIONS, WORKFLOW_TOOL_OPTIONS, type ApproveOptions, type IssueDetail as Detail, type ThinkingEffort } from '../api';
 import { ApproveDialog } from '../components/ApproveDialog';
 import { AttachmentInput } from '../components/AttachmentInput';
 import { Markdown } from '../components/Markdown';
-import { Badge, Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Panel, PendingIndicator, SegmentedControl, Select, Spinner, Textarea } from '../components/ui';
+import { Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Loading, Modal, Panel, PendingIndicator, SegmentedControl, Spinner, Textarea } from '../components/ui';
 import { PRIORITY_META, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 
 type LiveEvent = Event & { cursor: number };
@@ -175,6 +175,8 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
   const [approveOpen, setApproveOpen] = useState(false);
   const [changesOpen, setChangesOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
+  // SYM-82: cancelling an issue is irreversible, so the bare-click button now opens a ConfirmDialog.
+  const [cancelOpen, setCancelOpen] = useState(false);
   const update = useMutation({
     mutationFn: (patch: Partial<Detail>) => api.issues.update(issue.id, patch),
     onSuccess: onChange,
@@ -246,43 +248,11 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {/* SYM-47: the auto/manual mode toggle is gone from the detail page — dispatch mode is
               chosen only at creation (Board "New issue" / Follow-up forms); flipping it here had no
-              effect given listAutoCandidates' status filter and the always-available Run button. */}
-          {/* SYM-46: per-issue extended-thinking override; inherit = the project/engine default.
-              SYM-60: hidden on terminal (done/cancelled) issues — thinking_effort is consumed only by
-              resolveThinkingEffort in the plan/implement/qa/delivery/merge phases, so the control is a
-              no-op once an issue can never re-run. Kept at 'review' (still !terminal) because Request
-              changes starts a new round that reads it. */}
-          {!terminal && (
-            <>
-              <Select
-                value={issue.thinking_effort ?? ''}
-                onChange={(e) => update.mutate({ thinking_effort: (e.target.value || null) as Detail['thinking_effort'] })}
-                className="w-auto"
-                aria-label="Thinking effort"
-                title="Extended-thinking budget for this issue (inherit = project/engine default)"
-              >
-                <option value="">inherit</option>
-                {THINKING_EFFORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </Select>
-              {/* SYM-67: per-issue Workflow-tool override; inherit = the project/engine default. Same
-                  !terminal gate as thinking_effort — it's only consumed by the build phases. */}
-              <Select
-                value={issue.enable_workflow_tool === null ? '' : String(issue.enable_workflow_tool)}
-                onChange={(e) =>
-                  update.mutate({ enable_workflow_tool: e.target.value === '' ? null : e.target.value === 'true' })
-                }
-                className="w-auto"
-                aria-label="Workflow tool"
-                title="Workflow tool for this issue (inherit = project/engine default; on lets the agent self-spawn background runs)"
-              >
-                <option value="">workflow: inherit</option>
-                <option value="false">workflow: off</option>
-                <option value="true">workflow: on</option>
-              </Select>
-            </>
-          )}
+              effect given listAutoCandidates' status filter and the always-available Run button.
+              SYM-82: the per-issue thinking-effort + Workflow-tool overrides ALSO moved out of this
+              action row into a labeled "Agent overrides" sub-group below the title — config and
+              actions now read as two distinct control groups instead of interleaving Selects with
+              buttons. This row holds ONLY actions (Request changes / Approve / Run / Follow-up / Cancel). */}
           {issue.status === 'review' ? (
             <>
               <Button
@@ -316,13 +286,47 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             </Button>
           ) : null}
           {issue.status !== 'cancelled' && issue.status !== 'done' && (
-            <Button variant="ghost" aria-label="Cancel issue" title="Cancel" onClick={() => update.mutate({ status: 'cancelled' })}>
+            <Button variant="ghost" aria-label="Cancel issue" title="Cancel" onClick={() => setCancelOpen(true)}>
               <CircleSlash className="h-4 w-4" />
             </Button>
           )}
         </div>
       </div>
       <h1 className="mt-2 text-xl font-semibold leading-tight break-words">{issue.title}</h1>
+      {/* SYM-82: the per-issue agent overrides (extended-thinking budget + Workflow tool) live in
+          their own labeled "Agent overrides" sub-group below the title — categorized apart from the
+          action buttons above and rendered as SegmentedControl chips to match the Follow-up composer,
+          so config and actions read as two distinct control groups.
+          SYM-46/SYM-60/SYM-67: kept behind the same `!terminal` gate — both values are consumed only
+          by the build phases (resolveThinkingEffort + the Workflow-tool chain), so they're a no-op
+          once an issue can never re-run; 'review' is still !terminal because Request changes re-runs. */}
+      {!terminal && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">Thinking</span>
+            <SegmentedControl<'' | ThinkingEffort>
+              aria-label="Thinking effort"
+              size="sm"
+              value={issue.thinking_effort ?? ''}
+              onChange={(v) => update.mutate({ thinking_effort: (v || null) as Detail['thinking_effort'] })}
+              options={[
+                { value: '', label: 'inherit', hint: 'Use the project / engine default' },
+                ...THINKING_EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+              ]}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">Workflow</span>
+            <SegmentedControl<'' | 'true' | 'false'>
+              aria-label="Workflow tool"
+              size="sm"
+              value={issue.enable_workflow_tool === null ? '' : issue.enable_workflow_tool ? 'true' : 'false'}
+              onChange={(v) => update.mutate({ enable_workflow_tool: v === '' ? null : v === 'true' })}
+              options={WORKFLOW_TOOL_OPTIONS}
+            />
+          </div>
+        </div>
+      )}
       {approveOpen && (
         <ApproveDialog
           projectId={issue.project_id}
@@ -356,6 +360,21 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
             qc.invalidateQueries({ queryKey: ['project', issue.project_id] });
             navigate(`/issues/${newIssueId}`);
           }}
+        />
+      )}
+      {/* SYM-82: cancelling is irreversible — route the ghost Cancel button through the shared
+          ConfirmDialog. The word "Cancel" is overloaded here (it's also the dialog's dismiss verb),
+          so the safe action reads "Keep issue" and the destructive one "Cancel issue". */}
+      {cancelOpen && (
+        <ConfirmDialog
+          title="Cancel this issue?"
+          description={`This stops further work on ${issue.key} and can't be resumed — you'd have to create a new issue.`}
+          confirmLabel="Cancel issue"
+          cancelLabel="Keep issue"
+          confirmIcon={<CircleSlash className="h-4 w-4" />}
+          pending={update.isPending}
+          onConfirm={() => update.mutate({ status: 'cancelled' })}
+          onClose={() => setCancelOpen(false)}
         />
       )}
     </div>
@@ -588,11 +607,7 @@ function FollowUpForm({
                     size="sm"
                     value={form.enable_workflow_tool}
                     onChange={(v) => setForm({ ...form, enable_workflow_tool: v })}
-                    options={[
-                      { value: '', label: 'inherit', hint: 'Use the project / engine default' },
-                      { value: 'false', label: 'off' },
-                      { value: 'true', label: 'on', hint: 'Advanced' },
-                    ]}
+                    options={WORKFLOW_TOOL_OPTIONS}
                   />
                 </Field>
               </div>
@@ -766,6 +781,21 @@ function Body({ issue, onSaved }: { issue: Detail; onSaved: () => void }) {
     onSuccess: () => { onSaved(); toast.success('Saved'); },
   });
 
+  // SYM-82: warn before a hard navigation away (tab close / refresh / back) while description or AC
+  // edits are unsaved, so in-progress work isn't silently lost. The listener only exists while dirty.
+  // Intentional limitation: this guards ONLY the browser unload path — we deliberately do NOT add a
+  // react-router navigation blocker (that couples to router-version internals), so an in-app route
+  // change still discards unsaved edits; the inline "Unsaved changes" hint keeps the Save CTA visible.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // some browsers require returnValue set to trigger the native confirm
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+
   return (
     <Panel className="space-y-4 p-4">
       <div>
@@ -789,7 +819,10 @@ function Body({ issue, onSaved }: { issue: Detail; onSaved: () => void }) {
         />
       </div>
       {dirty && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {/* SYM-82: name the unsaved state next to the Save CTA so leaving (or the beforeunload
+              prompt) reads as intentional rather than a surprise. */}
+          <span className="text-xs text-muted">Unsaved changes</span>
           <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>Save</Button>
         </div>
       )}
