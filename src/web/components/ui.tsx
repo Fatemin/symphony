@@ -121,10 +121,26 @@ export function Panel({
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Field({
+  label,
+  hint,
+  required = false,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  /** Renders a danger-tinted asterisk after the label (the control still carries `required` for SRs). */
+  required?: boolean;
+  children: ReactNode;
+}) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-muted">
+        {label}
+        {required && (
+          <span aria-hidden className="text-[var(--color-danger)]"> *</span>
+        )}
+      </span>
       {children}
       {hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
     </label>
