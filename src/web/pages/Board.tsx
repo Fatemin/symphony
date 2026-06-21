@@ -226,7 +226,7 @@ export function Board() {
                 className="flex w-10 shrink-0 flex-col items-center gap-2 rounded-md py-2 text-muted transition-all hover:bg-hover hover:text-fg"
               >
                 <ChevronRight className="h-4 w-4 shrink-0" />
-                <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
+                <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
                 <span className="text-xs text-subtle">{items.length}</span>
                 <span className="text-xs font-medium [writing-mode:vertical-rl]">{meta.label}</span>
               </button>
@@ -235,7 +235,7 @@ export function Board() {
           return (
             <div key={status} className="flex min-w-[180px] flex-1 flex-col transition-all">
               <div className="mb-2 flex items-center gap-2 px-1">
-                <span className={`h-2 w-2 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
+                <span aria-hidden className={`h-2 w-2 rounded-full ${meta.dot} ${status === 'in_progress' ? 'anim-pulse-dot' : ''}`} />
                 <span className="text-xs font-medium text-fg">{meta.label}</span>
                 <span className="text-xs text-subtle">{items.length}</span>
                 <button
@@ -289,7 +289,7 @@ export function Board() {
       {showCancelled && cancelledIssues.length > 0 && (
         <div className="anim-card-in mt-4 border-t border-border pt-4">
           <div className="mb-2 flex items-center gap-2 px-1">
-            <span className={`h-2 w-2 rounded-full ${STATUS_META['cancelled'].dot}`} />
+            <span aria-hidden className={`h-2 w-2 rounded-full ${STATUS_META['cancelled'].dot}`} />
             <span className="text-xs font-medium text-fg">{STATUS_META['cancelled'].label}</span>
             <span className="text-xs text-subtle">{cancelledIssues.length}</span>
           </div>
@@ -367,11 +367,16 @@ function IssueCard({
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             {issue.status === 'in_progress' && (
-              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META.in_progress.dot} anim-pulse-dot`} />
+              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${STATUS_META.in_progress.dot} anim-pulse-dot`} />
             )}
             {selectable && (
+              // SYM-74: icon-only review-select toggle. aria-label states the intent and aria-pressed
+              // exposes the checked state, so assistive tech announces purpose + state (not just "button").
+              // Mirrors the column focus toggle's aria-pressed convention above.
               <button
                 type="button"
+                aria-label={selected ? 'Deselect issue' : 'Select issue'}
+                aria-pressed={selected}
                 className="grid h-5 w-5 place-items-center rounded text-muted hover:bg-hover hover:text-fg"
                 onClick={(e) => {
                   e.preventDefault();

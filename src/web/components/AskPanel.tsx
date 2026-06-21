@@ -264,6 +264,7 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
           aria-label="Resize panel"
           aria-valuenow={Math.round(width)}
           aria-valuemin={MIN_WIDTH}
+          aria-valuemax={Math.round(maxWidth())}
           tabIndex={0}
           onPointerDown={onHandlePointerDown}
           onPointerMove={onHandlePointerMove}

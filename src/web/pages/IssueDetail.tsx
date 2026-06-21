@@ -231,7 +231,7 @@ function Header({ issue, runningNow, onChange }: { issue: Detail; runningNow: bo
         <div className="flex items-center gap-2 text-xs">
           <span className="font-mono text-muted">{issue.key}</span>
           <span className={`inline-flex items-center gap-1 ${meta.color}`}>
-            <span className={`h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
+            <span aria-hidden className={`h-2 w-2 rounded-full ${meta.dot}`} /> {meta.label}
           </span>
           <span className={PRIORITY_META[issue.priority].color}>{PRIORITY_META[issue.priority].label}</span>
           {issue.round > 1 && (
@@ -601,7 +601,7 @@ function RelationRow({ relation, side }: { relation: IssueRelation; side: 'sourc
           <div className="flex items-center gap-2 text-xs">
             <span className="font-mono text-muted">{linked.key}</span>
             <span className={`inline-flex items-center gap-1 ${meta.color}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} /> {meta.label}
+              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} /> {meta.label}
             </span>
             <Badge className="bg-indigo-500/10 text-indigo-300">{relation.type === 'follow_up' ? 'follow-up' : 'related'}</Badge>
           </div>
