@@ -88,7 +88,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   (default; `status='todo'` ⇒ orchestrator-eligible via `listAutoCandidates`) and `void
   getOrchestrator().kick()`s so they dispatch promptly; `body.mode='manual'` / `status='backlog'` /
   `finding_ids` override the defaults. Structurally idempotent (only `draft` findings convert), so
-  re-clicking mops up leftovers without duplicating issues. Two tables (`review_runs`,
+  re-clicking mops up leftovers without duplicating issues. SYM-78: BOTH convert paths stamp the new
+  issue with `source='review'` + `source_run_id` (the run id) — provenance the board groups on; the
+  tiny `repo/reviews.ts#getReviewRunLabels(ids)` (one `WHERE id IN`) resolves those run ids → a
+  `Review · <scope>` label for `GET /api/projects/:id`'s `BoardIssue.source_label`. Two tables (`review_runs`,
   `review_findings`) via idempotent `schema.ts` — no `migrate.ts` ALTER. `index.ts` mounts
   `reviewRoutes` and calls `failInterruptedReviewRuns()` at boot so a restart never leaves a run stuck
   `running`. The route reads a `__setReviewBackgroundRunner` test seam (undefined in prod ⇒ real
@@ -166,7 +169,14 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
   responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
   spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live
-  in [`docs/DESIGN.md`](docs/DESIGN.md). Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
+  in [`docs/DESIGN.md`](docs/DESIGN.md). The Board (`pages/Board.tsx`) has a persisted **Group-by**
+  `SegmentedControl` (SYM-78, localStorage `symphony.board.groupBy`): `status` is the original kanban
+  unchanged; `source`/`type` render collapsible swimlanes whose ordering/labeling lives in the pure
+  `lib/boardGroups.ts#groupIssues` (source = one lane per review batch via `source_run_id`, newest
+  first, Manual catch-all last, fallback label for a deleted run; type = feature→bug→chore→epic, empties
+  dropped). Provenance shows in EVERY mode via an `ISSUE_SOURCE_META` (`lib/format.ts`) badge on the
+  card footer for non-`manual` issues; review select-all/approve are Status-only and selection clears on
+  axis switch. Per-project tabs live in `components/ProjectTabs.tsx` (Board / Agent /
   Review / Story Tree / Docs / Skills) — the Story Tree tab (`pages/StoryTree.tsx`) folds a project's
   `issue_relations` into a forest via the pure `lib/storyTree.ts#buildStoryTrees` (follow_up edges
   nest, relates_to surface as cross-links), backed by read-only `GET /api/projects/:id/relations`.
@@ -228,6 +238,11 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   rejects boolean binds, so `repo/issues.ts#updateIssue` special-cases it OUT of the generic UPDATABLE
   loop, like `require_review`; `mapRow` reads null ⇒ inherit) is the highest-priority term in
   `agentInput`'s `enableWf` chain (`issue ?? project ?? engine`, then `disableWorkflows: !enableWf`).
+  SYM-78 adds two **immutable** issue columns that are NOT config-overridable — `source`
+  (`manual`/`review`/`ask`, default `manual`, whitelist-guarded in `mapRow`; orthogonal to `mode`,
+  which independently also uses `manual`) and the soft-pointer `source_run_id` (no FK). Both are
+  system-set provenance: stamped once at create (only by the review-convert routes), kept OUT of
+  UPDATABLE, and stripped from the public `POST /api/issues` body, so they can never be changed via PATCH.
   Attachment limits live here too:
   `max_attachment_bytes` (default 10 MB) and
   `max_attachments_per_item` (default 10), both numeric and UI-editable via the `settings` table.

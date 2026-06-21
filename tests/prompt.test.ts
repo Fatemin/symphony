@@ -52,6 +52,8 @@ const issue: Issue = {
   worktree_path: null,
   round: 1,
   merge_conflict: null,
+  source: 'manual',
+  source_run_id: null,
   created_at: '2026-06-19T00:00:00Z',
   updated_at: '2026-06-19T00:00:00Z',
 };

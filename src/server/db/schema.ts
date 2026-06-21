@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS issues (
   merge_conflict      TEXT,                        -- JSON MergeConflictInfo when a review-gate approval failed to merge/push (SYM-29)
   thinking_effort     TEXT,                        -- per-issue extended-thinking override; NULL = inherit project/engine (SYM-46)
   enable_workflow_tool INTEGER,                     -- per-issue Workflow-tool override (0/1); NULL = inherit project/engine (SYM-67)
+  source              TEXT NOT NULL DEFAULT 'manual', -- how the issue was created (SYM-78): manual | review | ask; immutable provenance, orthogonal to mode
+  source_run_id       TEXT,                        -- soft pointer to the originating review_run when source=review (SYM-78); NO FK so it survives the run deletion and keeps the batch grouped
   created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

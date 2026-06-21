@@ -103,10 +103,14 @@ One unit of tracked work — the thing the user manages.
 | `base_branch`, `branch_name`, `worktree_path` | TEXT | set when work starts |
 | `round` | INTEGER | current revision round; `1`=first build, `2+`=after "request changes" |
 | `merge_conflict` | TEXT (JSON) | `MergeConflictInfo` when a review-gate approval failed to merge/push (SYM-29); null otherwise |
+| `source` | TEXT | how the issue was created (SYM-78): `manual` (default) \| `review` \| `ask`. Immutable provenance — kept OUT of UPDATABLE and stripped from the public create body; only the review-convert routes stamp `review`. Whitelist-guarded on read in `mapRow` (unknown ⇒ `manual`). Orthogonal to `mode`, which independently also uses `manual` |
+| `source_run_id` | TEXT | the originating `review_runs.id` when `source='review'` (SYM-78); null otherwise. A **soft pointer (no FK)** so it survives the run's deletion — the board keeps the batch grouped under a generic 'Review' label even after the review is gone |
 | `created_at`, `updated_at` | TEXT | |
 
 Indexes: `idx_issues_key` (unique `project_id,key`), `idx_issues_status`, `idx_issues_parent`.
-Mapped to `Issue`. Repo: `repo/issues.ts`.
+Mapped to `Issue`. Repo: `repo/issues.ts`. The board view model `BoardIssue` adds a derived
+`source_label` (e.g. `Review · Code`), resolved per-request in `GET /api/projects/:id` from
+`source_run_id` → the review run's scope (null when the run was deleted).
 
 ### 3. `issue_relations`
 

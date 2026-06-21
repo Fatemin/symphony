@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupEnv } from './helpers/env';
-import type { Issue, ReviewFinding, ReviewRun, ReviewRunWithFindings } from '../src/shared/types';
+import type { BoardIssue, Issue, ReviewFinding, ReviewRun, ReviewRunWithFindings } from '../src/shared/types';
 import type { AgentResult, AgentRunInput, AgentRunner } from '../src/server/agent/types';
 
 const env = setupEnv();
@@ -14,6 +14,7 @@ const { buildReviewPrompt } = await import('../src/server/core/prompt');
 const { executeReviewRun, reviewRoutes, __setReviewBackgroundRunner } = await import(
   '../src/server/http/routes/reviews'
 );
+const { projectRoutes } = await import('../src/server/http/routes/projects');
 const {
   createReviewRun,
   createReviewFinding,
@@ -21,6 +22,7 @@ const {
   listFindingsByRun,
   listReviewRunsWithFindings,
   countRunningReviews,
+  deleteReviewRun,
   failInterruptedReviewRuns,
 } = await import('../src/server/repo/reviews');
 
@@ -487,4 +489,71 @@ test('failInterruptedReviewRuns fails any run left running at boot', async () =>
   assert.ok(failed >= 1);
   assert.equal(getReviewRun(run.id)?.status, 'failed');
   assert.match(getReviewRun(run.id)?.error ?? '', /restart/);
+});
+
+test('both convert paths stamp source=review + source_run_id on the created issue (SYM-78)', async () => {
+  const project = createProject({ name: 'Provenance Convert', key: 'PVC', repo_path: env.repoPath });
+
+  // Per-finding convert → the run that owns the finding.
+  const run1 = createReviewRun({ project_id: project.id, scope: 'code', agent: 'claude' });
+  const finding = addFinding(run1.id, project.id, 'high', 'Single convert', 'bug');
+  const single = await reviewRoutes.request(`/${project.id}/reviews/findings/${finding.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ status: 'todo' }),
+  });
+  assert.equal(single.status, 201);
+  const { issue } = (await single.json()) as { issue: Issue };
+  assert.equal(issue.source, 'review');
+  assert.equal(issue.source_run_id, run1.id);
+
+  // Batch convert → every created issue carries the batch run id.
+  const run2 = createReviewRun({ project_id: project.id, scope: 'docs', agent: 'claude' });
+  addFinding(run2.id, project.id, 'critical', 'Batch A', 'bug');
+  addFinding(run2.id, project.id, 'low', 'Batch B');
+  const batch = await reviewRoutes.request(`/${project.id}/reviews/${run2.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  assert.equal(batch.status, 201);
+  const { issues } = (await batch.json()) as { issues: Issue[] };
+  assert.equal(issues.length, 2);
+  for (const i of issues) {
+    assert.equal(i.source, 'review');
+    assert.equal(i.source_run_id, run2.id);
+  }
+});
+
+test('the board derives source_label from the run scope and survives the run deletion (SYM-78)', async () => {
+  const project = createProject({ name: 'Board Label', key: 'BDL', repo_path: env.repoPath });
+  // A hand-made issue has no provenance label; a converted one inherits the batch scope.
+  const { createIssue } = await import('../src/server/repo/issues');
+  const manualIssue = createIssue({ project_id: project.id, title: 'typed by hand' });
+
+  const run = createReviewRun({ project_id: project.id, scope: 'ui_ux', agent: 'claude' });
+  addFinding(run.id, project.id, 'high', 'From the review', 'bug');
+  await reviewRoutes.request(`/${project.id}/reviews/${run.id}/convert`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+
+  const board = await projectRoutes.request(`/${project.id}`);
+  assert.equal(board.status, 200);
+  const { issues } = (await board.json()) as { issues: BoardIssue[] };
+  const converted = issues.find((i) => i.source === 'review')!;
+  assert.equal(converted.source_run_id, run.id);
+  assert.equal(converted.source_label, 'Review · UI / UX'); // scope → server-side label
+  const stayedManual = issues.find((i) => i.id === manualIssue.id)!;
+  assert.equal(stayedManual.source, 'manual');
+  assert.equal(stayedManual.source_label, null);
+
+  // Deleting the batch keeps the issue (soft pointer survives) but drops the resolvable label —
+  // the client then falls back to a generic 'Review' while still grouping by source_run_id.
+  deleteReviewRun(run.id);
+  const board2 = await projectRoutes.request(`/${project.id}`);
+  const after = ((await board2.json()) as { issues: BoardIssue[] }).issues.find((i) => i.source === 'review')!;
+  assert.equal(after.source_run_id, run.id); // pointer survives
+  assert.equal(after.source_label, null); // run gone ⇒ no derivable label
 });

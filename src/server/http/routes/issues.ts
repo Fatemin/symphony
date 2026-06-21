@@ -65,7 +65,10 @@ issueRoutes.post('/', async (c) => {
   if (attachment_ids.length > max) {
     return c.json({ error: `too many attachments (max ${max})` }, 400);
   }
-  return c.json(createIssue({ ...body, attachment_ids }), 201);
+  // SYM-78: provenance is system-set. Drop any client-supplied source/source_run_id so a manually
+  // created issue can never spoof a 'review' origin — only the review-convert routes stamp those.
+  const { source: _source, source_run_id: _sourceRunId, ...rest } = body;
+  return c.json(createIssue({ ...rest, attachment_ids }), 201);
 });
 
 issueRoutes.post('/:id/follow-ups', async (c) => {

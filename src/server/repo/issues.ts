@@ -3,10 +3,12 @@ import { newId, issueKey } from '../core/keys';
 import { deleteAttachmentsByIssue, linkAttachmentsToIssue } from './attachments';
 import {
   ACTIVE_STATUSES,
+  ISSUE_SOURCES,
   TERMINAL_STATUSES,
   THINKING_EFFORTS,
   type Issue,
   type IssueMode,
+  type IssueSource,
   type IssueStatus,
   type IssueType,
   type MergeConflictInfo,
@@ -36,6 +38,8 @@ interface IssueRow {
   merge_conflict: string | null;
   thinking_effort: string | null;
   enable_workflow_tool: number | null;
+  source: string;
+  source_run_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +87,12 @@ function mapRow(r: IssueRow): Issue {
         : null,
     // SYM-67: stored as 0/1/NULL — NULL reads back as null (= inherit project ?? engine).
     enable_workflow_tool: r.enable_workflow_tool === null ? null : r.enable_workflow_tool !== 0,
+    // SYM-78: provenance — mapRow is the defensive boundary (mirrors the thinking_effort whitelist):
+    // a NULL/unknown/garbage column value reads back as the safe default 'manual'.
+    source: (ISSUE_SOURCES as readonly string[]).includes(r.source)
+      ? (r.source as IssueSource)
+      : 'manual',
+    source_run_id: r.source_run_id,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -104,6 +114,13 @@ export interface CreateIssueInput {
   thinking_effort?: ThinkingEffort | null;
   /** Per-issue Workflow-tool override (SYM-67); null/undefined ⇒ inherit project ?? engine. */
   enable_workflow_tool?: boolean | null;
+  /**
+   * System-set provenance (SYM-78); defaults to 'manual'. The HTTP create route strips any
+   * client-supplied value — only the review-convert routes pass 'review' (+ source_run_id).
+   */
+  source?: IssueSource;
+  /** The originating review run id (SYM-78) when source='review'; null/undefined otherwise. */
+  source_run_id?: string | null;
   /** Ids of previously-uploaded attachments to link to the new issue (SYM-35). */
   attachment_ids?: string[];
 }
@@ -125,8 +142,8 @@ export function createIssue(input: CreateIssueInput): Issue {
     `INSERT INTO issues
        (id, project_id, parent_id, seq, key, type, title, description,
         acceptance_criteria, labels, priority, status, mode, require_review, thinking_effort,
-        enable_workflow_tool)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        enable_workflow_tool, source, source_run_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.project_id,
@@ -145,6 +162,9 @@ export function createIssue(input: CreateIssueInput): Issue {
     input.thinking_effort ?? null,
     // SYM-67: node:sqlite rejects a JS boolean bind — store 0/1, NULL = inherit.
     input.enable_workflow_tool == null ? null : input.enable_workflow_tool ? 1 : 0,
+    // SYM-78: provenance — defaults to 'manual'; only the review-convert routes pass 'review'.
+    input.source ?? 'manual',
+    input.source_run_id ?? null,
   );
   if (input.attachment_ids?.length) linkAttachmentsToIssue(input.attachment_ids, id);
   return getIssue(id)!;
@@ -203,6 +223,8 @@ export function getByIds(ids: string[]): Issue[] {
   return rows.map(mapRow);
 }
 
+// SYM-78: `source` / `source_run_id` are intentionally absent — provenance is immutable, so it is
+// stamped once at create time and can never be changed via PATCH (mirrors `round` / `merge_conflict`).
 const UPDATABLE = [
   'parent_id',
   'type',

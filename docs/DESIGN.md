@@ -266,8 +266,9 @@ Every data-backed view renders all of these; primitives make them consistent:
   so nothing forces a wide horizontal scroll on phones. The `lg+` table keeps `overflow-x-auto` as a
   safety net. The retry-queue row stacks on mobile (`flex-col sm:flex-row`) so a long error wraps onto
   its own line instead of clipping; on `sm+` it truncates within `max-w-md`.
-- **Board:** the column row scrolls horizontally; a focused column flows its cards into a responsive
-  auto-fill grid.
+- **Board:** in Status grouping the column row scrolls horizontally and a focused column flows its
+  cards into a responsive auto-fill grid; in Source/Type grouping the swimlanes stack vertically and
+  scroll on the y-axis, each body reusing that same `minmax(220px,1fr)` auto-fill grid (SYM-78).
 
 ---
 
@@ -283,7 +284,7 @@ Every data-backed view renders all of these; primitives make them consistent:
 4. **`src/shared/types.ts`** is shared with the server — never change it for visual work.
 5. **Keep the `prefers-reduced-motion` guard** covering every animation, and keep the existing
    `localStorage` keys (`symphony.sidebar.expandedProjects`, `symphony.board.collapsedColumns`,
-   `ask-panel-width`).
+   `symphony.board.groupBy`, `ask-panel-width`).
 6. **Preserve copy/i18n** — `SidebarUsage` has intentional Chinese strings; leave them.
 
 ---
@@ -315,6 +316,21 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   "Reference context" toggle kept in its always-visible footer slot. The per-issue Workflow-tool
   override (SYM-67) renders as a chip group here too, so both create cards expose the full execution
   controls identically.
+- **Grouped swimlanes** (SYM-78, Board Group-by) — an alternate fold of the same card list behind a
+  small persisted `SegmentedControl` (`Status` | `Source` | `Type`; localStorage `symphony.board.groupBy`,
+  validated on read like `collapsedColumns`). `Status` renders the original kanban **unchanged**;
+  `Source`/`Type` render a vertical stack of collapsible `<section>` swimlanes whose pure grouping
+  (`lib/boardGroups.ts#groupIssues`) owns all ordering/labeling — by source: one lane per review batch
+  (key = `source_run_id`) ordered newest-member-first with the Manual catch-all last; by type: the fixed
+  feature→bug→chore→epic order, empty types dropped. Each lane header is a `<button aria-expanded
+  aria-controls>` (chevron + count) showing, in Source mode, the **`ISSUE_SOURCE_META` badge** carrying
+  the full label (`Review · Code`, info-toned; `Manual`, neutral) and in Type mode a plain text label;
+  the body reuses the focused-column auto-fill grid. Provenance also shows on the **card itself** in
+  every mode — a small `ISSUE_SOURCE_META` badge in the footer for any non-`manual` issue (so a
+  review-converted card reads as such even on the kanban). Selection/approve are Status-only: switching
+  axis clears the review selection and hides the select-all/approve/cancelled controls. States: empty
+  board → `EmptyState`; only-manual issues → a single `Manual` lane; a deleted review run → the lane
+  keeps its issues (the `source_run_id` survives) under the generic `Review` fallback label.
 - **Graded item card** (SYM-61, Review tab `FindingCard`) — for a list of graded, actionable items
   the user triages. The grade is *labeled* by the section/group header it sits under (dot + label +
   count); the card reinforces it with a quiet **left grade-rail** (`border-l-2` + a per-grade
