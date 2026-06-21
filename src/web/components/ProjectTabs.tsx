@@ -26,7 +26,7 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
           className={({ isActive }) =>
             `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b -mb-px px-3 py-2 text-sm transition ${
               isActive
-                ? 'border-indigo-400 text-fg'
+                ? 'border-[var(--color-accent)] text-fg' // SYM-73: accent token re-themes for light mode
                 : 'border-transparent text-muted hover:text-fg'
             }`
           }

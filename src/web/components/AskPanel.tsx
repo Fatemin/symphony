@@ -271,7 +271,10 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onKeyDown={onHandleKeyDown}
-          className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none transition-colors hover:bg-indigo-500/40 focus-visible:bg-indigo-500/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400"
+          // SYM-73: accent hover/focus fill + ring route through tokens. The 1.5px-wide handle keeps a
+          // 1px INSET ring (an offset global outline would draw outside the thin handle and be clipped),
+          // swapped to the themed `--color-ring`; the accent fills use `--color-accent`.
+          className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none transition-colors hover:bg-[var(--color-accent)]/40 focus-visible:bg-[var(--color-accent)]/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]"
         />
         <header className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">

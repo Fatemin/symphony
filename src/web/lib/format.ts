@@ -18,24 +18,29 @@ export const STATUS_ORDER: IssueStatus[] = [
   'cancelled',
 ];
 
+// SYM-73: dots route through the same status tokens as their `color` label so the dot re-themes for
+// light mode instead of staying a fixed palette shade. backlog/cancelled have no status hue → the
+// neutral `--color-muted`/`--color-subtle` tokens (cancelled dimmer than backlog).
 export const STATUS_META: Record<IssueStatus, { label: string; color: string; dot: string }> = {
-  backlog: { label: 'Backlog', color: 'text-muted', dot: 'bg-slate-500' },
-  todo: { label: 'Todo', color: 'text-[var(--color-todo)]', dot: 'bg-sky-500' },
-  in_progress: { label: 'In Progress', color: 'text-[var(--color-progress)]', dot: 'bg-amber-400' },
-  review: { label: 'Review', color: 'text-[var(--color-review)]', dot: 'bg-violet-400' },
-  done: { label: 'Done', color: 'text-[var(--color-done)]', dot: 'bg-emerald-500' },
-  cancelled: { label: 'Cancelled', color: 'text-muted', dot: 'bg-slate-600' },
+  backlog: { label: 'Backlog', color: 'text-muted', dot: 'bg-[var(--color-muted)]' },
+  todo: { label: 'Todo', color: 'text-[var(--color-todo)]', dot: 'bg-[var(--color-todo)]' },
+  in_progress: { label: 'In Progress', color: 'text-[var(--color-progress)]', dot: 'bg-[var(--color-progress)]' },
+  review: { label: 'Review', color: 'text-[var(--color-review)]', dot: 'bg-[var(--color-review)]' },
+  done: { label: 'Done', color: 'text-[var(--color-done)]', dot: 'bg-[var(--color-done)]' },
+  cancelled: { label: 'Cancelled', color: 'text-muted', dot: 'bg-[var(--color-subtle)]' },
 };
 
 // SYM-32: phase chip styling for an in-progress issue's board card. Keyed over every RunPhase so a
 // new phase forces a label here. `badge` matches the footer chip shape (rounded px-1.5 py-0.5) and
-// uses the amber in-progress theme so the chip reads as "active work".
+// SYM-73 routes the "active work" amber through the `--color-warning` token (mirrors the Badge
+// `warning` tone in ui.tsx) so the chip re-themes for light mode instead of staying a fixed shade.
+const PHASE_BADGE = 'bg-[color-mix(in_oklab,var(--color-warning)_16%,transparent)] text-[var(--color-warning)]';
 export const PHASE_META: Record<RunPhase, { label: string; badge: string }> = {
-  plan: { label: 'Plan', badge: 'bg-amber-400/15 text-amber-300' },
-  implement: { label: 'Implement', badge: 'bg-amber-400/15 text-amber-300' },
-  qa: { label: 'QA', badge: 'bg-amber-400/15 text-amber-300' },
-  delivery: { label: 'Delivery', badge: 'bg-amber-400/15 text-amber-300' },
-  merge: { label: 'Merge', badge: 'bg-amber-400/15 text-amber-300' },
+  plan: { label: 'Plan', badge: PHASE_BADGE },
+  implement: { label: 'Implement', badge: PHASE_BADGE },
+  qa: { label: 'QA', badge: PHASE_BADGE },
+  delivery: { label: 'Delivery', badge: PHASE_BADGE },
+  merge: { label: 'Merge', badge: PHASE_BADGE },
 };
 
 export const PRIORITY_META: Record<Priority, { label: string; color: string }> = {
@@ -104,6 +109,12 @@ export const REVIEW_SEVERITY_ORDER: ReviewSeverity[] = ['critical', 'high', 'med
  * findings surface first. SYM-61: `rail` is the card's data-driven grade rail — it mirrors the dot's
  * color family so the rail reads as quiet reinforcement of the labeled group header (color is never
  * the only severity signal).
+ *
+ * SYM-73 / AC#4 EXCLUSION — KEPT RAW intentionally: this is a 4-step grade ramp (red→orange→amber→
+ * slate). The semantic token set only has 1:1 mappings for red (`--color-danger`) and amber
+ * (`--color-warning`); there is no `orange` or distinct-`slate` token. Converting only the red/amber
+ * steps would fracture the deliberate hue ramp and collapse critical-vs-high / low into ambiguous
+ * pairs, so the whole scale stays on raw palette classes until dedicated grade tokens exist.
  */
 export const REVIEW_SEVERITY_META: Record<
   ReviewSeverity,
@@ -123,19 +134,28 @@ export const REVIEW_SCOPE_META: Record<ReviewScope, { label: string; hint: strin
   all: { label: 'Full review', hint: 'Docs + code + UI/UX in one pass, each finding tagged' },
 };
 
-/** A finding's category chip (the scope set minus `all`); shown on full-review cards to tag the area. */
+/**
+ * A finding's category chip (the scope set minus `all`); shown on full-review cards to tag the area.
+ *
+ * SYM-73 / AC#4 EXCLUSION — KEPT RAW intentionally: these three category hues (sky / violet / teal)
+ * are a categorical palette, not a status scale. Only `sky` has a near token (`--color-info`); violet
+ * and teal have none, so converting one third would split the set across token + raw classes. Kept on
+ * raw palette until a categorical token set exists.
+ */
 export const REVIEW_CATEGORY_META: Record<ReviewCategory, { label: string; badge: string }> = {
   docs: { label: 'Docs', badge: 'bg-sky-500/15 text-sky-300' },
   code: { label: 'Code', badge: 'bg-violet-500/15 text-violet-300' },
   ui_ux: { label: 'UI / UX', badge: 'bg-teal-500/15 text-teal-300' },
 };
 
+// SYM-73: run-lifecycle styling routes through the semantic status tokens (running→warning,
+// completed→success, failed→danger) so the header dot + label re-theme for light mode.
 /** Batch lifecycle styling for the run header (dot + label). */
 export const REVIEW_STATUS_META: Record<ReviewStatus, { label: string; color: string; dot: string }> =
   {
-    running: { label: 'Running', color: 'text-amber-300', dot: 'bg-amber-400' },
-    completed: { label: 'Completed', color: 'text-emerald-400', dot: 'bg-emerald-500' },
-    failed: { label: 'Failed', color: 'text-red-400', dot: 'bg-red-500' },
+    running: { label: 'Running', color: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
+    completed: { label: 'Completed', color: 'text-[var(--color-success)]', dot: 'bg-[var(--color-success)]' },
+    failed: { label: 'Failed', color: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
   };
 
 // ── Project skills (SYM-63) ────────────────────────────────────────────────
@@ -143,12 +163,12 @@ export const REVIEW_STATUS_META: Record<ReviewStatus, { label: string; color: st
 /**
  * Source styling for a skill card's origin badge AND the source-filter option list (SYM-63). Mirrors
  * the REVIEW_*_META shape so the badge and the filter dropdown share one source of truth instead of
- * the old inline `sourceBadgeClass`. `badge` keeps the pre-existing indigo / emerald / neutral chip
- * classes (consistent with REVIEW_*_META, which likewise carries raw color classes) so the redesign is
- * purely structural — no visual regression on existing cards.
+ * the old inline `sourceBadgeClass`. SYM-73 routes the badges through the semantic Badge tones
+ * (github→`accent`, marketplace→`success`; manual stays a neutral surface) so they re-theme for light
+ * mode — the classes mirror BADGE_TONES in ui.tsx verbatim.
  */
 export const SKILL_SOURCE_META: Record<ProjectSkillSource, { label: string; badge: string }> = {
   manual: { label: 'Manual', badge: 'bg-panel-2 text-muted' },
-  github: { label: 'GitHub', badge: 'bg-indigo-500/15 text-indigo-300' },
-  marketplace: { label: 'Marketplace', badge: 'bg-emerald-500/15 text-emerald-300' },
+  github: { label: 'GitHub', badge: 'bg-[color-mix(in_oklab,var(--color-accent)_16%,transparent)] text-[var(--color-accent-hover)]' },
+  marketplace: { label: 'Marketplace', badge: 'bg-[color-mix(in_oklab,var(--color-success)_16%,transparent)] text-[var(--color-success)]' },
 };

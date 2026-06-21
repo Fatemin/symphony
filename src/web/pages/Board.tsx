@@ -360,10 +360,12 @@ function IssueCard({
   // lift-drop still replays on every genuine transition. The ring stays prop-driven so it fades out
   // smoothly via the Panel's `transition` once the move settles.
   const [anim] = useState(() => (justMoved ? 'anim-lift-drop' : 'anim-card-in'));
-  const movedRing = justMoved ? 'border-indigo-400/70 ring-2 ring-indigo-400/60' : '';
+  // SYM-73: moved-card + selected emphasis route through the `--color-accent` token (was raw indigo)
+  // so the highlight re-themes for light mode.
+  const movedRing = justMoved ? 'border-[var(--color-accent)]/70 ring-2 ring-[var(--color-accent)]/60' : '';
   return (
     <Link to={`/issues/${issue.id}`} className="block">
-      <Panel interactive className={`${anim} ${movedRing} p-3 ${selected ? 'border-indigo-500/80' : ''}`}>
+      <Panel interactive className={`${anim} ${movedRing} p-3 ${selected ? 'border-[var(--color-accent)]/80' : ''}`}>
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             {issue.status === 'in_progress' && (
@@ -404,7 +406,7 @@ function IssueCard({
           <span className="text-subtle">{issue.type}</span>
           {/* SYM-29: an approved story whose merge/push failed — flag it so reviewers can resolve it. */}
           {issue.merge_conflict && (
-            <Badge className="ml-auto bg-red-500/15 text-red-300" >
+            <Badge tone="danger" className="ml-auto">
               <GitMerge className="h-3 w-3" /> git conflict
             </Badge>
           )}

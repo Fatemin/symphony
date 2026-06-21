@@ -596,7 +596,7 @@ function SyncSkillsModal({
                 >
                   <input
                     type="checkbox"
-                    className="accent-indigo-500"
+                    className="accent-[var(--color-accent)]"
                     checked={selectedTargets.has(p.id)}
                     onChange={() => setSelectedTargets((s) => toggle(s, p.id))}
                   />
@@ -619,12 +619,12 @@ function SyncSkillsModal({
                 >
                   <input
                     type="checkbox"
-                    className="accent-indigo-500"
+                    className="accent-[var(--color-accent)]"
                     checked={selectedSkills.has(skill.id)}
                     onChange={() => setSelectedSkills((s) => toggle(s, skill.id))}
                   />
                   <span className="truncate text-sm">{skill.name}</span>
-                  {!skill.enabled && <Badge className="bg-amber-500/15 text-amber-400">disabled</Badge>}
+                  {!skill.enabled && <Badge tone="warning">disabled</Badge>}
                 </label>
               ))}
             </div>
@@ -662,7 +662,7 @@ function SkillCard({
         </span>
         <div className="flex shrink-0 items-center gap-1">
           <Badge className={source.badge}>{source.label}</Badge>
-          {!skill.enabled && <Badge className="bg-amber-500/15 text-amber-400">disabled</Badge>}
+          {!skill.enabled && <Badge tone="warning">disabled</Badge>}
         </div>
       </div>
 

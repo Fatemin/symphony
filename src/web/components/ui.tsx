@@ -59,7 +59,7 @@ export function Button({
   );
 }
 
-type BadgeTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info';
+export type BadgeTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info';
 
 // SYM-59: token-driven badge tones. The subtle surface is derived from the semantic foreground token
 // via color-mix, so each tone re-themes automatically (light/dark) from one source. `neutral` adds no

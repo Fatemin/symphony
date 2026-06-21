@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, History, RefreshCw, Zap } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, EmptyState, Input, PageHeader, Panel, Select } from '../components/ui';
+import { Badge, Button, EmptyState, Input, PageHeader, Panel, Select, type BadgeTone } from '../components/ui';
 import { fmtDuration, relativeFuture, relativeTime, STATUS_META } from '../lib/format';
 import type { IssueStatus, OpsHistoryRow, RunStatus } from '../../shared/types';
 
@@ -56,7 +56,7 @@ export function Ops() {
                     <Link to={`/issues/${r.issue_id}`} className="font-mono text-sm text-indigo-300 hover:underline">
                       {r.issue_key}
                     </Link>
-                    <Badge className="shrink-0 bg-amber-500/15 text-amber-300">{r.phase}</Badge>
+                    <Badge tone="warning" className="shrink-0">{r.phase}</Badge>
                   </div>
                   <p className="mt-0.5 truncate text-sm text-muted">{r.title}</p>
                   <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
@@ -87,7 +87,7 @@ export function Ops() {
                         <Link to={`/issues/${r.issue_id}`} className="font-mono text-indigo-300 hover:underline">{r.issue_key}</Link>
                         <span className="ml-2 text-muted">{r.title}</span>
                       </td>
-                      <td className="px-4 py-2"><Badge className="bg-amber-500/15 text-amber-300">{r.phase}</Badge></td>
+                      <td className="px-4 py-2"><Badge tone="warning">{r.phase}</Badge></td>
                       <td className="px-4 py-2 text-muted">{r.attempt}</td>
                       <td className="px-4 py-2 text-muted">{r.num_turns}</td>
                       <td className="px-4 py-2 text-muted">{r.total_tokens.toLocaleString()}</td>
@@ -119,7 +119,7 @@ export function Ops() {
                   <span className="text-xs text-muted">attempt {r.attempt} · due {relativeFuture(r.due_at)}</span>
                 </div>
                 {r.error && (
-                  <span className="break-words text-xs text-red-400/80 sm:max-w-md sm:truncate sm:text-right">
+                  <span className="break-words text-xs text-[var(--color-danger)]/80 sm:max-w-md sm:truncate sm:text-right">
                     {r.error}
                   </span>
                 )}
@@ -138,14 +138,18 @@ export function Ops() {
 
 type SortKey = 'recent' | 'tokens' | 'attempts' | 'duration';
 
+// SYM-73: run "outcome" badges route through the semantic Badge tone API so they re-theme for light
+// mode instead of hardcoding palette shades. Note: `stalled` was orange (no orange token) → it folds
+// into the `warning` tone (amber); its text label "stalled" disambiguates it from `running` (also
+// warning). `cancelled` is the one terminal-quiet state → `neutral` (rendered with a muted surface).
 /** Run statuses surfaced as the "outcome" of an issue's latest run. */
-const RUN_STATUS_CLASS: Record<RunStatus, string> = {
-  running: 'bg-amber-500/15 text-amber-300',
-  succeeded: 'bg-emerald-500/15 text-emerald-300',
-  failed: 'bg-red-500/15 text-red-300',
-  timeout: 'bg-red-500/15 text-red-300',
-  stalled: 'bg-orange-500/15 text-orange-300',
-  cancelled: 'bg-slate-500/15 text-muted',
+const RUN_STATUS_TONE: Record<RunStatus, BadgeTone> = {
+  running: 'warning',
+  succeeded: 'success',
+  failed: 'danger',
+  timeout: 'danger',
+  stalled: 'warning',
+  cancelled: 'neutral',
 };
 
 /** Seconds spanned by an issue's runs (first start → last end); 0 while still open. */
@@ -211,7 +215,7 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
         </Select>
         <Select value={outcomeFilter} onChange={(e) => setOutcomeFilter(e.target.value as 'all' | RunStatus)} className="w-auto">
           <option value="all">All outcomes</option>
-          {(Object.keys(RUN_STATUS_CLASS) as RunStatus[]).map((s) => (
+          {(Object.keys(RUN_STATUS_TONE) as RunStatus[]).map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </Select>
@@ -247,7 +251,12 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
                     {r.issue_key}
                   </Link>
                   {r.last_status ? (
-                    <Badge className={`shrink-0 ${RUN_STATUS_CLASS[r.last_status]}`}>
+                    <Badge
+                      tone={RUN_STATUS_TONE[r.last_status]}
+                      // SYM-73: `neutral` (cancelled) carries no tone surface — give it the quiet
+                      // panel-2/muted pill the old slate badge had so the terminal state reads as a chip.
+                      className={`shrink-0 ${RUN_STATUS_TONE[r.last_status] === 'neutral' ? 'bg-panel-2 text-muted' : ''}`}
+                    >
                       {r.last_phase ? `${r.last_phase} · ${r.last_status}` : r.last_status}
                     </Badge>
                   ) : (
@@ -302,7 +311,12 @@ function HistoryPanel({ rows }: { rows: OpsHistoryRow[] }) {
                     </td>
                     <td className="px-4 py-2">
                       {r.last_status ? (
-                        <Badge className={RUN_STATUS_CLASS[r.last_status]}>
+                        <Badge
+                          tone={RUN_STATUS_TONE[r.last_status]}
+                          // `neutral` (cancelled) carries no tone surface — give it the quiet panel-2/muted
+                          // pill the old slate badge had so the terminal state still reads as a chip.
+                          className={RUN_STATUS_TONE[r.last_status] === 'neutral' ? 'bg-panel-2 text-muted' : ''}
+                        >
                           {r.last_phase ? `${r.last_phase} · ${r.last_status}` : r.last_status}
                         </Badge>
                       ) : (
