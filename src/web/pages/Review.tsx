@@ -24,7 +24,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api } from '../api';
 import { ProjectTabs } from '../components/ProjectTabs';
 import { Markdown } from '../components/Markdown';
-import { Button, ConfirmDialog, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, PendingIndicator, ProjectChip, Select, Spinner } from '../components/ui';
+import { Button, ConfirmDialog, EmptyState, ErrorState, Loading, Modal, PageHeader, Panel, PendingIndicator, ProjectChip, SegmentedControl, Select, Spinner } from '../components/ui';
 import {
   REVIEW_CATEGORY_META,
   REVIEW_SCOPE_META,
@@ -214,28 +214,21 @@ function RunControl({
         A read-only agent inspects this project and reports graded findings you can turn into issues.
       </p>
 
-      <div role="group" aria-label="Review scope" className="mb-2 flex flex-wrap gap-1.5">
-        {REVIEW_SCOPES.map((s) => {
-          const active = s === scope;
-          return (
-            <button
-              key={s}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onScope(s)}
-              // SYM-73: drop the hand-rolled ring (inherits the global :focus-visible ring) and route
-              // the active accent border/surface through the `--color-accent` token for light mode.
-              className={`rounded-md border px-3 py-1.5 text-sm transition ${
-                active
-                  ? 'border-[var(--color-accent)] bg-[color-mix(in_oklab,var(--color-accent)_15%,transparent)] text-fg'
-                  : 'border-border text-muted hover:bg-panel-2 hover:text-fg'
-              }`}
-            >
-              {REVIEW_SCOPE_META[s].label}
-            </button>
-          );
-        })}
-      </div>
+      {/* SYM-82: the scope picker — the original hand-rolled chip cluster SegmentedControl was
+          extracted from in SYM-68 — now uses the shared primitive, so every low-cardinality enum
+          across the app speaks one control language. Each option's per-area hint becomes the chip's
+          `title` tooltip; the always-visible hint line below stays as primary context. */}
+      <SegmentedControl<ReviewScope>
+        aria-label="Review scope"
+        className="mb-2"
+        value={scope}
+        onChange={onScope}
+        options={REVIEW_SCOPES.map((s) => ({
+          value: s,
+          label: REVIEW_SCOPE_META[s].label,
+          hint: REVIEW_SCOPE_META[s].hint,
+        }))}
+      />
       <p className="mb-3 text-xs text-muted">{REVIEW_SCOPE_META[scope].hint}</p>
 
       <div className="flex flex-wrap items-center gap-2">

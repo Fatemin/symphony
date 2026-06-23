@@ -153,7 +153,10 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   recomputes the ratios from `globals.css`), and the shared primitives in `components/ui.tsx`: `cn()` (clsx + tailwind-merge),
   `Button` (size/loading), `Badge` (tones), `Panel` (interactive/elevated), `Field`/`Input`/`Textarea`/
   `Select` (focus ring + `aria-invalid`), `SegmentedControl` (SYM-68: single-select chip group for
-  low-cardinality enums — `role="group"`/`aria-pressed`, accent-tinted active, flex-wraps), `Spinner`,
+  low-cardinality enums — `role="group"`/`aria-pressed`, accent-tinted active, flex-wraps; SYM-82
+  finished the rollout — the Review scope picker and IssueDetail's per-issue thinking-effort +
+  Workflow-tool overrides are now this primitive too, so every such enum is a chip group, no `<Select>`),
+  `Spinner`,
   `PendingIndicator` + `useElapsedSeconds` (SYM-77:
   long async waits — spinner + label + a live elapsed counter; the elapsed span is `aria-hidden` inside
   the `role=status` region so it announces once, not per tick; the ticking text doubles as the
@@ -166,10 +169,23 @@ Node 22.5+ (uses built-in `node:sqlite`). No compile step — server runs via `t
   card used `Modal` in SYM-65 but SYM-68 returned it to an inline no-popup composer — `Panel` +
   progressive-disclosure, not a dialog) and `ConfirmDialog` (SYM-72; the shared destructive-action
   confirm built on `Modal` — `danger` confirm button, safe-action `autoFocus` on Cancel, `pending`-aware
-  with auto-close-on-settle — now the ONLY destructive guard: skill delete + review-batch delete route
-  through it and the native `confirm()` is gone from the client), `PageHeader`,
+  with auto-close-on-settle — the ONLY destructive guard: skill delete + review-batch delete and, since
+  SYM-82, IssueDetail's Cancel-issue (`cancelLabel="Keep issue"` — "Cancel" is overloaded) and AskPanel's
+  reset-conversation route through it; the native `confirm()` is gone from the client), `PageHeader`,
   `ProjectChip`, `EmptyState`, `ErrorState`, `Skeleton`, and `Loading`. The shell (`Layout.tsx`) is
-  responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow. Full
+  responsive (off-canvas sidebar + mobile top bar under `lg`); `ProjectTabs` scroll on narrow.
+  SYM-82: `Layout.tsx` also hosts the **global command palette** — mounted once so `⌘K`/`Ctrl+K` (toggle)
+  and `?` (the `KeyboardShortcutsHelp` overlay) work from every route via one guarded window keydown
+  listener. The palette (`components/CommandPalette.tsx`, a top-anchored native `<dialog>` on
+  `useModalDialog` — a WAI-ARIA combobox/listbox, NOT the centered `Modal`) renders a command set built
+  by the PURE, React-free `lib/commandPalette.ts#buildCommands`/`filterCommands` (offline-unit-tested
+  like `lib/boardGroups.ts`) from the SAME `['projects']`/`['issues']` queries the shell already polls
+  (zero extra network), memoized + capped at `MAX_RESULTS` (50). `buildCommands` is callback-free (each
+  non-nav action is a stable `actionId` the component dispatches: navigate / toggle theme / kick
+  orchestrator / open the New-issue composer via router `state.compose`); per-project nav reads the
+  shared `lib/projectTabs.ts#PROJECT_TABS` list that `ProjectTabs.tsx` also renders, so the two never
+  drift. Both the overlay and the listener share one `SHORTCUTS` const. No new `--color-*` token, no new
+  `localStorage` key. Full
   spec + load-bearing visual invariants (token names, `anim-page-in` `transform:none`, anti-FOUC) live
   in [`docs/DESIGN.md`](docs/DESIGN.md). The Board (`pages/Board.tsx`) has a persisted **Group-by**
   `SegmentedControl` (SYM-78, localStorage `symphony.board.groupBy`): `status` is the original kanban

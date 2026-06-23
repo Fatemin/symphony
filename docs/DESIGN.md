@@ -173,7 +173,7 @@ primitive default (last write wins).
 | `Panel` | `interactive` (hover border + transition for clickable cards) · `elevated` (`--elev-2` shadow). |
 | `Field` | Label + optional hint (and a `required` danger-tinted asterisk) wrapping a control. |
 | `Input` / `Textarea` / `Select` | Token focus ring, `aria-[invalid=true]` danger styling, disabled state. |
-| `SegmentedControl` | (SYM-68) Single-select chip group for low-cardinality enums — a tactile alternative to `Select` (all options visible, one tap). `role="group"` + per-option `aria-pressed`; accent-tinted active state (token-driven, label always shows ⇒ never color-only); `flex-wrap`s on narrow widths; `size` sm/md matches the other control heights. |
+| `SegmentedControl` | (SYM-68) Single-select chip group for low-cardinality enums — a tactile alternative to `Select` (all options visible, one tap). `role="group"` + per-option `aria-pressed`; accent-tinted active state (token-driven, label always shows ⇒ never color-only); each option's optional `hint` is its `title` tooltip; `flex-wrap`s on narrow widths; `size` sm/md matches the other control heights. SYM-82 finished the rollout: the **Review scope** picker and IssueDetail's per-issue **thinking-effort + Workflow-tool** overrides are now chip groups too (the last `<Select>`s for such enums are gone). |
 | `Spinner` | `border-current` so it tints to its context; honours reduced-motion. |
 | `Loading` | Centered spinner + label — the standard page/section load state (replaces ad-hoc "Loading…"). |
 | `PendingIndicator` / `useElapsedSeconds` | SYM-77: inline busy state for long async waits (Ask "Thinking…", Review "Reviewing…"; SYM-81 added the approve/merge flow — `ApproveDialog`'s footer "Merging…" / batch "Approving N of M…" and the IssueDetail `ConflictBanner`'s "Resolving…") — spinner + label + a live elapsed counter (shown once ≥ 1s). `since` is optional (self-start on mount, or a server `created_at` so the elapsed survives remount/poll). The elapsed span is `aria-hidden` inside the `role=status` region so it never re-announces per tick (§6). |
@@ -192,8 +192,10 @@ the `PathField` directory picker, and the **Review tab**'s two per-batch confirm
 directly (a right-anchored `<dialog>`) so it keeps its drag-to-resize + persisted width while gaining
 focus-trap, Escape, and focus restoration. (The Board's **New-issue form** briefly used `Modal` in
 SYM-65 but SYM-68 moved it back to an inline composer — see the "Inline composer card" pattern in §9.)
-**All destructive confirms route through `ConfirmDialog`** (SYM-72) — skill delete and review-batch
-delete; the native `confirm()` is gone from the client.
+**All destructive confirms route through `ConfirmDialog`** (SYM-72) — skill delete, review-batch
+delete, and (SYM-82) IssueDetail's **Cancel issue** (`cancelLabel="Keep issue"` because "Cancel" is
+overloaded) and AskPanel's **reset conversation** (it opens as a second top-layer `<dialog>` stacked
+above the drawer); the native `confirm()` is gone from the client.
 
 ---
 
@@ -227,6 +229,15 @@ Every data-backed view renders all of these; primitives make them consistent:
   AA-enforced automatically by `tests/contrast.test.ts` (SYM-70; see §2 "Neutral text tokens meet AA").
 - **Keyboard:** every interactive element is reachable and shows the focus ring. Modals trap focus
   (native `<dialog>`), close on Escape, and restore focus to the trigger on close.
+- **Global keyboard layer (SYM-82):** `⌘K` / `Ctrl+K` toggles the command palette from anywhere —
+  even inside an input (the `Layout.tsx` listener `preventDefault`s) — while a bare `?` opens the
+  keyboard-shortcuts overlay only when focus is NOT in a text field and no `<dialog>` is already open.
+  The palette is a WAI-ARIA combobox (`role=combobox` + `aria-expanded`/`-controls`/
+  `-activedescendant`, `aria-autocomplete=list`) over a `role=listbox` of `role=option` rows: ↑/↓ move
+  the active option (wrapping) and scroll it into view, Enter runs it, Escape closes via the `<dialog>`
+  `onCancel`, hover syncs the active index, decorative group headers / lucide icons are `aria-hidden`.
+  The overlay and the listener share ONE `SHORTCUTS` const (`KeyboardShortcutsHelp.tsx`) so the
+  documented keys can't drift from the wired behavior.
 - **Landmarks:** the shell has a "Skip to content" link, an `aria-label`'d primary `<aside>`/`<nav>`,
   and a single `<main id="main-content">`.
 - **Color is never the only signal:** status/severity always pair a dot/icon with a label. The
@@ -362,3 +373,29 @@ Reusable layouts that compose the primitives above; reach for one before inventi
   the request; the dialog auto-closes on settle, the toast reports the result); the confirm button
   stays `danger`, Cancel keeps `autoFocus`. The state lives where it survives the list refetch the
   action triggers — at the page for a list-row delete, on the row component for a self-contained one.
+  **SYM-82** extended this beyond deletes to two other irreversible steps: IssueDetail's **Cancel
+  issue** (the `update.mutate({ status: 'cancelled' })` that was a bare click) — note `confirmLabel`/
+  `cancelLabel` become "Cancel issue"/"Keep issue" because the verb "Cancel" is overloaded against the
+  dialog's own dismiss — and AskPanel's **reset conversation**, which mounts the `ConfirmDialog` *inside*
+  the open drawer `<dialog>`; native modal dialogs stack in the top layer, so the confirm renders above
+  the drawer and returns focus to it on close. Reach for this pattern for ANY single-click irreversible
+  action, not only row deletes.
+- **Command palette / global overlay** (SYM-82, `CommandPalette` + `KeyboardShortcutsHelp`) — a
+  keyboard-first launcher mounted ONCE in the always-on shell (`Layout.tsx`) so `⌘K`/`?` reach it from
+  every route (see the §6 keyboard contract). Build on `useModalDialog` directly — a **top-anchored**
+  native `<dialog>` (`mt-[10vh]` + `mx-auto`), NOT the centered `Modal` whose `m-auto` + header shape
+  fight a combobox; the top layer still escapes the `.anim-page-in` containing block (invariant #2),
+  and the entrance reuses `anim-modal-in` (already reduced-motion-guarded). The command SET and its
+  fuzzy ranking are a PURE, React-free helper (`lib/commandPalette.ts#buildCommands`/`filterCommands`,
+  unit-tested from a node:test like `lib/boardGroups.ts`): build it from the live
+  `['projects']`/`['issues']` queries Layout already holds (zero extra network — TanStack dedupes),
+  memoize the build, and CAP the rendered rows (`MAX_RESULTS` = 50). `buildCommands` is **callback-free**
+  — each non-nav action is a stable `actionId` the component dispatches against the real callbacks
+  (navigate / `toggleTheme` / kick / open composer) — so it depends only on data and memoizes cleanly.
+  Per-project nav reads the shared `lib/projectTabs.ts#PROJECT_TABS` list (the SAME source
+  `ProjectTabs.tsx` renders) so palette and tab strip never drift. Ranking: exact > prefix >
+  word-boundary > substring > subsequence, with group then shorter-title breaking ties; an empty query
+  returns a curated default (primary actions + nav, not every issue). Icons live in the view layer (an
+  `iconKey` string → lucide map), never in the pure helper. A discoverable `⌘K` button in the sidebar
+  header + a search icon in the mobile top bar are the mouse/touch entry points. No new `--color-*`
+  token, no new `localStorage` key.

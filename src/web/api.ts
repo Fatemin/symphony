@@ -41,6 +41,15 @@ export const THINKING_EFFORT_OPTIONS: { value: ThinkingEffort; label: string }[]
   { value: 'ultrathink', label: 'ultrathink' },
 ];
 
+// SYM-82: the per-issue Workflow-tool override options ('' = inherit the project/engine default,
+// 'false' = off, 'true' = on). Shared by the Follow-up composer and the IssueDetail toolbar overrides
+// so the two SegmentedControls never drift; thinking-effort already shares THINKING_EFFORT_OPTIONS.
+export const WORKFLOW_TOOL_OPTIONS: { value: '' | 'true' | 'false'; label: string; hint?: string }[] = [
+  { value: '', label: 'inherit', hint: 'Use the project / engine default' },
+  { value: 'false', label: 'off' },
+  { value: 'true', label: 'on', hint: 'Advanced' },
+];
+
 export type EngineConfig = Record<string, unknown> & {
   enabled: boolean;
   enable_workflow_tool: boolean;

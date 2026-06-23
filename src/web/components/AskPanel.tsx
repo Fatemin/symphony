@@ -7,7 +7,7 @@ import { AGENT_OPTIONS } from '../../shared/models';
 import { api, attachmentUrl } from '../api';
 import { AttachmentInput } from './AttachmentInput';
 import { Markdown } from './Markdown';
-import { Button, PendingIndicator, Select, Textarea, useModalDialog } from './ui';
+import { Button, ConfirmDialog, PendingIndicator, Select, Textarea, useModalDialog } from './ui';
 
 type Turn = AskMessage & { suggestion?: AskSuggestion | null; converted?: boolean };
 
@@ -72,6 +72,8 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [agent, setAgent] = useState<AgentType | ''>(defaultAgent ?? '');
+  // SYM-82: clearing today's conversation is irreversible, so the reset button opens a ConfirmDialog.
+  const [resetOpen, setResetOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // The panel remounts on every open (Board renders it only while askOpen), so this seeds today's
   // persisted conversation exactly once per open without stomping turns the user adds afterward.
@@ -302,7 +304,7 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
               title="Reset today's conversation"
               className="grid h-7 w-7 place-items-center rounded text-muted hover:bg-hover hover:text-fg disabled:opacity-40"
               disabled={reset.isPending || (turns.length === 0 && !ask.isPending)}
-              onClick={() => reset.mutate()}
+              onClick={() => setResetOpen(true)}
             >
               <RotateCcw className="h-4 w-4" />
             </button>
@@ -367,6 +369,20 @@ export function AskPanel({ projectId, projectKey, projectName, defaultAgent, onC
           </div>
         </div>
       </div>
+      {/* SYM-82: resetting clears today's whole conversation irreversibly — guard it with the shared
+          ConfirmDialog. It opens as a second top-layer <dialog> stacked above this drawer. */}
+      {resetOpen && (
+        <ConfirmDialog
+          title="Reset conversation?"
+          description="This clears today's Ask conversation for this project and can't be undone."
+          confirmLabel="Reset"
+          cancelLabel="Keep"
+          confirmIcon={<RotateCcw className="h-4 w-4" />}
+          pending={reset.isPending}
+          onConfirm={() => reset.mutate()}
+          onClose={() => setResetOpen(false)}
+        />
+      )}
     </dialog>
   );
 }
